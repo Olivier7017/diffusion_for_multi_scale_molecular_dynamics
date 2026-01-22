@@ -160,6 +160,8 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
              "this should be impossible, something is wrong. Review code!")
 
         sampling_constraints = self.create_sampling_constraints(substructure)
+        self.sampling_parameters.number_of_samples = num_samples
+
         generator = ConstrainedLangevinGenerator(
             noise_parameters=self.sample_noise_parameters,
             sampling_parameters=self.sampling_parameters,
