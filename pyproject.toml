@@ -22,7 +22,7 @@ dependencies = [
     "jinja2==3.1.2",
     "jupyter==1.0.0",
     "kaleido==0.2.1",
-    "lammps>=2024.8.29.1.0",
+    "lammps[mpi]",
     "mace-torch==0.3.4",
     "maml==2023.9.9",
     "matplotlib==3.8.3",
