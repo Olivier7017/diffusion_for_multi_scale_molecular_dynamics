@@ -1,4 +1,4 @@
-"""DataLoader from LAMMPS outputs for a diffusion model."""
+"""DataLoader from ase.Trajectory for a diffusion model."""
 
 import logging
 import typing
@@ -14,8 +14,6 @@ from torch.utils.data import DataLoader
 
 from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.data_module_parameters import \
     DataModuleParameters
-from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.lammps_processor_for_diffusion import \
-    LammpsProcessorForDiffusion
 from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.trajectory_processor_for_diffusion import \
     TrajectoryProcessorForDiffusion
 from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.noising_transform import \
@@ -38,6 +36,7 @@ class ASEForDiffusionDataModuleParameters(DataModuleParameters):
     data_source: str  # How did you obtain the data
     noise_parameters: NoiseParameters
     use_optimal_transport: bool = False
+    max_atom: Optional[int] = None
 
 
 class ASEForDiffusionDataModule(pl.LightningDataModule):
@@ -67,7 +66,8 @@ class ASEForDiffusionDataModule(pl.LightningDataModule):
         # TODO add the padding parameters for number of atoms
         assert (
             isinstance(train_trajectory_list, list) and isinstance(validation_trajectory_list, list)
-            ), "The trajectories lists must be lists."
+        ), "The trajectories lists must be lists."
+
         self.train_trajectory_list = train_trajectory_list
         self.validation_trajectory_list = validation_trajectory_list
         self.data_type = hyper_params.data_type
@@ -221,6 +221,7 @@ class ASEForDiffusionDataModule(pl.LightningDataModule):
         processed_data = TrajectoryProcessorForDiffusion(train_trajectory_list=self.train_trajectory_list,
                                                          validation_trajectory_list=self.validation_trajectory_list,
                                                          processed_data_dir=self.processed_dataset_dir)
+
         if stage == "fit" or stage is None:
             self.train_dataset = datasets.Dataset.from_parquet(
                 processed_data.train_files, cache_dir=self.working_cache_dir
@@ -231,6 +232,17 @@ class ASEForDiffusionDataModule(pl.LightningDataModule):
             # TODO QoL valid dataset is labelled as train split by Datasets. Find a way to rename.
         else:
             raise NotImplementedError("Test mode needs to be implemented.")
+
+        max_train = max(self.train_dataset["natom"])
+        max_valid = max(self.valid_dataset["natom"])
+        if self.max_atom is None:
+            self.max_atom = int(max(max_train, max_valid))
+        elif self.max_atom < max(max_train, max_valid):
+            raise ValueError(
+                f"Hyper-parameter max_atom {self.max_atom} is smaller than the largest structure in the "
+                f"dataset which has {max(max_train, max_valid)} atoms."
+            )
+
         # TODO test dataset when stage == 'test'
         # we can filter out samples at this stage using the .filter(lambda x: f(x)) with f(x) a boolean function
         # or a .select(list[int]) with a list of indices to keep a subset. This is much faster than .filter

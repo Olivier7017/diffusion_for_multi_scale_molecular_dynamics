@@ -1,4 +1,4 @@
-"""Convert results of LAMMPS simulation into dataloader friendly format."""
+"""Convert results of a ase.Trajectory into dataloader friendly format."""
 import glob
 import itertools
 import logging
@@ -23,15 +23,16 @@ logger = logging.getLogger(__name__)
 class TrajectoryProcessorForDiffusion:
     """Prepare data from Trajectory for a diffusion model."""
 
-    def __init__(self, 
+    def __init__(self,
                  train_trajectory_list: list[Union[str, Path]],
                  validation_trajectory_list: list[Union[str, Path]],
                  processed_data_dir: Union[str, Path]):
         """Read a list of trajectories and write a processed version to disk.
 
         Args:
-            trajectory_list: path to ase.Trajectory files
-            processed_data_dir: path where processed files are saved
+            train_trajectory_list: path to ase.Trajectory files for training.
+            validation_trajectory_list: path to ase.Trajectory files for validation.
+            processed_data_dir: path where processed files are saved.
         """
         self.train_trajectory_list = train_trajectory_list
         self.validation_trajectory_list = validation_trajectory_list
@@ -170,7 +171,7 @@ class TrajectoryProcessorForDiffusion:
           The dataframe contains the following columns:
             - natom (int) dim[1] : Number of atoms in the structure
             - box (float) dim[3] : Lengths (a,b,c) of the cell (ang)  TODO : Remove, redundant
-            - element (str) dim[natom] : Chemical symbols of the atoms 
+            - element (str) dim[natom] : Chemical symbols of the atoms
             - potential_energy (float) dim[1]: Potential energy (eV)
             - cartesian_positions (float) dim[3*natom]: Cartesian positions of each atom (ang)
             - relative_coordinates (float) dim[3*natom]: Fractional/scaled positions of each atom
