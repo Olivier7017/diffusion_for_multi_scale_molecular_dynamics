@@ -50,6 +50,7 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
         noise_parameters: NoiseParameters,
         sampling_parameters: SamplingParameters,
         diffusion_model: ScoreNetwork,
+        repulsion_calculator: Optional["RepulsionCalculator"] = None,
         device: str = "cpu",
     ):
         """Init method.
@@ -61,6 +62,7 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
             noise_parameters: noise parameters used for the diffusion model
             sampling_parameters: sampling parameters used for the diffusion model
             diffusion_model: score network used for constrained generation (repainting)
+            repulsion_calculator: optional repulsion model used at inference time to reduce non-physical overlaps.
             device: torch device to use for the diffusion model. Defaults to cpu.
         """
         super().__init__(sample_maker_arguments=sample_maker_arguments,
@@ -81,6 +83,7 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
         self.sample_noise_parameters = noise_parameters
         self.sampling_parameters = sampling_parameters
         self.diffusion_model = diffusion_model
+        self.repulsion_calculator = repulsion_calculator
         self.device = torch.device(device)
 
     def create_sampling_constraints(
@@ -165,6 +168,7 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
             sampling_parameters=self.sampling_parameters,
             axl_network=self.diffusion_model,
             sampling_constraints=sampling_constraints,
+            repulsion_calculator=self.repulsion_calculator,
         )
         with torch.no_grad():
             generated_samples = create_batch_of_samples(

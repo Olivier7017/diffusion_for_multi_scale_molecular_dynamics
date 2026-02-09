@@ -64,6 +64,7 @@ def create_sample_maker(
     noise_parameters: Optional[NoiseParameters] = None,
     sampling_parameters: Optional[SamplingParameters] = None,
     diffusion_model: Optional[ScoreNetwork] = None,
+    repulsion_calculator: Optional["RepulsionCalculator"] = None,
     device: Optional[str] = "cpu",
 ) -> BaseSampleMaker:
     """Create a sample maker.
@@ -97,6 +98,13 @@ def create_sample_maker(
         case _:
             raise NotImplementedError(f"Algorithm {algorithm} is not implemented.")
 
+    # Validate repulsion calculator
+    if repulsion_calculator is not None:
+        assert algorithm == "excise_and_repaint", (
+            "repulsion_calculator is only supported for the 'excise_and_repaint' sample maker, "
+            "since it relies on a Langevin-based generator. Review input for consistency."
+        )
+
     match sample_maker_parameters.algorithm:
         case "noop":
             sample_maker = NoOpSampleMaker(sample_maker_parameters, atom_selector=atom_selector)
@@ -109,6 +117,7 @@ def create_sample_maker(
                 noise_parameters=noise_parameters,
                 sampling_parameters=sampling_parameters,
                 diffusion_model=diffusion_model,
+                repulsion_calculator=repulsion_calculator,
                 device=device,
             )
         case "excise_and_random":

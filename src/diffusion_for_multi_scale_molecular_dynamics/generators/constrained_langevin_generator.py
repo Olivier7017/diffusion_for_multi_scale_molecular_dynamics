@@ -35,12 +35,15 @@ class ConstrainedLangevinGenerator(LangevinGenerator):
         axl_network: ScoreNetwork,
         sampling_constraints: SamplingConstraint,
         trajectory_initializer: Optional[TrajectoryInitializer] = None,
+        repulsion_calculator: Optional["RepulsionCalculator"] = None,
     ):
         """Init method."""
         super().__init__(noise_parameters=noise_parameters,
                          sampling_parameters=sampling_parameters,
                          axl_network=axl_network,
-                         trajectory_initializer=trajectory_initializer)
+                         trajectory_initializer=trajectory_initializer,
+                         repulsion_calculator=repulsion_calculator,
+        )
 
         self.sampling_constraints = sampling_constraints
 

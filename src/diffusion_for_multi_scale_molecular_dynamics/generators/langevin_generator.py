@@ -22,7 +22,8 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import (
     class_index_to_onehot, get_probability_at_previous_time_step)
 from diffusion_for_multi_scale_molecular_dynamics.utils.sample_trajectory import \
     SampleTrajectory
-
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsion_calculator import \
+    RepulsionCalculator
 
 class LangevinGenerator(PredictorCorrectorAXLGenerator):
     """Annealed Langevin Dynamics Generator.
@@ -38,6 +39,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         sampling_parameters: PredictorCorrectorSamplingParameters,
         axl_network: ScoreNetwork,
         trajectory_initializer: Optional[TrajectoryInitializer] = None,
+        repulsion_calculator: Optional["RepulsionCalculator"] = None,
     ):
         """Init method."""
         super().__init__(
@@ -69,6 +71,9 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         self.use_fixed_lattice_parameters = sampling_parameters.use_fixed_lattice_parameters
         self.fixed_lattice_parameters = sampling_parameters.fixed_lattice_parameters
+
+        self.repulsion_calculator = repulsion_calculator
+        self.has_repulsion_calculator = repulsion_calculator is not None
 
         self.record = sampling_parameters.record_samples
         self.record_corrector = sampling_parameters.record_samples_corrector_steps
@@ -624,9 +629,50 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
-        x_im1 = self._relative_coordinates_update_predictor_step(
-            composition_i.X, model_predictions_i.X, sigma_i, g2_i, g_i, z_coordinates
+        # Calculate the analytical repulsion if present to remove non-physical atomic overlaps.
+        # His importance is given by analytical_fraction which depends on the minimal interatomic distance.
+        # It is continuous and null for distance greater or equal to rsafe
+        analytical_score = torch.zeros_like(model_predictions_i.X)
+        analytical_fraction = torch.zeros([number_of_samples], device=analytical_score.device, dtype=analytical_score.dtype)  # TODO: Improve but for now good enough
+ 
+        print(self.has_repulsion_calculator) 
+        if self.has_repulsion_calculator:
+            minimal_interatomic_distances = self.repulsion_calculator.get_minimal_atomic_distances(composition_i.X)
+            mask = minimal_interatomic_distances < self.repulsion_calculator.safe_radius
+        
+            score_rep_masked = self.repulsion_calculator.get_analytical_score(composition_i.X[mask])  # [nmask, natoms, 3]
+            x = minimal_interatomic_distances[mask] / self.repulsion_calculator.safe_radius
+            analytical_fraction[mask] = 0.5 * torch.cos(0.5 * torch.pi * x)
+            analytical_score[mask] = score_rep_masked
+        
+        sigma_normalized_score = (
+            (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
+            + analytical_fraction[:, None, None] * analytical_score
         )
+ 
+        # DEBUG
+        torch.set_printoptions(threshold=float('inf'))
+        #print("COMPOSITON_X", composition_i.X)
+        #print("MODEL_PREDICTIONS_I.X", model_predictions_i.X)
+        #print("ZCOORD", z_coordinates)
+        #print("XIMDIMS!!!I", x_im1)
+        print("WAS I ABLE TO COMPUTE THE SCORE ???", analytical_score)
+        exit()
+        # END DEBUG
+
+        # Update the position according to the predictor
+        x_im1 = self._relative_coordinates_update_predictor_step(
+            composition_i.X, sigma_normalized_score, sigma_i, g2_i, g_i, z_coordinates
+        )
+
+        # DEBUG
+        torch.set_printoptions(threshold=float('inf'))
+        print("COMPOSITON_X", composition_i.X)
+        print("MODEL_PREDICTIONS_I.X", model_predictions_i.X) 
+        print("ZCOORD", z_coordinates)
+        print("XIMDIMS!!!I", x_im1)
+        exit()
+        # END DEBUG
 
         # TODO sigma_i should depend on the number of atoms - actually, this should be tested empirically
         # update lattice parameters
