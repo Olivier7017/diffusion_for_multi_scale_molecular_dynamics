@@ -1,0 +1,34 @@
+# LAMMPS INPUT — ZBL only (Si/Ge), units metal, run 0, dump forces
+
+# General
+clear
+units          metal
+boundary       p p p
+atom_style     atomic
+read_data      SiGe.in
+
+# Type 1 = Si, Type 2 = Ge
+mass           1 28.0855
+mass           2 72.630
+group          Si type 1
+group          Ge type 2
+
+# Interactions (ZBL only)
+# inner_radius = 1.2177 Å, cutoff_radius = 2.19293 Å
+pair_style     zbl 1.2177 2.19293
+pair_coeff     1 1 14 14
+pair_coeff     1 2 14 32
+pair_coeff     2 2 32 32
+
+neighbor       2.0 bin
+neigh_modify   every 1 delay 0 check yes
+
+# Output
+thermo         1
+thermo_style   custom step pe etotal press
+
+dump           d0 all custom 1 SiGe.dump id type x y z fx fy fz
+dump_modify    d0 sort id
+
+# Start
+run            0

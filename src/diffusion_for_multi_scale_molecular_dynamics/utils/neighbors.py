@@ -100,7 +100,10 @@ def get_periodic_adjacency_information(
 
     device = cartesian_positions.device
 
-    radial_cutoff = torch.tensor(radial_cutoff).to(device)
+    if isinstance(radial_cutoff, torch.Tensor):
+        radial_cutoff = radial_cutoff.to(device)
+    else:
+        radial_cutoff = torch.tensor(radial_cutoff, device=device)
     zero = torch.tensor(0.0).to(device)
 
     # Check that the radial cutoff does not lead to possible neighbors beyond the first shell.

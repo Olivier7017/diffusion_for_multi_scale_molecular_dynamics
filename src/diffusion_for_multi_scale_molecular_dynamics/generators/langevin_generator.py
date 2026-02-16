@@ -27,6 +27,7 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.sample_trajectory import
 from diffusion_for_multi_scale_molecular_dynamics.models.repulsion_score.repulsion_score import \
     RepulsionScore
 
+
 class LangevinGenerator(PredictorCorrectorAXLGenerator):
     """Annealed Langevin Dynamics Generator.
 
@@ -631,27 +632,27 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
-        # Calculate the analytical repulsion if present to remove non-physical atomic overlaps.
-        # His importance is given by analytical_fraction which depends on the minimal interatomic distance.
-        # It is continuous and null for distance greater or equal to rsafe
-        #analytical_fraction = torch.zeros([number_of_samples], device=analytical_score.device, dtype=analytical_score.dtype)  # TODO: Improve but for now good enough
-
-        #### Start of new implementation
+        # Analytical repulsion to discourage non-physical atomic overlaps
         if self.has_repulsion_score:
-            atomic_types = composition_i.A
             basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
                 composition_i.L
             )
             cartesian_positions = get_positions_from_coordinates(
                 composition_i.X, basis_vectors
             )
-            analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(composition_i.A, cartesian_positions, basis_vectors, (self.number_of_discretization_steps-index_i)/self.number_of_discretization_steps)
-
-        sigma_normalized_score = (
-            (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
-            + analytical_fraction[:, None, None] * analytical_score
-        )
-        #### End of new implementation
+            discretization_time = (self.number_of_discretization_steps - index_i) / self.number_of_discretization_steps
+            analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
+                A=composition_i.A,
+                cartesian_positions=cartesian_positions,
+                basis_vectors=basis_vectors,
+                discretization_time=discretization_time,
+            )
+            sigma_normalized_score = (
+                (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
+                + analytical_fraction[:, None, None] * analytical_score
+            )
+        else:
+            sigma_normalized_score = model_predictions_i.X
 
         # Update the position according to the predictor
         x_im1 = self._relative_coordinates_update_predictor_step(
@@ -663,13 +664,13 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.L
         )
         lp_im1 = self._lattice_parameters_update_predictor_step(
-            composition_i.L, model_predictions_i.L, sigma_n_i, g2_i, g_i, z_lattice
+            composition_i.L, sigma_normalized_score.L, sigma_n_i, g2_i, g_i, z_lattice
         )
 
         composition_im1 = AXL(A=a_im1, X=x_im1, L=lp_im1)
 
         if self.record:
-            self._record_predictor_step(composition_i, composition_im1, index_i, model_predictions_i)
+            self._record_predictor_step(composition_i, composition_im1, index_i, sigma_normalized_score)
 
         return composition_im1
 
@@ -770,33 +771,38 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
-        #### Start of new implementation
+        # Analytical repulsion to discourage non-physical atomic overlaps
         if self.has_repulsion_score:
-            atomic_types = composition_i.A
             basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
                 composition_i.L
             )
             cartesian_positions = get_positions_from_coordinates(
                 composition_i.X, basis_vectors
             )
-            analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(composition_i.A, cartesian_positions, basis_vectors, (self.number_of_discretization_steps-index_i)/self.number_of_discretization_steps)
-
-        sigma_normalized_score = (
-            (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
-            + analytical_fraction[:, None, None] * analytical_score
-        )
-        #### End of new implementation
+            discretization_time = (self.number_of_discretization_steps - index_i) / self.number_of_discretization_steps
+            analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
+                A=composition_i.A,
+                cartesian_positions=cartesian_positions,
+                basis_vectors=basis_vectors,
+                discretization_time=discretization_time,
+            )
+            sigma_normalized_score = (
+                (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
+                + analytical_fraction[:, None, None] * analytical_score
+            )
+        else:
+            sigma_normalized_score = model_predictions_i.X
 
         # get the step size eps_i
         eps_i_coordinates = self._get_coordinates_corrector_step_size(
-            index_i, sigma_i, model_predictions_i.X, z_coordinates
+            index_i, sigma_i, sigma_normalized_score, z_coordinates
         )
         # the size for the noise part is sqrt(2 * eps_i)
         sqrt_2eps_i_coordinates = torch.sqrt(2 * eps_i_coordinates)
 
         corrected_x_i = self._relative_coordinates_update_corrector_step(
             composition_i.X,
-            model_predictions_i.X,
+            sigma_normalized_score,
             sigma_i,
             eps_i_coordinates,
             sqrt_2eps_i_coordinates,
@@ -810,13 +816,13 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         # get the step size eps_i
         eps_i_lattice = self._get_lattice_parameters_corrector_step_size(
-            index_i, sigma_n_i, model_predictions_i.L, z_lattice
+            index_i, sigma_n_i, sigma_normalized_score.L, z_lattice
         )
         sqrt_2eps_i_lattice = torch.sqrt(2 * eps_i_lattice)
 
         corrected_lp_i = self._lattice_parameters_update(
             composition_i.L,
-            model_predictions_i.L,
+            sigma_normalized_score.L,
             sigma_n_i,
             eps_i_lattice,
             sqrt_2eps_i_lattice,
@@ -828,7 +834,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             q_bar_tm1_matrices_i = self.noise.q_bar_tm1_matrix[idx].to(composition_i.X)
             # atom types update
             corrected_a_i = self._atom_types_update(
-                model_predictions_i.A,
+                sigma_normalized_score.A,
                 composition_i.A,
                 q_matrices_i,
                 q_bar_matrices_i,
@@ -846,7 +852,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         )
 
         if self.record_corrector:
-            self._record_corrector_step(composition_i, corrected_composition_i, index_i, model_predictions_i)
+            self._record_corrector_step(composition_i, corrected_composition_i, index_i, sigma_normalized_score)
 
         return corrected_composition_i
 

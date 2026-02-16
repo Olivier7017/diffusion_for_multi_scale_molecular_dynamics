@@ -3,11 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
-    get_positions_from_coordinates,
-    map_lattice_parameters_to_unit_cell_vectors)
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
-    compute_distances
 from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import \
     get_periodic_adjacency_information
 
@@ -25,11 +20,12 @@ class RepulsionScore(ABC):
         device: str = "cpu",
     ):
         """Init method.
-        
+
         Args:
-            cutoff_radius (ang): The minimal interatomic distance with no contribution from this analytical model
+            cutoff_radius (ang): The minimal interatomic distance with no contribution from this analytical model.
+            device: torch device used for internal tensors.
         """
-        self.device=device
+        self.device = device
         self.cutoff_radius = torch.tensor(cutoff_radius, dtype=torch.float32, device=self.device)
 
     def get_atomic_distances(self, cartesian_positions, basis_vectors):
@@ -49,7 +45,7 @@ class RepulsionScore(ABC):
         atomic_distances = torch.full(
             (nconf, natoms, natoms),
             -1.0,
-            requires_grad=True,
+            requires_grad=False,
             dtype=cartesian_positions.dtype,
             device=cartesian_positions.device,
         )
@@ -60,21 +56,20 @@ class RepulsionScore(ABC):
             spatial_dimension=3,
         )
 
-        src = adj.adjacency_matrix[0] 
+        src = adj.adjacency_matrix[0]
         dst = adj.adjacency_matrix[1]
         b = adj.edge_batch_indices  # b indicates the index of the configuration
         shift = adj.shifts
-
         xang1 = cartesian_positions[b, src]
         xang2 = cartesian_positions[b, dst] + shift
-        distance_unordered = torch.linalg.norm(xang1-xang2, dim=-1)
+        distance_unordered = torch.linalg.norm(xang1 - xang2, dim=-1)
 
         atomic_distances = atomic_distances.index_put((b, src, dst), distance_unordered)
         atomic_distances = atomic_distances.index_put((b, dst, src), distance_unordered)
+
         return atomic_distances
 
     @abstractmethod
-    def get_repulsive_score(self, X):
+    def get_repulsive_score(self, A, cartesian_positions, basis_vectors, discretization_time):
         """Return score due to atomic repulsion (shape: [nconf, natoms, 3])."""
         pass
-

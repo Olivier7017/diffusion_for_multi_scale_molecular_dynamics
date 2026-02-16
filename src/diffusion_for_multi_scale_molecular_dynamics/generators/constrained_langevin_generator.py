@@ -20,7 +20,7 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.models.repulsion_score.zbl_score import \
- RepulsionScore
+    RepulsionScore
 
 
 class ConstrainedLangevinGenerator(LangevinGenerator):
@@ -40,11 +40,12 @@ class ConstrainedLangevinGenerator(LangevinGenerator):
         repulsion_score: Optional[RepulsionScore] = None,
     ):
         """Init method."""
-        super().__init__(noise_parameters=noise_parameters,
-                         sampling_parameters=sampling_parameters,
-                         axl_network=axl_network,
-                         trajectory_initializer=trajectory_initializer,
-                         repulsion_score=repulsion_score,
+        super().__init__(
+            noise_parameters=noise_parameters,
+            sampling_parameters=sampling_parameters,
+            axl_network=axl_network,
+            trajectory_initializer=trajectory_initializer,
+            repulsion_score=repulsion_score,
         )
 
         self.sampling_constraints = sampling_constraints
