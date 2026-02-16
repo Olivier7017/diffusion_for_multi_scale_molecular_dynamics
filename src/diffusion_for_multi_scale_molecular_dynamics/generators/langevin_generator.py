@@ -664,13 +664,13 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.L
         )
         lp_im1 = self._lattice_parameters_update_predictor_step(
-            composition_i.L, sigma_normalized_score.L, sigma_n_i, g2_i, g_i, z_lattice
+            composition_i.L, model_predictions_i.L, sigma_n_i, g2_i, g_i, z_lattice
         )
 
         composition_im1 = AXL(A=a_im1, X=x_im1, L=lp_im1)
 
         if self.record:
-            self._record_predictor_step(composition_i, composition_im1, index_i, sigma_normalized_score)
+            self._record_predictor_step(composition_i, composition_im1, index_i, model_predictions_i)
 
         return composition_im1
 
@@ -816,13 +816,13 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         # get the step size eps_i
         eps_i_lattice = self._get_lattice_parameters_corrector_step_size(
-            index_i, sigma_n_i, sigma_normalized_score.L, z_lattice
+            index_i, sigma_n_i, model_predictions_i.L, z_lattice
         )
         sqrt_2eps_i_lattice = torch.sqrt(2 * eps_i_lattice)
 
         corrected_lp_i = self._lattice_parameters_update(
             composition_i.L,
-            sigma_normalized_score.L,
+            model_predictions_i.L,
             sigma_n_i,
             eps_i_lattice,
             sqrt_2eps_i_lattice,
@@ -834,7 +834,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             q_bar_tm1_matrices_i = self.noise.q_bar_tm1_matrix[idx].to(composition_i.X)
             # atom types update
             corrected_a_i = self._atom_types_update(
-                sigma_normalized_score.A,
+                model_predictions_i.A,
                 composition_i.A,
                 q_matrices_i,
                 q_bar_matrices_i,
@@ -852,7 +852,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         )
 
         if self.record_corrector:
-            self._record_corrector_step(composition_i, corrected_composition_i, index_i, sigma_normalized_score)
+            self._record_corrector_step(composition_i, corrected_composition_i, index_i, model_predictions_i)
 
         return corrected_composition_i
 

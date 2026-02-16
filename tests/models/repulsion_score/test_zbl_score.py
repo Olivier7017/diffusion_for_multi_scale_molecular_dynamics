@@ -87,7 +87,7 @@ def test_zbl_forces_match_lammps_sige():
     basis_vectors = torch.tensor(vec)
 
     torch_forces = repulsion_score.get_forces(A, cartesian_positions, basis_vectors)[0].detach().cpu().numpy()
-    dump_path = _tests_root() / "data" / "models" / "repulsion_score" / "SiGe.dump"
+    dump_path = _tests_root() / "reference_files" / "models" / "repulsion_score" / "SiGe.dump"
     lammps_forces = read_lammps_forces(dump_path)
 
     assert torch_forces.shape == lammps_forces.shape == (32, 3)

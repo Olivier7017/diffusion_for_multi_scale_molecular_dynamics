@@ -8,6 +8,31 @@ from tests.fake_data_utils import (create_dump_yaml_documents,
                                    get_configuration_runs, write_to_yaml)
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def has_lmp():
+    # lru_cache allows to run this function once during pytest and keep the results in memory
+    try:
+        from lammps import lammps
+    except Exception:
+        return False
+
+    try:
+        lmp = lammps(cmdargs=["-log", "none", "-screen", "none", "-echo", "none"])
+        lmp.close()
+    except Exception:
+        return False
+
+    return True
+
+
+def pytest_runtest_setup(item):
+    if "requires_lammps" in item.keywords and not has_lmp():
+        pytest.skip("LAMMPS not available/usable")
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--quick", action="store_true", default=False, help="skip slow tests"

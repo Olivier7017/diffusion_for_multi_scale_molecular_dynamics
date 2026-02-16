@@ -124,6 +124,7 @@ class TestLammpsEnergyOracle:
     def oracle(self, element_types, lammps_oracle_parameters):
         return LammpsEnergyOracle(lammps_oracle_parameters=lammps_oracle_parameters)
 
+    @pytest.mark.requires_lammps
     def test_compute_energy_and_forces(
         self, oracle, element_types, cartesian_positions, box, atom_types, tmp_path
     ):
@@ -141,6 +142,7 @@ class TestLammpsEnergyOracle:
         computed_atoms = forces["element"].to_list()
         assert expected_atoms == computed_atoms
 
+    @pytest.mark.requires_lammps
     def test_compute_oracle_energies(self, oracle, samples, batch_size):
         energies, _ = oracle.compute_oracle_energies_and_forces(samples)
         assert len(energies) == batch_size
