@@ -7,13 +7,16 @@ import torch
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks import \
     ScoreNetwork
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, NOISY_AXL_COMPOSITION)
+    AXL, NOISY_AXL_COMPOSITION, TIME)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates, get_reciprocal_basis_vectors,
     get_relative_coordinates_from_cartesian_positions,
-    map_noisy_axl_lattice_parameters_to_unit_cell_vectors)
+    map_noisy_axl_lattice_parameters_to_unit_cell_vectors,
+    map_lattice_parameters_to_unit_cell_vectors)
 from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import (
     AdjacencyInfo, get_periodic_adjacency_information)
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.repulsive_force import \
+    RepulsiveForce
 
 
 @dataclass(kw_only=True)
@@ -52,18 +55,29 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
     """
 
     def __init__(
-        self, score_network: ScoreNetwork, force_field_parameters: ForceFieldParameters
+        self, 
+        score_network: ScoreNetwork, 
+        score_forces: RepulsiveForce,
+        force_activation_scale: float = 100.0,
+        diffusion_time_scaling: str = "linear",
+        use_for_training: bool = False,
     ):
         """Init method.
 
         Args:
             score_network : a score network, to be augmented with a repulsive force.
-            force_field_parameters : parameters for the repulsive force.
+            score_forces : a repulsion_score, which will be added to the score_network
         """
         super().__init__()
+        if diffusion_time_scaling != "linear":
+            raise NotImplementedError(f"diffusion_time_scaling must be linear. Got {diffusion_time_scaling}")
 
         self._score_network = score_network
-        self._force_field_parameters = force_field_parameters
+        self._score_forces = score_forces
+        self._force_activation_scale = force_activation_scale
+        self._diffusion_time_scaling = diffusion_time_scaling
+        self._use_for_training = use_for_training
+        
 
     def forward(
         self, batch: Dict[AnyStr, torch.Tensor], conditional: Optional[bool] = None
@@ -79,8 +93,28 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
             computed_scores : the scores computed by the model.
         """
         raw_scores = self._score_network(batch, conditional)
-        forces = self.get_relative_coordinates_pseudo_force(batch)
-        updated_scores = AXL(A=raw_scores.A, X=raw_scores.X + forces, L=raw_scores.L)
+        if self.training and not self._use_for_training:
+            return raw_scores
+
+        force_directions, force_importance = self.get_force_score_from_batch(batch)
+
+        # Give the same norm to force_directions as raw_scores.X, with a minimum of eps if model is too small
+        eps = 1e-1
+        raw_norm = raw_scores.X.norm(dim=(1, 2)).clamp_min(eps)
+        force_scores = force_directions * raw_norm[:, None, None]
+
+        # Mix the two scores together, keeping raw_scores unchanged
+        force_prefactor = force_importance / (1 - force_importance)
+        
+        # START DEBUG
+        #print("WEAK PREFACTOR", force_prefactor)
+        #force_prefactor += (1-force_prefactor)*(4/5)
+        #print("STRONG PREFACTOR", force_prefactor)
+        #raise ValueError(f">:( {type(self)}")
+        #print((force_prefactor[:, None, None] * force_scores).norm())
+        # END DEBUG
+        updated_X_scores = raw_scores.X + force_prefactor[:, None, None] * force_scores
+        updated_scores = AXL(A=raw_scores.A, X=updated_X_scores, L=raw_scores.L)
         return updated_scores
 
     def _get_cartesian_pseudo_forces_contributions(
@@ -202,7 +236,7 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         )
         return cartesian_pseudo_forces
 
-    def get_relative_coordinates_pseudo_force(
+    def get_force_score_from_batch(
         self, batch: Dict[AnyStr, torch.Tensor]
     ) -> torch.Tensor:
         """Get relative coordinates pseudo force.
@@ -213,24 +247,19 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         Returns:
             relative_pseudo_forces : repulsive force in relative coordinates.
         """
-        adj_info = self._get_adjacency_information(batch)
+        composition_i = batch[NOISY_AXL_COMPOSITION]
+        time = batch[TIME]
 
-        cartesian_displacements = self._get_cartesian_displacements(adj_info, batch)
-        cartesian_pseudo_force_contributions = (
-            self._get_cartesian_pseudo_forces_contributions(cartesian_displacements)
-        )
+        epsilon = 1e-6  # So force doesn't diverge if every atom is farther than cutoff_radius
+        basis_vectors = map_lattice_parameters_to_unit_cell_vectors(composition_i.L)
+        cartesian_positions = get_positions_from_coordinates(composition_i.X, basis_vectors)
 
-        cartesian_pseudo_forces = self._get_cartesian_pseudo_forces(
-            cartesian_pseudo_force_contributions, adj_info, batch
-        )
+        forces = self._score_forces.get_forces(composition_i.A, cartesian_positions, basis_vectors)
+        
+        normalization_over_batch = forces.norm(dim=[1, 2])  # [B]
+        normalized_forces = forces / normalization_over_batch[:, None, None]  # [B,N,3]
 
-        basis_vectors = map_noisy_axl_lattice_parameters_to_unit_cell_vectors(
-            batch[NOISY_AXL_COMPOSITION].L,
-            min_box_size=1.0
-        )  # TODO handle minimal size
-        reciprocal_basis_vectors = get_reciprocal_basis_vectors(basis_vectors)
-        relative_pseudo_forces = get_relative_coordinates_from_cartesian_positions(
-            cartesian_pseudo_forces, reciprocal_basis_vectors
-        )
+        g = normalization_over_batch / (normalization_over_batch + self._force_activation_scale)  # [B]
+        analytical_fraction = (1-time[:, 0]) * g[:]  # [B] -> Unsure why time.shape = (B, 1) instead of (B)
 
-        return relative_pseudo_forces
+        return normalized_forces, analytical_fraction

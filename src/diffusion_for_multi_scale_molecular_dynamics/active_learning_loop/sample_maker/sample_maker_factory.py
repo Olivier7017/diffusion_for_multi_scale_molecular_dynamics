@@ -22,7 +22,6 @@ from diffusion_for_multi_scale_molecular_dynamics.generators.axl_generator impor
     SamplingParameters
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks import \
     ScoreNetwork
-from diffusion_for_multi_scale_molecular_dynamics.models.repulsion_score.zbl_score import RepulsionScore
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
     NoiseParameters
 
@@ -65,7 +64,6 @@ def create_sample_maker(
     noise_parameters: Optional[NoiseParameters] = None,
     sampling_parameters: Optional[SamplingParameters] = None,
     diffusion_model: Optional[ScoreNetwork] = None,
-    repulsion_score: Optional["RepulsionScore"] = None,
     device: Optional[str] = "cpu",
 ) -> BaseSampleMaker:
     """Create a sample maker.
@@ -99,13 +97,6 @@ def create_sample_maker(
         case _:
             raise NotImplementedError(f"Algorithm {algorithm} is not implemented.")
 
-    # Validate repulsion calculator
-    if repulsion_score is not None:
-        assert algorithm == "excise_and_repaint", (
-            "repulsion_score is only supported for the 'excise_and_repaint' sample maker, "
-            "since it relies on a Langevin-based generator. Review input for consistency."
-        )
-
     match sample_maker_parameters.algorithm:
         case "noop":
             sample_maker = NoOpSampleMaker(sample_maker_parameters, atom_selector=atom_selector)
@@ -118,7 +109,6 @@ def create_sample_maker(
                 noise_parameters=noise_parameters,
                 sampling_parameters=sampling_parameters,
                 diffusion_model=diffusion_model,
-                repulsion_score=repulsion_score,
                 device=device,
             )
         case "excise_and_random":

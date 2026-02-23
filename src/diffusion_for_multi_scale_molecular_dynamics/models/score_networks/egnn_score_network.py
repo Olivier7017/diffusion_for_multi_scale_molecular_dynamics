@@ -299,5 +299,4 @@ class EGNNScoreNetwork(ScoreNetwork):
             X=normalized_scores,
             L=torch.zeros_like(batch[NOISY_AXL_COMPOSITION].L),
         )
-
         return axl_scores

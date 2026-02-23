@@ -30,10 +30,10 @@ def read_lammps_forces(fn):
             continue
         if start_read:
             forces.append([float(x) for x in line.split()[-3:]])
-    return np.array(forces)
+    return torch.tensor(forces, dtype=torch.float32)
 
 
-def get_pos_and_basis_vectors_sige():
+def get_pos_and_basis_vectors():
     """The positions and cell used in the precomputed LAMMPS simulation."""
     pos = [[[2.0722, 6.8944, 4.1256],
             [3.5923, 1.7706, 3.1422],
@@ -73,6 +73,43 @@ def get_pos_and_basis_vectors_sige():
     return pos, vec
 
 
+def test_masked_type_32():
+    """Smoke test for ZBLRepulsionScore using masked_atom type of 14.5"""
+    repulsion_score = ZBLRepulsionScore(
+        cutoff_radius=2.19293,
+        inner_radius_fraction=0.5552844824048191,
+        element_list=["Si", "P"],
+        device="cpu",
+    )
+    elem = [3, 3, 1, 3, 1, 3, 1, 1, 2, 1, 2, 1, 2, 3, 3, 2, 3, 1, 2, 1, 3, 2, 3, 1, 1, 2, 3, 2, 2, 2, 3, 1]
+    A = torch.tensor([elem], dtype=torch.long)
+    pos, vec = get_pos_and_basis_vectors()
+    cartesian_positions = torch.tensor(pos)
+    basis_vectors = torch.tensor(vec)
+
+    torch_forces = repulsion_score.get_forces(A, cartesian_positions, basis_vectors)[0].detach().cpu().numpy()
+    noscore_score, noscore_fraction = repulsion_score.get_repulsive_score(A, cartesian_positions, basis_vectors, discretization_time=1)
+    halfscore_score, halfscore_fraction = repulsion_score.get_repulsive_score(A, cartesian_positions, basis_vectors, discretization_time=0.5)
+    fullscore_score, fullscore_fraction = repulsion_score.get_repulsive_score(A, cartesian_positions, basis_vectors, discretization_time=0)
+
+    for fraction, score in zip(
+        (noscore_fraction, halfscore_fraction, fullscore_fraction),
+        (noscore_score, halfscore_score, fullscore_score),
+    ):
+        # Sum = 0
+        assert torch.allclose(score.sum(dim=[1, 2]), torch.zeros(score.shape[0]), atol=1e-6, rtol=1e-6)
+
+        # Norm = 1
+        assert torch.allclose(torch.linalg.norm(score, dim=[1, 2]), torch.ones(score.shape[0]), atol=1e-6, rtol=1e-6)
+
+        # Fraction bounds [0, 1]
+        assert torch.all((fraction >= 0) & (fraction <= 1))
+
+    # Make sure fractions are consistent with discretization
+    assert torch.allclose(noscore_fraction, torch.zeros_like(noscore_fraction), atol=1e-6, rtol=1e-6)
+    assert torch.allclose(halfscore_fraction, 0.5 * fullscore_fraction, atol=1e-6, rtol=1e-6)
+
+
 def test_zbl_forces_match_lammps_sige():
     """Test the forces of ZBLRepulsionScore with precomputed ones from LAMMPS."""
     repulsion_score = ZBLRepulsionScore(
@@ -82,13 +119,16 @@ def test_zbl_forces_match_lammps_sige():
         device="cpu",
     )
     A = torch.tensor([[2, 1] * 16], dtype=torch.long)
-    pos, vec = get_pos_and_basis_vectors_sige()
+    pos, vec = get_pos_and_basis_vectors()
     cartesian_positions = torch.tensor(pos)
     basis_vectors = torch.tensor(vec)
 
-    torch_forces = repulsion_score.get_forces(A, cartesian_positions, basis_vectors)[0].detach().cpu().numpy()
+    torch_forces = repulsion_score.get_forces(A, cartesian_positions, basis_vectors)[0]
     dump_path = _tests_root() / "reference_files" / "models" / "repulsion_score" / "SiGe.dump"
     lammps_forces = read_lammps_forces(dump_path)
 
     assert torch_forces.shape == lammps_forces.shape == (32, 3)
-    np.testing.assert_allclose(torch_forces, lammps_forces, rtol=1e-2, atol=1e-6)
+
+    # Sum = 0
+    assert torch.allclose(torch_forces.sum(dim=[0, 1]), torch.tensor([0.]), atol=1e-4)
+    assert torch.allclose(torch_forces, lammps_forces, atol=1e-4)

@@ -3,11 +3,11 @@ from ase.data import atomic_numbers
 from ase.units import _eps0, _e, m, J
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.repulsion_score.repulsion_score import \
-    RepulsionScore
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.repulsive_force import \
+    RepulsiveForce
 
 
-class ZBLRepulsionScore(RepulsionScore):
+class ZBLForce(RepulsiveForce):
     """Ziegler-Biersack-Littmark interatomic potential to get an analytical repulsion score."""
 
     def __init__(
@@ -15,7 +15,6 @@ class ZBLRepulsionScore(RepulsionScore):
         cutoff_radius: float,
         element_list: list[str],
         inner_radius_fraction: float = 0.5,  # inner_radius = inner_radius_fraction * cutoff_radius
-        force_activation_scale: float = 100.,
         device: str = "cpu",
     ):
         """Initialize the ZBL analytical repulsion model which calculates forces and gives an analytical score.
@@ -24,17 +23,14 @@ class ZBLRepulsionScore(RepulsionScore):
             cutoff_radius: distance where the ZBL interaction is fully switched off (Angstrom).
             element_list: ordered list of element symbols used to map atom type indices A -> atomic number.
             inner_radius_fraction: inner_radius = fraction * cutoff_radius, where the switching polynomial starts.
-            force_activation_scale: force scale controlling the strenght of the analytical score based on the forces.
             device: torch device used for internal tensors.
         """
         super().__init__(cutoff_radius=cutoff_radius, device=device)
         self.inner_radius = self.cutoff_radius * inner_radius_fraction
-        self.force_activation_scale = torch.tensor(force_activation_scale,
-                                                   device=self.device, dtype=torch.float32)
 
         # How does ZBL should deal with masked atom type ? For now, it will be the average Z over types.
-        Z_of_index = [0] + [atomic_numbers[s] for s in element_list]  # idx of A starts at 1
-        Z_of_index.append(sum(Z_of_index[1:]) / len(Z_of_index[1:]))
+        Z_of_index = [atomic_numbers[s] for s in element_list]  # From 0 to number_of_elements
+        Z_of_index.append(sum(Z_of_index) / len(Z_of_index))  # Adding masked element
         self.index_to_atomic_numbers = torch.tensor(Z_of_index, dtype=torch.float32, device=self.device)
 
         # eps0 in C^2/(J*m) and _e in C
@@ -45,11 +41,17 @@ class ZBLRepulsionScore(RepulsionScore):
     def get_repulsive_score(self, A, cartesian_positions, basis_vectors, discretization_time):
         """Return an analytical repulsive score derived from ZBL forces.
 
-        The score direction is the force direction and its amplitude will be given by analytical fraction :
-            score = F / (<|F|>),
-        where <|F|> is the RMS force magnitude over atoms in the configuration.
+        The score is divided into two quantities. The normalized forces gives the direction of the score
+        and the analytical fraction gives its magnitude.
 
-        analytical_fraction indicates how strong the correction should be as a fraction of the total score:
+        normalized_forces = F / |F|, 
+        where |F| is the norm over each configuration individually.
+
+        analytical_fraction indicates how strong the correction should be as a fraction of the total score.
+        It takes into account : 
+         1. The strength of the forces with respect to force_activation_scale.
+         2. The discretization time, as atoms overlapping isn't catastrophic at t=T, but are a T=0.
+        The formula linear w.r.t time (for now) :
             analytical_fraction = discretization_time * g
             g = <|F|> / (<|F|> + self.force_activation_scale)
 
@@ -60,21 +62,22 @@ class ZBLRepulsionScore(RepulsionScore):
             A: atom type indices [Batch_size, Natoms]
             cartesian_positions: atomic positions [Batch_size, Natoms, 3]
             basis_vectors: cell vectors [Batch_size, 3, 3]
-            discretization_time: diffusion time coefficient as a fraction ((1-t)/T) [Batch_size]
+            discretization_time: diffusion time as a fraction (t/T)
 
         Returns:
-            normalized_forces: normalized repulsive score [Batch_size, Natoms, 3]
+            normalized_forces: normalized repulsive score [Batch_size, Natoms, 3] (norm=1 for each configuration)
             analytical_fraction: repulsion score correction weight [Batch_size]
         """
+        raise NotImplementedError("This should not be in this class")
+
         epsilon = 1e-12  # So force doesn't diverge if every atom is farther than cutoff_radius
         forces = self.get_forces(A, cartesian_positions, basis_vectors)
 
-        per_atom_sq = (forces * forces).sum(dim=-1)          # [B,N]
-        interaction_strength = torch.sqrt(per_atom_sq.mean(dim=-1) + epsilon)  # [B]
+        normalization_over_batch = forces.norm(dim=[1, 2])  # [B]
+        normalized_forces = forces / normalization_over_batch[:, None, None]  # [B,N,3]
 
-        normalized_forces = forces / interaction_strength[:, None, None]  # [B,N,3]
-        g = interaction_strength / (interaction_strength + self.force_activation_scale)
-        analytical_fraction = discretization_time * g  # [B]
+        g = normalization_over_batch / (normalization_over_batch + self.force_activation_scale)  # [B]
+        analytical_fraction = (1-discretization_time) * g  # [B]
 
         return normalized_forces, analytical_fraction
 
@@ -102,6 +105,7 @@ class ZBLRepulsionScore(RepulsionScore):
                 torch.ones((number_of_atoms, number_of_atoms), device=cartesian_positions.device, dtype=torch.bool),
                 diagonal=1
             )[None]
+            torch.set_printoptions(threshold=float("inf"))
             atomic_mask = (atomic_distances > 0) & triu
             interacting_atoms = atomic_mask.nonzero(as_tuple=False)  # Find the idx of True elements
             r_ij = atomic_distances[interacting_atoms[:, 0], interacting_atoms[:, 1], interacting_atoms[:, 2]]
@@ -134,6 +138,7 @@ class ZBLRepulsionScore(RepulsionScore):
 
         S = self.zbl_S(r_ij, idx_i, idx_j)
         E_ij = self.prefactor * (Zi * Zj) / r_ij * phi + S  # in eV
+
         return E_ij
 
     def calc_abc(self):

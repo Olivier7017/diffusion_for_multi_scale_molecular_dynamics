@@ -24,8 +24,6 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import (
     class_index_to_onehot, get_probability_at_previous_time_step)
 from diffusion_for_multi_scale_molecular_dynamics.utils.sample_trajectory import \
     SampleTrajectory
-from diffusion_for_multi_scale_molecular_dynamics.models.repulsion_score.repulsion_score import \
-    RepulsionScore
 
 
 class LangevinGenerator(PredictorCorrectorAXLGenerator):
@@ -42,7 +40,6 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         sampling_parameters: PredictorCorrectorSamplingParameters,
         axl_network: ScoreNetwork,
         trajectory_initializer: Optional[TrajectoryInitializer] = None,
-        repulsion_score: Optional["RepulsionScore"] = None,
     ):
         """Init method."""
         super().__init__(
@@ -74,9 +71,6 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         self.use_fixed_lattice_parameters = sampling_parameters.use_fixed_lattice_parameters
         self.fixed_lattice_parameters = sampling_parameters.fixed_lattice_parameters
-
-        self.repulsion_score = repulsion_score
-        self.has_repulsion_score = repulsion_score is not None
 
         self.record = sampling_parameters.record_samples
         self.record_corrector = sampling_parameters.record_samples_corrector_steps
@@ -149,6 +143,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         sigma_noise_tensor = sigma_noise * torch.ones(number_of_samples, 1).to(
             composition.X
         )
+
         augmented_batch = {
             NOISY_AXL_COMPOSITION: composition,
             TIME: time_tensor,
@@ -198,12 +193,12 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             z = self._draw_coordinates_gaussian_sample(number_of_samples).to(
                 relative_coordinates
             )
-
         updated_coordinates = (
             relative_coordinates
             + score_weight * sigma_normalized_scores / sigma_i
             + gaussian_noise_weight * z
         )
+
         # map back to the range [0, 1)
         updated_coordinates = map_relative_coordinates_to_unit_cell(updated_coordinates)
         return updated_coordinates
@@ -602,6 +597,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i, t_i, sigma_i, cartesian_forces
         )
 
+        #print(f"DEBUG1: idx={idx}, score_weight={self.noise.g_squared[idx]}, model_predictions={model_predictions_i.X.norm(dim=(1,2))}")
+        #print(f"DEBUG2: {self.noise.g_squared[idx]*model_predictions_i.X.norm(dim=(1,2))}")
         # Even if the global flag 'one_atom_type_transition_per_step' is set to True, a single atomic transition
         # cannot be used at the last time step because it is necessary for all atoms to be unmasked at the end
         # of the trajectory. Here, we use 'first' and 'last' with respect to a denoising trajectory, where
@@ -633,30 +630,35 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         )
 
         # Analytical repulsion to discourage non-physical atomic overlaps
-        if self.has_repulsion_score:
-            basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
-                composition_i.L
-            )
-            cartesian_positions = get_positions_from_coordinates(
-                composition_i.X, basis_vectors
-            )
-            discretization_time = (self.number_of_discretization_steps - index_i) / self.number_of_discretization_steps
-            analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
-                A=composition_i.A,
-                cartesian_positions=cartesian_positions,
-                basis_vectors=basis_vectors,
-                discretization_time=discretization_time,
-            )
-            sigma_normalized_score = (
-                (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
-                + analytical_fraction[:, None, None] * analytical_score
-            )
-        else:
-            sigma_normalized_score = model_predictions_i.X
+        #if self.has_repulsion_score:
+        #    basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
+        #        composition_i.L
+        #    )
+        #    cartesian_positions = get_positions_from_coordinates(
+        #        composition_i.X, basis_vectors
+        #    )
+        #    normalized_analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
+        #        A=composition_i.A,
+        #        cartesian_positions=cartesian_positions,
+        #        basis_vectors=basis_vectors,
+        #        discretization_time=index_i / self.number_of_discretization_steps,
+        #    )
+        #    eps = 1e-6  # To remove the pathological case when the norm of the model is 0.
+        #    norm_per_conf = model_predictions_i.X.norm(dim=[1, 2]) + 1e-6
+        #    # Renormalize analytical_score to have the same sigma_norm as model_predictions_i.X.
+        #    # This renormalization allows for a better control of the relative importance of both score.
+        #    sigma_normalized_analytical_score = normalized_analytical_score * norm_per_conf[:, None, None]
+        #    sigma_normalized_score = (
+        #        (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
+        #        + analytical_fraction[:, None, None] * normalized_analytical_score
+        #    )
+        #else:
+        #    sigma_normalized_score = model_predictions_i.X
 
         # Update the position according to the predictor
+        #print(f"DEBUG3 : SCORE_CORRECTION : {model_predictions_i.X.norm() * g2_i / sigma_i}")
         x_im1 = self._relative_coordinates_update_predictor_step(
-            composition_i.X, sigma_normalized_score, sigma_i, g2_i, g_i, z_coordinates
+            composition_i.X, model_predictions_i.X, sigma_i, g2_i, g_i, z_coordinates
         )
 
         # update lattice parameters
@@ -772,37 +774,37 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         )
 
         # Analytical repulsion to discourage non-physical atomic overlaps
-        if self.has_repulsion_score:
-            basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
-                composition_i.L
-            )
-            cartesian_positions = get_positions_from_coordinates(
-                composition_i.X, basis_vectors
-            )
-            discretization_time = (self.number_of_discretization_steps - index_i) / self.number_of_discretization_steps
-            analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
-                A=composition_i.A,
-                cartesian_positions=cartesian_positions,
-                basis_vectors=basis_vectors,
-                discretization_time=discretization_time,
-            )
-            sigma_normalized_score = (
-                (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
-                + analytical_fraction[:, None, None] * analytical_score
-            )
-        else:
-            sigma_normalized_score = model_predictions_i.X
+        #if self.has_repulsion_score:
+        #    basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
+        #        composition_i.L
+        #    )
+        #    cartesian_positions = get_positions_from_coordinates(
+        #        composition_i.X, basis_vectors
+        #    )
+        #    discretization_time = (self.number_of_discretization_steps - index_i) / self.number_of_discretization_steps
+        #    analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
+        #        A=composition_i.A,
+        #        cartesian_positions=cartesian_positions,
+        #        basis_vectors=basis_vectors,
+        #        discretization_time=discretization_time,
+        #    )
+        #    sigma_normalized_score = (
+        #        (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
+        #        + analytical_fraction[:, None, None] * analytical_score
+        #    )
+        #else:
+        #    sigma_normalized_score = model_predictions_i.X
 
         # get the step size eps_i
         eps_i_coordinates = self._get_coordinates_corrector_step_size(
-            index_i, sigma_i, sigma_normalized_score, z_coordinates
+            index_i, sigma_i, model_predictions_i.X, z_coordinates
         )
         # the size for the noise part is sqrt(2 * eps_i)
         sqrt_2eps_i_coordinates = torch.sqrt(2 * eps_i_coordinates)
 
         corrected_x_i = self._relative_coordinates_update_corrector_step(
             composition_i.X,
-            sigma_normalized_score,
+            model_predictions_i.X,
             sigma_i,
             eps_i_coordinates,
             sqrt_2eps_i_coordinates,

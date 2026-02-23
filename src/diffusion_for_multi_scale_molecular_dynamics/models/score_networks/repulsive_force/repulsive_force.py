@@ -7,7 +7,7 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import \
     get_periodic_adjacency_information
 
 
-class RepulsionScore(ABC):
+class RepulsiveForce(ABC):
     """Analytical Atomic Repulsion Score.
 
     This class calculates a score based on an analytical model to helps stability.
@@ -68,8 +68,3 @@ class RepulsionScore(ABC):
         atomic_distances = atomic_distances.index_put((b, dst, src), distance_unordered)
 
         return atomic_distances
-
-    @abstractmethod
-    def get_repulsive_score(self, A, cartesian_positions, basis_vectors, discretization_time):
-        """Return score due to atomic repulsion (shape: [nconf, natoms, 3])."""
-        pass
