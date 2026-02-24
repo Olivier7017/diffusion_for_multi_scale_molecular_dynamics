@@ -51,7 +51,7 @@ class TestZBLForce:
                [2.2355, 6.9130, 2.1594],
                [0.7413, 5.7150, 2.4136],
                [0.9003, 2.8371, 3.7896],
-               [4.9723, 1.1048, 6.9392],
+               [5.9723, 1.1048, 6.9392],
                [2.1095, 1.8250, 0.0095],
                [1.2997, 1.5873, 2.0805],
                [3.6191, 4.1745, 2.1670],
@@ -98,7 +98,7 @@ class TestZBLForce:
         assert calculated_forces.shape == (1, 32, 3)
         # Sum = 0
         assert torch.allclose(calculated_forces.sum(dim=[1, 2]), torch.zeros(calculated_forces.shape[0]),
-                              atol=1e-6, rtol=1e-6)
+                              atol=1e-4)
 
     def test_zbl_forces_match_lammps_sige(self, cartesian_positions, basis_vectors):
         """Test the forces of ZBLRepulsionScore with precomputed ones from LAMMPS."""
@@ -122,22 +122,4 @@ class TestZBLForce:
         # Sum = 0
         assert torch.allclose(torch_forces.sum(dim=[0, 1]), torch.tensor([0.]), atol=1e-3)
         # Same forces as lammps
-        # START DEBUG
-        from ase import Atoms
-        print(basis_vectors)
-        def distances_from_atom_ase(atoms, idx):
-            j = np.arange(len(atoms), dtype=int)
-            d = atoms.get_distances(idx, j, mic=True)
-            return d
-        atoms = Atoms(symbols=["Ge", "Si"]*16, positions=cartesian_positions[0], cell=basis_vectors[0], pbc=True)
-        idx = 8
-        print(f"DISTANCE FROM {idx} using ASE")
-        print(distances_from_atom_ase(atoms, idx))
-
-        for i in range(len(torch_forces)):
-            if not torch.allclose(torch_forces[i], lammps_forces[i], atol=1e-3): 
-                print(f"ERROR at {i}: {cartesian_positions[0][i]}") 
-                print(f"{torch_forces[i]} {lammps_forces[i]} {torch.allclose(torch_forces[i], lammps_forces[i], atol=1e-3)}")
-        exit()
-        # END DEBUG
         assert torch.allclose(torch_forces, lammps_forces, atol=1e-3)

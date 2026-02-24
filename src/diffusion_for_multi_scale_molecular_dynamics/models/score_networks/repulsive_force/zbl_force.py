@@ -112,6 +112,8 @@ class ZBLForce(RepulsiveForce):
             atomic_mask = (atomic_distances > 0) & triu
             interacting_atoms = atomic_mask.nonzero(as_tuple=False)  # Find the idx of True elements
             r_ij = atomic_distances[interacting_atoms[:, 0], interacting_atoms[:, 1], interacting_atoms[:, 2]]
+
+            # Careful : A starts at index 1, while the object in this class start at index 0
             idx_i = A[interacting_atoms[:, 0], interacting_atoms[:, 1]]
             idx_j = A[interacting_atoms[:, 0], interacting_atoms[:, 2]]
 
@@ -124,11 +126,6 @@ class ZBLForce(RepulsiveForce):
                 retain_graph=False
             )
             forces = -grad_E
-            print(E_total)
-            # DEBUG
-            #toprint = [10, 20, 22, 23, 24]
-            #for tp in toprint:
-            #    print(interacting_atoms[tp], r_ij[tp])
         return forces
 
     def zbl_energy(self, r_ij: torch.Tensor, idx_i: torch.Tensor, idx_j: torch.Tensor):

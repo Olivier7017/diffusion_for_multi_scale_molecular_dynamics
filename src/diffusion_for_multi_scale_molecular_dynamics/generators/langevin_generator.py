@@ -597,8 +597,6 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i, t_i, sigma_i, cartesian_forces
         )
 
-        #print(f"DEBUG1: idx={idx}, score_weight={self.noise.g_squared[idx]}, model_predictions={model_predictions_i.X.norm(dim=(1,2))}")
-        #print(f"DEBUG2: {self.noise.g_squared[idx]*model_predictions_i.X.norm(dim=(1,2))}")
         # Even if the global flag 'one_atom_type_transition_per_step' is set to True, a single atomic transition
         # cannot be used at the last time step because it is necessary for all atoms to be unmasked at the end
         # of the trajectory. Here, we use 'first' and 'last' with respect to a denoising trajectory, where
@@ -629,34 +627,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
-        # Analytical repulsion to discourage non-physical atomic overlaps
-        #if self.has_repulsion_score:
-        #    basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
-        #        composition_i.L
-        #    )
-        #    cartesian_positions = get_positions_from_coordinates(
-        #        composition_i.X, basis_vectors
-        #    )
-        #    normalized_analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
-        #        A=composition_i.A,
-        #        cartesian_positions=cartesian_positions,
-        #        basis_vectors=basis_vectors,
-        #        discretization_time=index_i / self.number_of_discretization_steps,
-        #    )
-        #    eps = 1e-6  # To remove the pathological case when the norm of the model is 0.
-        #    norm_per_conf = model_predictions_i.X.norm(dim=[1, 2]) + 1e-6
-        #    # Renormalize analytical_score to have the same sigma_norm as model_predictions_i.X.
-        #    # This renormalization allows for a better control of the relative importance of both score.
-        #    sigma_normalized_analytical_score = normalized_analytical_score * norm_per_conf[:, None, None]
-        #    sigma_normalized_score = (
-        #        (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
-        #        + analytical_fraction[:, None, None] * normalized_analytical_score
-        #    )
-        #else:
-        #    sigma_normalized_score = model_predictions_i.X
-
         # Update the position according to the predictor
-        #print(f"DEBUG3 : SCORE_CORRECTION : {model_predictions_i.X.norm() * g2_i / sigma_i}")
         x_im1 = self._relative_coordinates_update_predictor_step(
             composition_i.X, model_predictions_i.X, sigma_i, g2_i, g_i, z_coordinates
         )
@@ -772,28 +743,6 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         z_coordinates = self._draw_coordinates_gaussian_sample(number_of_samples).to(
             composition_i.X
         )
-
-        # Analytical repulsion to discourage non-physical atomic overlaps
-        #if self.has_repulsion_score:
-        #    basis_vectors = map_lattice_parameters_to_unit_cell_vectors(
-        #        composition_i.L
-        #    )
-        #    cartesian_positions = get_positions_from_coordinates(
-        #        composition_i.X, basis_vectors
-        #    )
-        #    discretization_time = (self.number_of_discretization_steps - index_i) / self.number_of_discretization_steps
-        #    analytical_score, analytical_fraction = self.repulsion_score.get_repulsive_score(
-        #        A=composition_i.A,
-        #        cartesian_positions=cartesian_positions,
-        #        basis_vectors=basis_vectors,
-        #        discretization_time=discretization_time,
-        #    )
-        #    sigma_normalized_score = (
-        #        (1.0 - analytical_fraction[:, None, None]) * model_predictions_i.X
-        #        + analytical_fraction[:, None, None] * analytical_score
-        #    )
-        #else:
-        #    sigma_normalized_score = model_predictions_i.X
 
         # get the step size eps_i
         eps_i_coordinates = self._get_coordinates_corrector_step_size(
