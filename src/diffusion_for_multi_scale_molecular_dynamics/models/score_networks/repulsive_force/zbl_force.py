@@ -1,22 +1,26 @@
 from __future__ import annotations
+from dataclasses import dataclass
+
 from ase.data import atomic_numbers
 from ase.units import _eps0, _e, m, J
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.repulsive_force import \
-    RepulsiveForce
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.repulsive_force import (
+    RepulsiveForce,
+    RepulsiveForceParameters)
+
+
+@dataclass(kw_only=True)
+class ZBLForceParameters(RepulsiveForceParameters):
+    """Specific Hyper-parameters for ZBL forces."""
+    element_list: list[str]
+    inner_radius_fraction: float = 0.5  # inner_radius = inner_radius_fraction * cutoff_radius
 
 
 class ZBLForce(RepulsiveForce):
     """Ziegler-Biersack-Littmark interatomic potential to get an analytical repulsion score."""
 
-    def __init__(
-        self,
-        cutoff_radius: float,
-        element_list: list[str],
-        inner_radius_fraction: float = 0.5,  # inner_radius = inner_radius_fraction * cutoff_radius
-        device: str = "cpu",
-    ):
+    def __init__(self, hyper_params: ZBLForceParameters):
         """Initialize the ZBL analytical repulsion model which calculates forces and gives an analytical score.
 
         Args:
@@ -25,11 +29,11 @@ class ZBLForce(RepulsiveForce):
             inner_radius_fraction: inner_radius = fraction * cutoff_radius, where the switching polynomial starts.
             device: torch device used for internal tensors.
         """
-        super().__init__(cutoff_radius=cutoff_radius, device=device)
-        self.inner_radius = self.cutoff_radius * inner_radius_fraction
+        super().__init__(hyper_params)
+        self.inner_radius = self.cutoff_radius * hyper_params.inner_radius_fraction
 
         # How does ZBL should deal with masked atom type ? For now, it will be the average Z over types.
-        Z_of_index = [atomic_numbers[s] for s in element_list]  # From 0 to number_of_elements
+        Z_of_index = [atomic_numbers[s] for s in hyper_params.element_list]
         Z_of_index.append(sum(Z_of_index) / len(Z_of_index))  # Adding masked element
         self.index_to_atomic_numbers = torch.tensor(Z_of_index, dtype=torch.float32, device=self.device)
 
@@ -105,7 +109,6 @@ class ZBLForce(RepulsiveForce):
                 torch.ones((number_of_atoms, number_of_atoms), device=cartesian_positions.device, dtype=torch.bool),
                 diagonal=1
             )[None]
-            torch.set_printoptions(threshold=float("inf"))
             atomic_mask = (atomic_distances > 0) & triu
             interacting_atoms = atomic_mask.nonzero(as_tuple=False)  # Find the idx of True elements
             r_ij = atomic_distances[interacting_atoms[:, 0], interacting_atoms[:, 1], interacting_atoms[:, 2]]
@@ -121,6 +124,11 @@ class ZBLForce(RepulsiveForce):
                 retain_graph=False
             )
             forces = -grad_E
+            print(E_total)
+            # DEBUG
+            #toprint = [10, 20, 22, 23, 24]
+            #for tp in toprint:
+            #    print(interacting_atoms[tp], r_ij[tp])
         return forces
 
     def zbl_energy(self, r_ij: torch.Tensor, idx_i: torch.Tensor, idx_j: torch.Tensor):

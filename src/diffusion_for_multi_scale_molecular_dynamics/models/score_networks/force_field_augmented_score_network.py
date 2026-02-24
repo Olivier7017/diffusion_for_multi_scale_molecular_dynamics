@@ -106,13 +106,6 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         # Mix the two scores together, keeping raw_scores unchanged
         force_prefactor = force_importance / (1 - force_importance)
         
-        # START DEBUG
-        #print("WEAK PREFACTOR", force_prefactor)
-        #force_prefactor += (1-force_prefactor)*(4/5)
-        #print("STRONG PREFACTOR", force_prefactor)
-        #raise ValueError(f">:( {type(self)}")
-        #print((force_prefactor[:, None, None] * force_scores).norm())
-        # END DEBUG
         updated_X_scores = raw_scores.X + force_prefactor[:, None, None] * force_scores
         updated_scores = AXL(A=raw_scores.A, X=updated_X_scores, L=raw_scores.L)
         return updated_scores
@@ -250,13 +243,12 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         composition_i = batch[NOISY_AXL_COMPOSITION]
         time = batch[TIME]
 
-        epsilon = 1e-6  # So force doesn't diverge if every atom is farther than cutoff_radius
+        epsilon = 1e-12  # So force doesn't diverge if every atom is farther than cutoff_radius
         basis_vectors = map_lattice_parameters_to_unit_cell_vectors(composition_i.L)
         cartesian_positions = get_positions_from_coordinates(composition_i.X, basis_vectors)
 
         forces = self._score_forces.get_forces(composition_i.A, cartesian_positions, basis_vectors)
-        
-        normalization_over_batch = forces.norm(dim=[1, 2])  # [B]
+        normalization_over_batch = forces.norm(dim=[1, 2]).clamp_min(epsilon)  # [B]
         normalized_forces = forces / normalization_over_batch[:, None, None]  # [B,N,3]
 
         g = normalization_over_batch / (normalization_over_batch + self._force_activation_scale)  # [B]

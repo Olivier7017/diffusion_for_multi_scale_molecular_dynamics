@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
 import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import \
     get_periodic_adjacency_information
+
+
+@dataclass(kw_only=True)
+class RepulsiveForceParameters:
+    """Hyper-parameters for repulsive forces."""
+    cutoff_radius: float
+    device: str = "cpu"
 
 
 class RepulsiveForce(ABC):
@@ -14,19 +22,15 @@ class RepulsiveForce(ABC):
     This is used in LangevinGenerator predictor_step and corrector step to penalize atomic overlaps at inference.
     """
 
-    def __init__(
-        self,
-        cutoff_radius: float,
-        device: str = "cpu",
-    ):
+    def __init__(self, hyper_params: RepulsiveForceParameters):
         """Init method.
 
         Args:
             cutoff_radius (ang): The minimal interatomic distance with no contribution from this analytical model.
             device: torch device used for internal tensors.
         """
-        self.device = device
-        self.cutoff_radius = torch.tensor(cutoff_radius, dtype=torch.float32, device=self.device)
+        self.device = hyper_params.device
+        self.cutoff_radius = torch.tensor(hyper_params.cutoff_radius, dtype=torch.float32, device=self.device)
 
     def get_atomic_distances(self, cartesian_positions, basis_vectors):
         """Return the atomic distance between every pair of atoms up to cutoff_radius. Else, gives -1.
