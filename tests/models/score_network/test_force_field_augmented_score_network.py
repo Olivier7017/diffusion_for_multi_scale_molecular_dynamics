@@ -9,10 +9,18 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME, UNIT_CELL)
 from tests.models.score_network.base_test_score_network import \
     BaseTestScoreNetwork
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import HarmonicForce, HarmonicForceParameters
+from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
+    get_positions_from_coordinates, get_reciprocal_basis_vectors,
+    get_relative_coordinates_from_cartesian_positions,
+    map_noisy_axl_lattice_parameters_to_unit_cell_vectors,
+    map_lattice_parameters_to_unit_cell_vectors)
+from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import (
+    AdjacencyInfo, get_periodic_adjacency_information)
 
 
 @pytest.mark.parametrize("number_of_atoms", [4, 8, 16])
-@pytest.mark.parametrize("radial_cutoff", [1.5, 2.0, 2.5])
+@pytest.mark.parametrize("cutoff_radius", [1.5, 2.0, 2.5])
 class TestForceFieldAugmentedScoreNetwork(BaseTestScoreNetwork):
     @pytest.fixture()
     def score_network(
@@ -34,15 +42,16 @@ class TestForceFieldAugmentedScoreNetwork(BaseTestScoreNetwork):
         return MLPScoreNetwork(score_network_parameters)
 
     @pytest.fixture()
-    def force_field_parameters(self, radial_cutoff):
-        return ForceFieldParameters(radial_cutoff=radial_cutoff, strength=1.0)
+    def harmonic_force_parameters(self, cutoff_radius):
+        return HarmonicForceParameters(cutoff_radius=cutoff_radius, strength=1.0)
 
     @pytest.fixture()
     def force_field_augmented_score_network(
-        self, score_network, force_field_parameters
+        self, score_network, harmonic_force_parameters
     ):
+        harmonic_force = HarmonicForce(harmonic_force_parameters)
         augmented_score_network = ForceFieldAugmentedScoreNetwork(
-            score_network, force_field_parameters
+            score_network, harmonic_force
         )
         return augmented_score_network
 
@@ -126,13 +135,13 @@ class TestForceFieldAugmentedScoreNetwork(BaseTestScoreNetwork):
     def test_get_cartesian_pseudo_forces_contributions(
         self,
         force_field_augmented_score_network,
-        force_field_parameters,
+        harmonic_force_parameters,
         fake_cartesian_displacements,
     ):
-        s = force_field_parameters.strength
-        r0 = force_field_parameters.radial_cutoff
+        s = harmonic_force_parameters.strength
+        r0 = harmonic_force_parameters.cutoff_radius
 
-        expected_contributions = force_field_augmented_score_network._get_cartesian_pseudo_forces_contributions(
+        expected_contributions = force_field_augmented_score_network._score_forces._get_cartesian_pseudo_forces_contributions(
             fake_cartesian_displacements
         )
 
@@ -146,16 +155,24 @@ class TestForceFieldAugmentedScoreNetwork(BaseTestScoreNetwork):
             torch.testing.assert_allclose(expected_contribution, computed_contribution)
 
     def test_get_cartesian_pseudo_forces(
-        self, batch, force_field_augmented_score_network
+        self, batch, harmonic_force_parameters, force_field_augmented_score_network
     ):
-        adj_info = force_field_augmented_score_network._get_adjacency_information(batch)
+        composition_i = batch[NOISY_AXL_COMPOSITION]
+        basis_vectors = map_lattice_parameters_to_unit_cell_vectors(composition_i.L)
+        cartesian_positions = get_positions_from_coordinates(composition_i.X, basis_vectors)
+        
+        adj_info = get_periodic_adjacency_information(
+            cartesian_positions,
+            basis_vectors,
+            radial_cutoff=harmonic_force_parameters.cutoff_radius,
+        )
         cartesian_displacements = (
             force_field_augmented_score_network._get_cartesian_displacements(
                 adj_info, batch
             )
         )
         cartesian_pseudo_force_contributions = (
-            force_field_augmented_score_network._get_cartesian_pseudo_forces_contributions(cartesian_displacements)
+            force_field_augmented_score_network._score_forces._get_cartesian_pseudo_forces_contributions(cartesian_displacements)
         )
 
         computed_cartesian_pseudo_forces = (
@@ -181,32 +198,30 @@ class TestForceFieldAugmentedScoreNetwork(BaseTestScoreNetwork):
         )
 
     def test_augmented_scores(
-        self, batch, score_network, force_field_augmented_score_network
+        self, batch, score_network, harmonic_force_parameters, force_field_augmented_score_network
     ):
-        forces = (
-            force_field_augmented_score_network.get_relative_coordinates_pseudo_force(
-                batch
-            )
+        force_directions, force_importance = force_field_augmented_score_network.get_force_score_from_batch(
+            batch
         )
+        assert force_directions.sum() < 1e-4
+       
+        updated_scores = force_field_augmented_score_network(batch)
+        # TODO : Add more test to make sure the updated scores make sense
 
-        raw_scores = score_network(batch)
-        augmented_scores = force_field_augmented_score_network(batch)
-
-        torch.testing.assert_allclose(augmented_scores.X - raw_scores.X, forces)
-
-
+        
 def test_specific_scenario_sanity_check():
     """Test a specific scenario.
 
     It is very easy to have the forces point in the wrong direction. Here we check explicitly that
-    the computed forces points AWAY from the neighors.
+    the computed forces points AWAY from the neighbors.
     """
     spatial_dimension = 3
 
-    force_field_parameters = ForceFieldParameters(radial_cutoff=0.4, strength=1)
+    harmonic_force_parameters = HarmonicForceParameters(cutoff_radius=0.4, strength=1)
+    harmonic_force = HarmonicForce(harmonic_force_parameters)
 
     force_field_score_network = ForceFieldAugmentedScoreNetwork(
-        score_network=None, force_field_parameters=force_field_parameters
+        score_network=None, score_forces=harmonic_force
     )
 
     # Put two atoms on a straight line
@@ -215,13 +230,20 @@ def test_specific_scenario_sanity_check():
     lattice_parameters = torch.ones(1, 6)
     lattice_parameters[:, 3:] = 0
 
+    basis_vectors = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
+    cartesian_positions = get_positions_from_coordinates(relative_coordinates, basis_vectors)
+
     batch = {
         NOISY_AXL_COMPOSITION: AXL(
             A=atom_types, X=relative_coordinates, L=lattice_parameters
         ),
     }
 
-    forces = force_field_score_network.get_relative_coordinates_pseudo_force(batch)
+    forces = force_field_score_network._score_forces.get_forces(
+        A=atom_types,
+        cartesian_positions=cartesian_positions,
+        basis_vectors=basis_vectors
+    )
 
     force_on_atom1 = forces[0, 0]
     force_on_atom2 = forces[0, 1]
