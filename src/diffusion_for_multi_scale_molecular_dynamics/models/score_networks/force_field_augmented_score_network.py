@@ -110,135 +110,34 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         updated_scores = AXL(A=raw_scores.A, X=updated_X_scores, L=raw_scores.L)
         return updated_scores
 
-    def _get_cartesian_pseudo_forces_contributions(
-        self, cartesian_displacements: torch.Tensor
-    ):
-        """Get cartesian pseudo forces.
-
-        The potential is given by
-            phi(r) = s * (r - r0)^2
-
-        Args:
-            cartesian_displacements : vectors (r_i - r_j). Dimension [number_of_edges, spatial_dimension]
-
-        Returns:
-            cartesian_pseudo_forces_contributions: Force contributions for each displacement, for the
-                chosen potential. F(r_i - r_j) = - d/dr phi(r) (r_i - r_j) / ||r_i - r_j||
-        """
-        s = self._force_field_parameters.strength
-        r0 = self._force_field_parameters.radial_cutoff
-
-        number_of_edges, spatial_dimension = cartesian_displacements.shape
-
-        r = torch.linalg.norm(cartesian_displacements, dim=1)
-
-        # Add a small epsilon value in case r is close to zero, to avoid NaNs.
-        epsilon = torch.tensor(1.0e-8).to(r)
-
-        pseudo_force_prefactors = 2.0 * s * (r - r0) / (r + epsilon)
-        # Repeat so we can multiply by r_hat
-        repeat_pseudo_force_prefactors = einops.repeat(
-            pseudo_force_prefactors, "e -> e d", d=spatial_dimension
-        )
-        contributions = repeat_pseudo_force_prefactors * cartesian_displacements
-        return contributions
-
-    def _get_adjacency_information(
-        self, batch: Dict[AnyStr, torch.Tensor]
-    ) -> AdjacencyInfo:
-        basis_vectors = map_noisy_axl_lattice_parameters_to_unit_cell_vectors(
-            batch[NOISY_AXL_COMPOSITION].L,
-            min_box_size=1.0
-        )
-        relative_coordinates = batch[NOISY_AXL_COMPOSITION].X
-        cartesian_positions = get_positions_from_coordinates(
-            relative_coordinates, basis_vectors
-        )
-
-        adj_info = get_periodic_adjacency_information(
-            cartesian_positions,
-            basis_vectors,
-            radial_cutoff=self._force_field_parameters.radial_cutoff,
-        )
-        return adj_info
-
-    def _get_cartesian_displacements(
-        self, adj_info: AdjacencyInfo, batch: Dict[AnyStr, torch.Tensor]
-    ):
-        # The following are 1D arrays of length equal to the total number of neighbors for all batch elements
-        # and all atoms.
-        #   bch: which batch does an edge belong to
-        #   src: at which atom does an edge start
-        #   dst: at which atom does an edge end
-        bch = adj_info.edge_batch_indices
-        src, dst = adj_info.adjacency_matrix
-
-        relative_coordinates = batch[NOISY_AXL_COMPOSITION].X
-        basis_vectors = map_noisy_axl_lattice_parameters_to_unit_cell_vectors(
-            batch[NOISY_AXL_COMPOSITION].L,
-            min_box_size=1.0
-        )  # TODO handle the minimal size
-        cartesian_positions = get_positions_from_coordinates(
-            relative_coordinates, basis_vectors
-        )
-
-        cartesian_displacements = (
-            cartesian_positions[bch, dst]
-            - cartesian_positions[bch, src]
-            + adj_info.shifts
-        )
-        return cartesian_displacements
-
-    def _get_cartesian_pseudo_forces(
-        self,
-        cartesian_pseudo_force_contributions: torch.Tensor,
-        adj_info: AdjacencyInfo,
-        batch: Dict[AnyStr, torch.Tensor],
-    ):
-        # The following are 1D arrays of length equal to the total number of neighbors for all batch elements
-        # and all atoms.
-        #   bch: which batch does an edge belong to
-        #   src: at which atom does an edge start
-        #   dst: at which atom does an edge end
-        bch = adj_info.edge_batch_indices
-        src, dst = adj_info.adjacency_matrix
-
-        batch_size, natoms, spatial_dimension = batch[NOISY_AXL_COMPOSITION].X.shape
-
-        # Combine the bch and src index into a single global index
-        node_idx = natoms * bch + src
-
-        list_pseudo_force_components = []
-
-        for space_idx in range(spatial_dimension):
-            pseudo_force_component = torch.zeros(natoms * batch_size).to(
-                cartesian_pseudo_force_contributions
-            )
-            pseudo_force_component.scatter_add_(
-                dim=0,
-                index=node_idx,
-                src=cartesian_pseudo_force_contributions[:, space_idx],
-            )
-            list_pseudo_force_components.append(pseudo_force_component)
-
-        cartesian_pseudo_forces = einops.rearrange(
-            list_pseudo_force_components,
-            pattern="d (b n) -> b n d",
-            b=batch_size,
-            n=natoms,
-        )
-        return cartesian_pseudo_forces
-
     def get_force_score_from_batch(
         self, batch: Dict[AnyStr, torch.Tensor]
     ) -> torch.Tensor:
-        """Get relative coordinates pseudo force.
+        """Get relative coordinates repulsive score derived from _score_forces.
+
+        The score is divided into two quantities. The normalized forces gives the direction of the score
+        and the analytical fraction gives its magnitude.
+
+        normalized_forces = F / |F|,
+        where |F| is the norm over each configuration individually.
+
+        analytical_fraction indicates how strong the correction should be as a fraction of the total score.
+        It takes into account :
+         1. The strength of the forces with respect to force_activation_scale.
+         2. The discretization time, as atoms overlapping isn't catastrophic at t=T, but are a T=0.
+        The formula linear w.r.t time (for now) :
+            analytical_fraction = discretization_time * g
+            g = <|F|> / (<|F|> + self.force_activation_scale)
+
+        With this expression, the repulsion should smoothly appears when atoms become close and
+        the diffusion time is getting closer to 0.
 
         Args:
             batch : dictionary containing the data to be processed by the model.
-
+        
         Returns:
-            relative_pseudo_forces : repulsive force in relative coordinates.
+            normalized_forces: normalized repulsive score [Batch_size, Natoms, 3] (norm=1 for each configuration)
+            analytical_fraction: repulsion score correction weight [Batch_size]
         """
         composition_i = batch[NOISY_AXL_COMPOSITION]
         time = batch[TIME]

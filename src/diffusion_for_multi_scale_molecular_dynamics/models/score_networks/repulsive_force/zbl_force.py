@@ -18,7 +18,7 @@ class ZBLForceParameters(RepulsiveForceParameters):
 
 
 class ZBLForce(RepulsiveForce):
-    """Ziegler-Biersack-Littmark interatomic potential to get an analytical repulsion score."""
+    """Ziegler-Biersack-Littmark interatomic potential to get an analytical repulsion score based on LAMMPS ZBL."""
 
     def __init__(self, hyper_params: ZBLForceParameters):
         """Initialize the ZBL analytical repulsion model which calculates forces and gives an analytical score.
@@ -41,49 +41,6 @@ class ZBLForce(RepulsiveForce):
         self.prefactor = torch.tensor(_e**2 / (4 * torch.pi * _eps0) * J * m,  # e^2/(4pi epsilon_0) in eV ang
                                       dtype=torch.float32, device=self.device)
         self.calc_abc()
-
-    def get_repulsive_score(self, A, cartesian_positions, basis_vectors, discretization_time):
-        """Return an analytical repulsive score derived from ZBL forces.
-
-        The score is divided into two quantities. The normalized forces gives the direction of the score
-        and the analytical fraction gives its magnitude.
-
-        normalized_forces = F / |F|, 
-        where |F| is the norm over each configuration individually.
-
-        analytical_fraction indicates how strong the correction should be as a fraction of the total score.
-        It takes into account : 
-         1. The strength of the forces with respect to force_activation_scale.
-         2. The discretization time, as atoms overlapping isn't catastrophic at t=T, but are a T=0.
-        The formula linear w.r.t time (for now) :
-            analytical_fraction = discretization_time * g
-            g = <|F|> / (<|F|> + self.force_activation_scale)
-
-        With this expression, the repulsion should smoothly appears when atoms become close and
-        the diffusion time is getting closer to 0.
-
-        Args:
-            A: atom type indices [Batch_size, Natoms]
-            cartesian_positions: atomic positions [Batch_size, Natoms, 3]
-            basis_vectors: cell vectors [Batch_size, 3, 3]
-            discretization_time: diffusion time as a fraction (t/T)
-
-        Returns:
-            normalized_forces: normalized repulsive score [Batch_size, Natoms, 3] (norm=1 for each configuration)
-            analytical_fraction: repulsion score correction weight [Batch_size]
-        """
-        raise NotImplementedError("This should not be in this class")
-
-        epsilon = 1e-12  # So force doesn't diverge if every atom is farther than cutoff_radius
-        forces = self.get_forces(A, cartesian_positions, basis_vectors)
-
-        normalization_over_batch = forces.norm(dim=[1, 2])  # [B]
-        normalized_forces = forces / normalization_over_batch[:, None, None]  # [B,N,3]
-
-        g = normalization_over_batch / (normalization_over_batch + self.force_activation_scale)  # [B]
-        analytical_fraction = (1-discretization_time) * g  # [B]
-
-        return normalized_forces, analytical_fraction
 
     def get_forces(self, A, cartesian_positions, basis_vectors):
         """Calculate forces using ZBL interatomic potential as used in LAMMPS.

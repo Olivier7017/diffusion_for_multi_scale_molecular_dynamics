@@ -25,10 +25,10 @@ class HarmonicForceParameters(RepulsiveForceParameters):
 
 
 class HarmonicForce(RepulsiveForce):
-    """Ziegler-Biersack-Littmark interatomic potential to get an analytical repulsion score."""
+    """Harmonic potential to get an analytical repulsion score."""
 
     def __init__(self, hyper_params: HarmonicForceParameters):
-        """Initialize the ZBL analytical repulsion model which calculates forces and gives an analytical score.
+        """Initialize the analytical repulsion model which calculates forces and gives an analytical score.
 
         Args:
             strength : Strength of the harmonic force field

@@ -52,33 +52,12 @@ class TestConstrainedLangevinGenerator(TestLangevinGenerator):
                                   constrained_indices=constrained_indices)
 
     @pytest.fixture()
-    def pc_generator1(self, noise_parameters, sampling_parameters, axl_network, sampling_constraint):
+    def pc_generator(self, noise_parameters, sampling_parameters, axl_network, sampling_constraint):
         generator = ConstrainedLangevinGenerator(
             noise_parameters=noise_parameters,
             sampling_parameters=sampling_parameters,
             axl_network=axl_network,
             sampling_constraints=sampling_constraint
-        )
-        return generator
-
-    @pytest.fixture(params=[None, "zbl"])
-    def repulsion_score(self, request, elements, device):
-        if request.param is None:
-            return None
-        return ZBLRepulsionScore(
-            cutoff_radius=1.9382,
-            element_list=elements,
-            device=device,
-        )
-    
-    @pytest.fixture()
-    def pc_generator2(self, noise_parameters, sampling_parameters, axl_network, sampling_constraint, repulsion_score):
-        generator = ConstrainedLangevinGenerator(
-            noise_parameters=noise_parameters,
-            sampling_parameters=sampling_parameters,
-            axl_network=axl_network,
-            sampling_constraints=sampling_constraint,
-            repulsion_score=repulsion_score,
         )
         return generator
 
@@ -112,10 +91,10 @@ class TestConstrainedLangevinGenerator(TestLangevinGenerator):
         return True
 
     def test_apply_constraint(
-        self, pc_generator1, composition, sampling_constraint, device
+        self, pc_generator, composition, sampling_constraint, device
     ):
         batch_size = composition.X.shape[0]
-        constrained_composition = pc_generator1._apply_constraint(composition, device)
+        constrained_composition = pc_generator._apply_constraint(composition, device)
 
         constrained_a = einops.repeat(sampling_constraint.constrained_atom_types.to(device),
                                       "n -> b n",
@@ -130,8 +109,8 @@ class TestConstrainedLangevinGenerator(TestLangevinGenerator):
         torch.testing.assert_close(constrained_a, constrained_composition.A[:, sampling_constraint.constrained_indices])
         torch.testing.assert_close(constrained_x, constrained_composition.X[:, sampling_constraint.constrained_indices])
 
-    def test_get_composition_0_known(self, pc_generator1, number_of_samples, sampling_constraint, device) -> AXL:
-        composition0_known = pc_generator1._get_composition_0_known(number_of_samples, device)
+    def test_get_composition_0_known(self, pc_generator, number_of_samples, sampling_constraint, device) -> AXL:
+        composition0_known = pc_generator._get_composition_0_known(number_of_samples, device)
 
         batch_size = composition0_known.X.shape[0]
 
@@ -148,7 +127,7 @@ class TestConstrainedLangevinGenerator(TestLangevinGenerator):
         torch.testing.assert_close(constrained_a, composition0_known.A[:, sampling_constraint.constrained_indices])
         torch.testing.assert_close(constrained_x, composition0_known.X[:, sampling_constraint.constrained_indices])
 
-    def test_predictor_step_relative_coordinates_and_lattice(self, pc_generator2, composition, sampling_constraint, number_of_samples, mocker, noise, device):
+    def test_predictor_step_relative_coordinates_and_lattice(self, pc_generator, composition, sampling_constraint, number_of_samples, mocker, noise, device):
         forces = torch.zeros_like(composition.X)
         z_coordinates = pc_generator._draw_coordinates_gaussian_sample( number_of_samples ).to(composition.X) 
         mocker.patch.object( pc_generator, "_draw_coordinates_gaussian_sample", return_value=z_coordinates, ) 
