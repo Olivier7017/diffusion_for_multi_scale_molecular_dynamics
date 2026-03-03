@@ -144,6 +144,18 @@ class AXLDiffusionLightningModel(pl.LightningModule):
                 ), "Energies cannot be computed without a configured energy oracle."
                 self.oracle = create_energy_oracle(self.hyper_params.oracle_parameters)
 
+    def use_force_field_augmented_score_network(self, force_field_augmented_score_network, at_eval=True):
+        """Replace the underlying score_network for an ForceFieldAugmentedScoreNetwork.
+
+        Example of usage : 1. AXLDiffusionLightningModel.load_from_checkpoint
+                           2. ForceFieldAugmentedScore(score_network=trained_model.axl_network, ...)
+                           3. model.use_force_field_augmented_score_network
+        Note : If not model.eval and not forcefield.use_for_training, then the forcefield won't be used
+        """
+        self.axl_network = force_field_augmented_score_network
+        if at_eval:
+            self.eval()
+
     def configure_optimizers(self):
         """Returns the combination of optimizer(s) and learning rate scheduler(s) to train with.
 

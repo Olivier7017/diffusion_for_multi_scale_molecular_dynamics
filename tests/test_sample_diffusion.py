@@ -17,7 +17,9 @@ from diffusion_for_multi_scale_molecular_dynamics.models.axl_diffusion_lightning
 from diffusion_for_multi_scale_molecular_dynamics.models.optimizer import \
     OptimizerParameters
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.force_field_augmented_score_network import \
-    ForceFieldParameters
+    ForceFieldAugmentedScoreNetworkParameters
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import (
+    HarmonicForceParameters)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_score_network import \
     MLPScoreNetworkParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import \
@@ -65,7 +67,11 @@ def radial_cutoff(request):
 @pytest.fixture()
 def force_field_parameters(radial_cutoff):
     if radial_cutoff:
-        return ForceFieldParameters(radial_cutoff=radial_cutoff, strength=0.1)
+        harmonic_force_parameters = HarmonicForceParameters(radial_cutoff=radial_cutoff, strength=0.1)
+        return ForceFieldAugmentedScoreNetworkParameters(
+            repulsive_force_parameters=harmonic_force_parameters,
+            force_activation_scale=100.0,
+            use_for_training=False)
     else:
         return None
 

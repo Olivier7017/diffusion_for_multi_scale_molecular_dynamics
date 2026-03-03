@@ -1,16 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from ase.data import atomic_numbers
-from ase.units import _eps0, _e, m, J
 import torch
 import einops
 
-from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
-    get_positions_from_coordinates, get_reciprocal_basis_vectors,
-    get_relative_coordinates_from_cartesian_positions,
-    map_noisy_axl_lattice_parameters_to_unit_cell_vectors,
-    map_lattice_parameters_to_unit_cell_vectors)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.repulsive_force import (
     RepulsiveForce,
     RepulsiveForceParameters)
@@ -21,6 +14,7 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import (
 @dataclass(kw_only=True)
 class HarmonicForceParameters(RepulsiveForceParameters):
     """Specific Hyper-parameters for the harmonic force field."""
+    architecture: str = "harmonic"
     strength: float  # Strength of the repulsion
 
 
@@ -28,29 +22,23 @@ class HarmonicForce(RepulsiveForce):
     """Harmonic potential to get an analytical repulsion score."""
 
     def __init__(self, hyper_params: HarmonicForceParameters):
-        """Initialize the analytical repulsion model which calculates forces and gives an analytical score.
-
-        Args:
-            strength : Strength of the harmonic force field
-            cutoff_radius (ang): The minimal interatomic distance with no contribution from this analytical model.
-            device: torch device used for internal tensors.
-        """
+        """Initialize the analytical repulsion model which calculates forces and gives an analytical score."""
         self._force_field_strength = hyper_params.strength
         super().__init__(hyper_params)
 
-    def get_forces(self, A, cartesian_positions, basis_vectors) -> torch.Tensor:
-        """Get relative coordinates pseudo force.
+    def get_cartesian_forces(self, A, cartesian_positions, basis_vectors) -> torch.Tensor:
+        """Get cartesian coordinates pseudo force.
 
         Args:
             batch : dictionary containing the data to be processed by the model.
 
         Returns:
-            relative_pseudo_forces : repulsive force in relative coordinates.
+            cartesian_pseudo_forces : repulsive force in cartesian coordinates.
         """
         adj_info = get_periodic_adjacency_information(
             cartesian_positions,
             basis_vectors,
-            radial_cutoff=self.cutoff_radius,
+            radial_cutoff=self.radial_cutoff,
         )
 
         cartesian_displacements = self._get_cartesian_displacements(adj_info, cartesian_positions, basis_vectors)
@@ -62,12 +50,7 @@ class HarmonicForce(RepulsiveForce):
             cartesian_pseudo_force_contributions, adj_info, cartesian_positions
         )
 
-        reciprocal_basis_vectors = get_reciprocal_basis_vectors(basis_vectors)
-        relative_pseudo_forces = get_relative_coordinates_from_cartesian_positions(
-            cartesian_pseudo_forces, reciprocal_basis_vectors
-        )
-
-        return relative_pseudo_forces
+        return cartesian_pseudo_forces
 
     def _get_cartesian_displacements(
         self, adj_info: AdjacencyInfo, cartesian_positions, basis_vectors
@@ -91,10 +74,10 @@ class HarmonicForce(RepulsiveForce):
         """Get cartesian pseudo forces.
 
         The force field is based on a potential of the form:
-            phi(r) = strength * (r - cutoff_radius)^2
+            phi(r) = strength * (r - radial_cutoff)^2
 
         The corresponding force is thus of the form
-            F(r) = -nabla phi(r) = -2 strength * (r - cutoff_radius) r_hat.
+            F(r) = -nabla phi(r) = -2 strength * (r - radial_cutoff) r_hat.
 
         Args:
             cartesian_displacements : vectors (r_i - r_j). Dimension [number_of_edges, spatial_dimension]
@@ -104,7 +87,7 @@ class HarmonicForce(RepulsiveForce):
                 chosen potential. F(r_i - r_j) = - d/dr phi(r) (r_i - r_j) / ||r_i - r_j||
         """
         s = self._force_field_strength
-        r0 = self.cutoff_radius
+        r0 = self.radial_cutoff
 
         number_of_edges, spatial_dimension = cartesian_displacements.shape
 

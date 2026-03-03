@@ -127,11 +127,9 @@ class TestConstrainedLangevinGenerator(TestLangevinGenerator):
         torch.testing.assert_close(constrained_a, composition0_known.A[:, sampling_constraint.constrained_indices])
         torch.testing.assert_close(constrained_x, composition0_known.X[:, sampling_constraint.constrained_indices])
 
-    def test_predictor_step_relative_coordinates_and_lattice(self, pc_generator, composition, sampling_constraint, number_of_samples, mocker, noise, device):
-        forces = torch.zeros_like(composition.X)
-        z_coordinates = pc_generator._draw_coordinates_gaussian_sample( number_of_samples ).to(composition.X) 
-        mocker.patch.object( pc_generator, "_draw_coordinates_gaussian_sample", return_value=z_coordinates, ) 
-        z_lattice = pc_generator._draw_lattice_gaussian_sample(number_of_samples).to(composition.L ) 
-        mocker.patch.object( pc_generator, "_draw_lattice_gaussian_sample", return_value=z_lattice )
-
-         
+    def test_predictor_step_relative_coordinates_and_lattice(self, pc_generator, composition, sampling_constraint,
+                                                             number_of_samples, mocker, noise, device):
+        z_coordinates = pc_generator._draw_coordinates_gaussian_sample(number_of_samples).to(composition.X)
+        mocker.patch.object(pc_generator, "_draw_coordinates_gaussian_sample", return_value=z_coordinates,)
+        z_lattice = pc_generator._draw_lattice_gaussian_sample(number_of_samples).to(composition.L)
+        mocker.patch.object(pc_generator, "_draw_lattice_gaussian_sample", return_value=z_lattice)

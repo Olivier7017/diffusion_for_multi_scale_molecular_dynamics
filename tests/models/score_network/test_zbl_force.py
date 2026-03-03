@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 import pytest
-import numpy as np
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import ZBLForce, ZBLForceParameters
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import (
+    ZBLForce, ZBLForceParameters)
 
 
 def _tests_root() -> Path:
@@ -71,15 +70,15 @@ class TestZBLForce:
 
     @pytest.fixture()
     def basis_vectors(self):
-        vec =[[[7.2200, 0.0000, 0.0000],
-             [0.0000, 7.2200, 0.0000],
-             [0.0000, 0.0000, 7.2200]]]
+        vec = [[[7.2200, 0.0000, 0.0000],
+                [0.0000, 7.2200, 0.0000],
+                [0.0000, 0.0000, 7.2200]]]
         return torch.tensor(vec, dtype=torch.float32, device="cpu")
 
     def test_masked_type_32(self, cartesian_positions, basis_vectors):
         """Test for ZBLRepulsionScore using masked_atom type of 14.5"""
         zbl_parameters = ZBLForceParameters(
-            cutoff_radius=2.19293,
+            radial_cutoff=2.19293,
             inner_radius_fraction=0.5552844824048191,
             element_list=["Si", "P"],
             device="cpu",
@@ -90,7 +89,7 @@ class TestZBLForce:
         elements_index = [2, 2, 0, 2, 0, 2, 0, 0, 1, 0, 1, 0, 1, 2, 2, 1,
                           2, 0, 1, 0, 2, 1, 2, 0, 0, 1, 2, 1, 1, 1, 2, 0]
         A = torch.tensor([elements_index], dtype=torch.long)
-        calculated_forces = zbl_force.get_forces(A, cartesian_positions, basis_vectors)
+        calculated_forces = zbl_force.get_cartesian_forces(A, cartesian_positions, basis_vectors)
 
         # Type is torch.Tensor
         assert isinstance(calculated_forces, torch.Tensor)
@@ -103,7 +102,7 @@ class TestZBLForce:
     def test_zbl_forces_match_lammps_sige(self, cartesian_positions, basis_vectors):
         """Test the forces of ZBLRepulsionScore with precomputed ones from LAMMPS."""
         zbl_parameters = ZBLForceParameters(
-            cutoff_radius=2.19293,
+            radial_cutoff=2.19293,
             inner_radius_fraction=0.5552844824048191,
             element_list=["Si", "Ge"],
             device="cpu",
@@ -112,11 +111,11 @@ class TestZBLForce:
 
         elements_index = [[1, 0] * 16]
         A = torch.tensor(elements_index, dtype=torch.long)
-    
-        torch_forces = zbl_force.get_forces(A, cartesian_positions, basis_vectors)[0]
+
+        torch_forces = zbl_force.get_cartesian_forces(A, cartesian_positions, basis_vectors)[0]
         dump_path = _tests_root() / "reference_files" / "models" / "repulsion_score" / "SiGe.dump"
         lammps_forces = read_lammps_forces(dump_path)
-    
+
         # Shape
         assert torch_forces.shape == lammps_forces.shape == (32, 3)
         # Sum = 0

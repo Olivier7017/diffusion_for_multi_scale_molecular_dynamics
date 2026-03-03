@@ -12,25 +12,26 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsiv
 
 @dataclass(kw_only=True)
 class ZBLForceParameters(RepulsiveForceParameters):
-    """Specific Hyper-parameters for ZBL forces."""
+    """Specific Hyper-parameters for ZBL forces.
+
+    Args:
+        radial_cutoff: distance where the ZBL interaction is fully switched off (Angstrom).
+        element_list: ordered list of element symbols used to map atom type indices A -> atomic number.
+        inner_radius_fraction: inner_radius = fraction * radial_cutoff, where the switching polynomial starts.
+        device: torch device used for internal tensors.
+    """
+    architecture: str = "zbl"
     element_list: list[str]
-    inner_radius_fraction: float = 0.5  # inner_radius = inner_radius_fraction * cutoff_radius
+    inner_radius_fraction: float = 0.5  # inner_radius = inner_radius_fraction * radial_cutoff
 
 
 class ZBLForce(RepulsiveForce):
     """Ziegler-Biersack-Littmark interatomic potential to get an analytical repulsion score based on LAMMPS ZBL."""
 
     def __init__(self, hyper_params: ZBLForceParameters):
-        """Initialize the ZBL analytical repulsion model which calculates forces and gives an analytical score.
-
-        Args:
-            cutoff_radius: distance where the ZBL interaction is fully switched off (Angstrom).
-            element_list: ordered list of element symbols used to map atom type indices A -> atomic number.
-            inner_radius_fraction: inner_radius = fraction * cutoff_radius, where the switching polynomial starts.
-            device: torch device used for internal tensors.
-        """
+        """Initialize the ZBL analytical repulsion model which calculates forces and gives an analytical score."""
         super().__init__(hyper_params)
-        self.inner_radius = self.cutoff_radius * hyper_params.inner_radius_fraction
+        self.inner_radius = self.radial_cutoff * hyper_params.inner_radius_fraction
 
         # How does ZBL should deal with masked atom type ? For now, it will be the average Z over types.
         Z_of_index = [atomic_numbers[s] for s in hyper_params.element_list]
@@ -42,7 +43,7 @@ class ZBLForce(RepulsiveForce):
                                       dtype=torch.float32, device=self.device)
         self.calc_abc()
 
-    def get_forces(self, A, cartesian_positions, basis_vectors):
+    def get_cartesian_forces(self, A, cartesian_positions, basis_vectors):
         """Calculate forces using ZBL interatomic potential as used in LAMMPS.
 
         Uses torch.autograd for efficient calculations of the forces.
@@ -118,7 +119,7 @@ class ZBLForce(RepulsiveForce):
         B = ( 2*E'(rc) - (rc-ri)*E''(rc) )/(rc-ri)^3
         C = -E(rc) + 0.5*(rc-ri)*E'(rc) - (1/12)*(rc-ri)^2*E''(rc)
         """
-        rc = self.cutoff_radius
+        rc = self.radial_cutoff
         ri = self.inner_radius
         Zi = self.index_to_atomic_numbers[:, None]
         Zj = self.index_to_atomic_numbers[None, :]
@@ -151,8 +152,8 @@ class ZBLForce(RepulsiveForce):
         A, B, C, E(rc), E'(rc) and E''(rc) are all computed in calc_abc.
 
         Args :
-             r_ij : Distance between all atoms within self.cutoff_radius of each other.
-                    IMPORTANT : The function will fail if given distance bigger than self.cutoff_radius.
+             r_ij : Distance between all atoms within self.radial_cutoff of each other.
+                    IMPORTANT : The function will fail if given distance bigger than self.radial_cutoff.
              idx_i : index of atom i in index_to_atomic_numbers
              idx_j : index of atom j in index_to_atomic_numbers
 

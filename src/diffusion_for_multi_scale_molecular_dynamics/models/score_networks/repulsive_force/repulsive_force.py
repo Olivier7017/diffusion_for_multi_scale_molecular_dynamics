@@ -10,8 +10,13 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import \
 
 @dataclass(kw_only=True)
 class RepulsiveForceParameters:
-    """Hyper-parameters for repulsive forces."""
-    cutoff_radius: float
+    """Hyper-parameters for repulsive forces.
+
+    Args:
+        radial_cutoff (ang): The minimal interatomic distance with no contribution from this analytical model.
+        device: torch device used for internal tensors.
+    """
+    radial_cutoff: float
     device: str = "cpu"
 
 
@@ -19,21 +24,15 @@ class RepulsiveForce(ABC):
     """Analytical Atomic Repulsion Score.
 
     This class calculates a score based on an analytical model to helps stability.
-    This is used in LangevinGenerator predictor_step and corrector step to penalize atomic overlaps at inference.
     """
 
     def __init__(self, hyper_params: RepulsiveForceParameters):
-        """Init method.
-
-        Args:
-            cutoff_radius (ang): The minimal interatomic distance with no contribution from this analytical model.
-            device: torch device used for internal tensors.
-        """
+        """Init method."""
         self.device = hyper_params.device
-        self.cutoff_radius = torch.tensor(hyper_params.cutoff_radius, dtype=torch.float32, device=self.device)
+        self.radial_cutoff = torch.tensor(hyper_params.radial_cutoff, dtype=torch.float32, device=self.device)
 
     def get_atomic_distances(self, cartesian_positions, basis_vectors):
-        """Return the atomic distance between every pair of atoms up to cutoff_radius. Else, gives -1.
+        """Return the atomic distance between every pair of atoms up to radial_cutoff. Else, gives -1.
 
         Args:
             cartesian_positions: Cartesian positions [nconf, natoms, 3]
@@ -56,7 +55,7 @@ class RepulsiveForce(ABC):
         adj = get_periodic_adjacency_information(
             cartesian_positions=cartesian_positions,
             basis_vectors=basis_vectors,
-            radial_cutoff=self.cutoff_radius,
+            radial_cutoff=self.radial_cutoff,
             spatial_dimension=3,
         )
 
@@ -72,3 +71,8 @@ class RepulsiveForce(ABC):
         atomic_distances = atomic_distances.index_put((b, dst, src), distance_unordered)
 
         return atomic_distances
+
+    @abstractmethod
+    def get_cartesian_forces(self, A, cartesian_positions, basis_vectors):
+        """Returns the cartesian forces."""
+        pass

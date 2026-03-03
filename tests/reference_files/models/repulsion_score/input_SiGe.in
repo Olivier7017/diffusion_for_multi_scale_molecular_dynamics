@@ -14,7 +14,7 @@ group          Si type 1
 group          Ge type 2
 
 # Interactions (ZBL only)
-# inner_radius = 1.2177 Å, cutoff_radius = 2.19293 Å
+# inner_radius = 1.2177 Å, radial_cutoff = 2.19293 Å
 pair_style     zbl 1.2177 2.19293
 pair_coeff     1 1 14 14
 pair_coeff     1 2 14 32

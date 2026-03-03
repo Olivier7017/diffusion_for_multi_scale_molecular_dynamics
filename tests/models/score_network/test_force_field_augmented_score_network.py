@@ -4,33 +4,35 @@ from ase import Atoms
 from unittest.mock import patch
 
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.force_field_augmented_score_network import (
-    ForceFieldAugmentedScoreNetwork, ForceFieldParameters)
+    ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_score_network import (
     MLPScoreNetwork, MLPScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME, UNIT_CELL)
 from tests.models.score_network.base_test_score_network import \
     BaseTestScoreNetwork
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import HarmonicForce, HarmonicForceParameters
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import (
+    HarmonicForce, HarmonicForceParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
-    get_positions_from_coordinates, get_reciprocal_basis_vectors,
-    get_relative_coordinates_from_cartesian_positions,
-    map_noisy_axl_lattice_parameters_to_unit_cell_vectors,
+    get_positions_from_coordinates,
     map_lattice_parameters_to_unit_cell_vectors)
 from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import (
-    AdjacencyInfo, get_periodic_adjacency_information)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import EGNNScoreNetworkParameters, EGNNScoreNetwork
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import PredictorCorrectorSamplingParameters
+    get_periodic_adjacency_information)
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
+    EGNNScoreNetworkParameters, EGNNScoreNetwork)
+from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import (
+    PredictorCorrectorSamplingParameters)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
     NoiseScheduler
 from diffusion_for_multi_scale_molecular_dynamics.generators.langevin_generator import \
     LangevinGenerator
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import ZBLForce, ZBLForceParameters
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import (
+    ZBLForce, ZBLForceParameters)
 
 
 @pytest.mark.parametrize("number_of_atoms", [4, 8, 16])
-@pytest.mark.parametrize("cutoff_radius", [1.5, 2.0, 2.5])
+@pytest.mark.parametrize("radial_cutoff", [1.5, 2.0, 2.5])
 class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
     @pytest.fixture()
     def score_network(
@@ -52,8 +54,8 @@ class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
         return MLPScoreNetwork(score_network_parameters)
 
     @pytest.fixture()
-    def harmonic_force_parameters(self, cutoff_radius):
-        return HarmonicForceParameters(cutoff_radius=cutoff_radius, strength=1.0)
+    def harmonic_force_parameters(self, radial_cutoff):
+        return HarmonicForceParameters(radial_cutoff=radial_cutoff, strength=1.0)
 
     @pytest.fixture()
     def force_field_augmented_score_network(
@@ -149,10 +151,12 @@ class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
         fake_cartesian_displacements,
     ):
         s = harmonic_force_parameters.strength
-        r0 = harmonic_force_parameters.cutoff_radius
+        r0 = harmonic_force_parameters.radial_cutoff
 
-        expected_contributions = force_field_augmented_score_network._score_forces._get_cartesian_pseudo_forces_contributions(
-            fake_cartesian_displacements
+        expected_contributions = (
+            force_field_augmented_score_network._repulsive_force._get_cartesian_pseudo_forces_contributions(
+                fake_cartesian_displacements
+            )
         )
 
         for r, expected_contribution in zip(
@@ -170,23 +174,25 @@ class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
         composition_i = batch[NOISY_AXL_COMPOSITION]
         basis_vectors = map_lattice_parameters_to_unit_cell_vectors(composition_i.L)
         cartesian_positions = get_positions_from_coordinates(composition_i.X, basis_vectors)
-        
+
         adj_info = get_periodic_adjacency_information(
             cartesian_positions,
             basis_vectors,
-            radial_cutoff=harmonic_force_parameters.cutoff_radius,
+            radial_cutoff=harmonic_force_parameters.radial_cutoff,
         )
         cartesian_displacements = (
-            force_field_augmented_score_network._score_forces._get_cartesian_displacements(
+            force_field_augmented_score_network._repulsive_force._get_cartesian_displacements(
                 adj_info, cartesian_positions, basis_vectors
             )
         )
         cartesian_pseudo_force_contributions = (
-            force_field_augmented_score_network._score_forces._get_cartesian_pseudo_forces_contributions(cartesian_displacements)
+            force_field_augmented_score_network._repulsive_force._get_cartesian_pseudo_forces_contributions(
+                cartesian_displacements
+            )
         )
 
         computed_cartesian_pseudo_forces = (
-            force_field_augmented_score_network._score_forces._get_cartesian_pseudo_forces(
+            force_field_augmented_score_network._repulsive_force._get_cartesian_pseudo_forces(
                 cartesian_pseudo_force_contributions, adj_info, cartesian_positions
             )
         )
@@ -214,11 +220,11 @@ class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
             batch
         )
         assert force_directions.sum() < 1e-4
-       
-        updated_scores = force_field_augmented_score_network(batch)
+
+        force_field_augmented_score_network(batch)
         # TODO : Add more test to make sure the updated scores make sense
 
- 
+
 def test_specific_scenario_sanity_check():
     """Test a specific scenario.
 
@@ -227,11 +233,11 @@ def test_specific_scenario_sanity_check():
     """
     spatial_dimension = 3
 
-    harmonic_force_parameters = HarmonicForceParameters(cutoff_radius=0.4, strength=1)
+    harmonic_force_parameters = HarmonicForceParameters(radial_cutoff=0.4, strength=1)
     harmonic_force = HarmonicForce(harmonic_force_parameters)
 
     force_field_score_network = ForceFieldAugmentedScoreNetwork(
-        score_network=None, score_forces=harmonic_force
+        score_network=None, repulsive_force=harmonic_force
     )
 
     # Put two atoms on a straight line
@@ -243,13 +249,7 @@ def test_specific_scenario_sanity_check():
     basis_vectors = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
     cartesian_positions = get_positions_from_coordinates(relative_coordinates, basis_vectors)
 
-    batch = {
-        NOISY_AXL_COMPOSITION: AXL(
-            A=atom_types, X=relative_coordinates, L=lattice_parameters
-        ),
-    }
-
-    forces = force_field_score_network._score_forces.get_forces(
+    forces = force_field_score_network._repulsive_force.get_cartesian_forces(
         A=atom_types,
         cartesian_positions=cartesian_positions,
         basis_vectors=basis_vectors
@@ -315,9 +315,9 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
 
     @pytest.fixture()
     def basis_vectors_Si32(self):
-        vec =[[[7.2200, 0.0000, 0.0000],
-             [0.0000, 7.2200, 0.0000],
-             [0.0000, 0.0000, 7.2200]]]
+        vec = [[[7.2200, 0.0000, 0.0000],
+                [0.0000, 7.2200, 0.0000],
+                [0.0000, 0.0000, 7.2200]]]
         return torch.tensor(vec, dtype=torch.float32, device="cpu")
 
     @pytest.fixture()
@@ -335,7 +335,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
     @pytest.fixture()
     def atoms_Si32(self, element_list_Si32, number_of_atoms_Si32, atomic_positions_Si32, basis_vectors_Si32):
         atoms = Atoms(
-            symbols=element_list_Si32*number_of_atoms_Si32,
+            symbols=element_list_Si32 * number_of_atoms_Si32,
             positions=atomic_positions_Si32[0],
             cell=basis_vectors_Si32[0],
             pbc=True
@@ -356,34 +356,34 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
     @pytest.fixture()
     def noise_parameters_Si32(self):
         noise_parameters = NoiseParameters(
-            total_time_steps = 3,
-            sigma_min = 0.005,
-            sigma_max = 0.5,
-            schedule_type = "exponential",
+            total_time_steps=3,
+            sigma_min=0.005,
+            sigma_max=0.5,
+            schedule_type="exponential",
         )
         return noise_parameters
 
     @pytest.fixture()
     def score_network_parameters_Si32(self):
         score_network_parameters = EGNNScoreNetworkParameters(
-                                       num_atom_types=1,
-                                       number_of_bloch_wave_shells=1,
-                                       message_n_hidden_dimensions=2,
-                                       message_hidden_dimensions_size=64,
-                                       node_n_hidden_dimensions=2,
-                                       node_hidden_dimensions_size=64,
-                                       coordinate_n_hidden_dimensions=2,
-                                       coordinate_hidden_dimensions_size=64,
-                                       residual=True,
-                                       attention=False,
-                                       normalize=True,
-                                       tanh=True,
-                                       coords_agg="mean",
-                                       message_agg="mean",
-                                       n_layers=4,
-                                       edges="radial_cutoff",
-                                       radial_cutoff=5.,
-                                       drop_duplicate_edges=True)
+            num_atom_types=1,
+            number_of_bloch_wave_shells=1,
+            message_n_hidden_dimensions=2,
+            message_hidden_dimensions_size=64,
+            node_n_hidden_dimensions=2,
+            node_hidden_dimensions_size=64,
+            coordinate_n_hidden_dimensions=2,
+            coordinate_hidden_dimensions_size=64,
+            residual=True,
+            attention=False,
+            normalize=True,
+            tanh=True,
+            coords_agg="mean",
+            message_agg="mean",
+            n_layers=4,
+            edges="radial_cutoff",
+            radial_cutoff=5.,
+            drop_duplicate_edges=True)
         return score_network_parameters
 
     @pytest.fixture()
@@ -400,7 +400,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
 
     @pytest.fixture()
     def composition_Si32(self, number_of_atoms_Si32, reduced_positions_Si32, lattice_parameters_Si32):
-        A = torch.tensor([[1]*number_of_atoms_Si32])
+        A = torch.tensor([[1] * number_of_atoms_Si32])
         return AXL(A=A, X=reduced_positions_Si32, L=lattice_parameters_Si32)
 
     def test_Si_forcefield_ZBL(self, number_of_samples_Si32, number_of_atoms_Si32, number_of_elements_Si32,
@@ -409,13 +409,13 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
                                composition_Si32):
         """Test for ZBLRepulsionScore using masked_atom type of 14.5"""
         # 1. Prepare the objects for the test
-        noise_sched = NoiseScheduler(noise_parameters_Si32, num_classes=number_of_elements_Si32+1)
+        noise_sched = NoiseScheduler(noise_parameters_Si32, num_classes=number_of_elements_Si32 + 1)
         noise, _ = noise_sched.get_all_sampling_parameters()
         sigmas = noise.sigma
         forces = torch.zeros([number_of_atoms_Si32, 3]).to(basis_vectors_Si32)
 
         zbl_parameters = ZBLForceParameters(
-            cutoff_radius=2.19293,
+            radial_cutoff=2.19293,
             inner_radius_fraction=0.5552844824048191,
             element_list=element_list_Si32,
             device="cpu",
@@ -423,18 +423,23 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
         zbl_force = ZBLForce(zbl_parameters)
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)
-        model = ForceFieldAugmentedScoreNetwork(
+        force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
             score_network=score_network,
-            score_forces=zbl_force,
+            repulsive_force=zbl_force,
             diffusion_time_scaling="linear",
             force_activation_scale=100.,
             use_for_training=False,
         )
-
+        model = ForceFieldAugmentedScoreNetworkParameters(force_field_parameters)
         model.eval()  # Set model.training to False
+
         fake_model_output = AXL(
-            A=torch.zeros([number_of_samples_Si32, number_of_atoms_Si32, number_of_elements_Si32]).to(basis_vectors_Si32),
-            X=torch.zeros([number_of_samples_Si32, number_of_atoms_Si32, 3]).to(basis_vectors_Si32),
+            A=torch.zeros([number_of_samples_Si32,
+                           number_of_atoms_Si32,
+                           number_of_elements_Si32]).to(basis_vectors_Si32),
+            X=torch.zeros([number_of_samples_Si32,
+                           number_of_atoms_Si32,
+                           3]).to(basis_vectors_Si32),
             L=torch.zeros([1, 6]).to(basis_vectors_Si32)
         )  # We want the EGNN model to return a zeros
 
@@ -449,10 +454,11 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             for i in range(len(times_Si32)):
                 time_tensor = (times_Si32[i] * torch.ones(number_of_samples_Si32, 1)).to(composition_Si32.X)
                 sigma_tensor = sigmas[i] * torch.ones_like(time_tensor)
-                batch = {NOISY_AXL_COMPOSITION: composition_Si32,
-                         TIME: time_tensor,
-                         NOISE: sigma_tensor,
-                         CARTESIAN_FORCES: forces,
+                batch = {
+                    NOISY_AXL_COMPOSITION: composition_Si32,
+                    TIME: time_tensor,
+                    NOISE: sigma_tensor,
+                    CARTESIAN_FORCES: forces,
                 }
 
                 force_score = model(batch)
@@ -462,15 +468,15 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
 
                 g2i_updated_structs = []
                 for g2_i in g2_squared_test:
-                    score_weight = g2_i *torch.ones_like(noise_sched._g_squared_array[i])
-                    gaussian_noise = torch.zeros_like(noise_sched._g_array[i])  # We don't want to introduce the gaussian_noise
+                    score_weight = g2_i * torch.ones_like(noise_sched._g_squared_array[i])
+                    gaussian_noise = torch.zeros_like(noise_sched._g_array[i])  # No gaussian noise
                     z_noise = torch.zeros_like(force_score.X)
 
                     g2i_updated_structs.append(
                         generator._relative_coordinates_update(
                             relative_coordinates=composition_Si32.X,
                             sigma_normalized_scores=force_score.X,
-                            sigma_i =sigma_i,
+                            sigma_i=sigma_i,
                             score_weight=score_weight,
                             gaussian_noise_weight=gaussian_noise,
                             z=z_noise,
@@ -483,17 +489,29 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
 
         # 3.1 Verify the maximal force decreases more with bigger g2_i
         for g2i_updated_structs in updated_structs:
-            force_g2i_small = zbl_force.get_forces(composition_Si32.A, g2i_updated_structs[0], basis_vectors_Si32)
-            force_g2i_smaller = zbl_force.get_forces(composition_Si32.A, g2i_updated_structs[1], basis_vectors_Si32)
-            force_g2i_smallest = zbl_force.get_forces(composition_Si32.A, g2i_updated_structs[2], basis_vectors_Si32)
+            force_g2i_small = zbl_force.get_cartesian_forces(
+                composition_Si32.A,
+                g2i_updated_structs[0],
+                basis_vectors_Si32
+            )
+            force_g2i_smaller = zbl_force.get_cartesian_forces(
+                composition_Si32.A,
+                g2i_updated_structs[1],
+                basis_vectors_Si32
+            )
+            force_g2i_smallest = zbl_force.get_cartesian_forces(
+                composition_Si32.A,
+                g2i_updated_structs[2],
+                basis_vectors_Si32
+            )
 
             assert force_g2i_small.abs().max() <= force_g2i_smaller.abs().max()
             assert force_g2i_smaller.abs().max() <= force_g2i_smallest.abs().max()
 
         # 3.2 Verify that the maximal force decreases more with t->0 (only true because every g2_i is equal)
-        force_zerotime = zbl_force.get_forces(composition_Si32.A, updated_structs[0][0], basis_vectors_Si32)
-        force_halftime = zbl_force.get_forces(composition_Si32.A, updated_structs[1][0], basis_vectors_Si32)
-        force_Ttime = zbl_force.get_forces(composition_Si32.A, updated_structs[2][0], basis_vectors_Si32)
+        force_zerotime = zbl_force.get_cartesian_forces(composition_Si32.A, updated_structs[0][0], basis_vectors_Si32)
+        force_halftime = zbl_force.get_cartesian_forces(composition_Si32.A, updated_structs[1][0], basis_vectors_Si32)
+        force_Ttime = zbl_force.get_cartesian_forces(composition_Si32.A, updated_structs[2][0], basis_vectors_Si32)
 
         assert force_zerotime.abs().max() <= force_halftime.abs().max()
         assert force_halftime.abs().max() <= force_Ttime.abs().max()
@@ -515,22 +533,20 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
         assert zerotime_min_dist >= halftime_min_dist
         assert halftime_min_dist >= initial_min_dist
 
-
     def test_ZBL_with_no_forces(self, number_of_samples_Si32, number_of_atoms_Si32, number_of_elements_Si32,
-                           basis_vectors_Si32, element_list_Si32, score_network_parameters_Si32,
-                           sampling_parameters_Si32, noise_parameters_Si32, composition_Si32):
+                                basis_vectors_Si32, element_list_Si32, score_network_parameters_Si32,
+                                sampling_parameters_Si32, noise_parameters_Si32, composition_Si32):
         """Smoke test for ForceFieldAugmentedScoreNetwork + ZBL with no interacting atoms."""
         # 1. Create the object
         time = 1e-4
         sigma = 5e-3
         g2_i = 1e-4
-        noise_sched = NoiseScheduler(noise_parameters_Si32, num_classes=number_of_elements_Si32+1)
+        noise_sched = NoiseScheduler(noise_parameters_Si32, num_classes=number_of_elements_Si32 + 1)
         noise, _ = noise_sched.get_all_sampling_parameters()
         forces = torch.zeros([number_of_atoms_Si32, 3]).to(basis_vectors_Si32)
 
-
         zbl_parameters = ZBLForceParameters(
-            cutoff_radius=1e-4,  # Tiny cutoff_radius so there's no interacting pairs
+            radial_cutoff=1e-4,  # Tiny radial_cutoff so there's no interacting pairs
             inner_radius_fraction=0.5,
             element_list=element_list_Si32,
             device="cpu",
@@ -538,13 +554,14 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
         zbl_force = ZBLForce(zbl_parameters)
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)
-        model = ForceFieldAugmentedScoreNetwork(
+        force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
             score_network=score_network,
-            score_forces=zbl_force,
+            repulsive_force=zbl_force,
             diffusion_time_scaling="linear",
             force_activation_scale=100.0,
             use_for_training=False,
         )
+        model = ForceFieldAugmentedScoreNetworkParameters(force_field_parameters)
         model.eval()
 
         generator = LangevinGenerator(noise_parameters=noise_parameters_Si32,
@@ -570,27 +587,26 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
         with patch.object(model._score_network, "forward", return_value=fake_model_output):
             time_tensor = (time * torch.ones(number_of_samples_Si32, 1)).to(composition_Si32.X)
             sigma_tensor = sigma * torch.ones_like(time_tensor)
-            batch = {NOISY_AXL_COMPOSITION: composition_Si32,
-                     TIME: time_tensor,
-                     NOISE: sigma_tensor,
-                     CARTESIAN_FORCES: forces,
+            batch = {
+                NOISY_AXL_COMPOSITION: composition_Si32,
+                TIME: time_tensor,
+                NOISE: sigma_tensor,
+                CARTESIAN_FORCES: forces,
             }
 
             force_score = model(batch)
-
-
             score_weight = g2_i * torch.ones_like(noise_sched._g_squared_array)
-            gaussian_noise = torch.zeros_like(noise_sched._g_array)  # We don't want to introduce the gaussian_noise
+            gaussian_noise = torch.zeros_like(noise_sched._g_array)  # No gaussian noise
             z_noise = torch.zeros_like(force_score.X)
 
             updated_struct = generator._relative_coordinates_update(
-                    relative_coordinates=composition_Si32.X,
-                    sigma_normalized_scores=force_score.X,
-                    sigma_i =sigma,
-                    score_weight=score_weight,
-                    gaussian_noise_weight=gaussian_noise,
-                    z=z_noise,
-                )
+                relative_coordinates=composition_Si32.X,
+                sigma_normalized_scores=force_score.X,
+                sigma_i=sigma,
+                score_weight=score_weight,
+                gaussian_noise_weight=gaussian_noise,
+                z=z_noise,
+            )
 
         # 3. Assert everything works as expected
         # 3.1 The force_score should filled with 0.
