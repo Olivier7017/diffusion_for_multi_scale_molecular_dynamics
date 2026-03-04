@@ -44,7 +44,7 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
 
     def __init__(
         self, score_network: ScoreNetwork, force_field_parameters: ForceFieldAugmentedScoreNetworkParameters
-        ):
+    ):
         """Wrapper around ScoreNetwork that adds a contribution to the predicted score.
 
         You can then add it to AXLDiffusionLightningModel with model.use_force_field_augmented_score_network
@@ -56,7 +56,7 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         super().__init__()
 
         self._score_network = score_network
-        self._repulsive_force = create_repulsive_force(force_field_parameters.repulsive_force_parameters)
+        self.repulsive_force = create_repulsive_force(force_field_parameters.repulsive_force_parameters)
         self._force_activation_scale = force_field_parameters.force_activation_scale
         self._use_for_training = force_field_parameters.use_for_training
 
@@ -129,7 +129,7 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         cartesian_positions = get_positions_from_coordinates(composition_i.X, basis_vectors)
         reciprocal_basis_vectors = get_reciprocal_basis_vectors(basis_vectors)
 
-        cartesian_forces = self._repulsive_force.get_cartesian_forces(
+        cartesian_forces = self.repulsive_force.get_cartesian_forces(
             composition_i.A,
             cartesian_positions,
             basis_vectors

@@ -10,12 +10,12 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsiv
 
 REPULSIVE_FORCE_BY_ARCH = dict(
     harmonic=HarmonicForce,
-    zbl = ZBLForce,
+    zbl=ZBLForce,
 )
 
 REPULSIVE_FORCE_PARAMETERS_BY_ARCH = dict(
     harmonic=HarmonicForceParameters,
-    zbl = ZBLForceParameters,
+    zbl=ZBLForceParameters,
 )
 
 
@@ -34,9 +34,10 @@ def create_repulsive_force(repulsive_force_parameters: RepulsiveForceParameters)
     )
     return instantiated_repulsive_force
 
+
 def create_repulsive_force_parameters(
     repulsive_force_dictionary: Dict[AnyStr, Any],
-    ) -> RepulsiveForceParameters:
+) -> RepulsiveForceParameters:
     """Create RepulsiveForceParameters from YAML dict."""
     assert (
         "architecture" in repulsive_force_dictionary

@@ -12,7 +12,7 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
 from tests.models.score_network.base_test_score_network import \
     BaseTestScoreNetwork
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import (
-    HarmonicForce, HarmonicForceParameters)
+    HarmonicForceParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates,
     map_lattice_parameters_to_unit_cell_vectors)
@@ -28,7 +28,7 @@ from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_schedul
 from diffusion_for_multi_scale_molecular_dynamics.generators.langevin_generator import \
     LangevinGenerator
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import (
-    ZBLForce, ZBLForceParameters)
+    ZBLForceParameters)
 
 
 @pytest.mark.parametrize("number_of_atoms", [4, 8, 16])
@@ -61,9 +61,12 @@ class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
     def force_field_augmented_score_network(
         self, score_network, harmonic_force_parameters
     ):
-        harmonic_force = HarmonicForce(harmonic_force_parameters)
+        force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
+            repulsive_force_parameters=harmonic_force_parameters,
+        )
         augmented_score_network = ForceFieldAugmentedScoreNetwork(
-            score_network, harmonic_force
+            score_network=score_network,
+            force_field_parameters=force_field_parameters,
         )
         return augmented_score_network
 
@@ -154,7 +157,7 @@ class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
         r0 = harmonic_force_parameters.radial_cutoff
 
         expected_contributions = (
-            force_field_augmented_score_network._repulsive_force._get_cartesian_pseudo_forces_contributions(
+            force_field_augmented_score_network.repulsive_force._get_cartesian_pseudo_forces_contributions(
                 fake_cartesian_displacements
             )
         )
@@ -181,18 +184,18 @@ class TestForceFieldAugmentedScoreNetworkHarmonic(BaseTestScoreNetwork):
             radial_cutoff=harmonic_force_parameters.radial_cutoff,
         )
         cartesian_displacements = (
-            force_field_augmented_score_network._repulsive_force._get_cartesian_displacements(
+            force_field_augmented_score_network.repulsive_force._get_cartesian_displacements(
                 adj_info, cartesian_positions, basis_vectors
             )
         )
         cartesian_pseudo_force_contributions = (
-            force_field_augmented_score_network._repulsive_force._get_cartesian_pseudo_forces_contributions(
+            force_field_augmented_score_network.repulsive_force._get_cartesian_pseudo_forces_contributions(
                 cartesian_displacements
             )
         )
 
         computed_cartesian_pseudo_forces = (
-            force_field_augmented_score_network._repulsive_force._get_cartesian_pseudo_forces(
+            force_field_augmented_score_network.repulsive_force._get_cartesian_pseudo_forces(
                 cartesian_pseudo_force_contributions, adj_info, cartesian_positions
             )
         )
@@ -232,12 +235,16 @@ def test_specific_scenario_sanity_check():
     the computed forces points AWAY from the neighbors.
     """
     spatial_dimension = 3
-
     harmonic_force_parameters = HarmonicForceParameters(radial_cutoff=0.4, strength=1)
-    harmonic_force = HarmonicForce(harmonic_force_parameters)
 
+    force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
+        repulsive_force_parameters=harmonic_force_parameters,
+        force_activation_scale=100.,
+        use_for_training=False,
+    )
     force_field_score_network = ForceFieldAugmentedScoreNetwork(
-        score_network=None, repulsive_force=harmonic_force
+        score_network=None,
+        force_field_parameters=force_field_parameters,
     )
 
     # Put two atoms on a straight line
@@ -249,7 +256,7 @@ def test_specific_scenario_sanity_check():
     basis_vectors = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
     cartesian_positions = get_positions_from_coordinates(relative_coordinates, basis_vectors)
 
-    forces = force_field_score_network._repulsive_force.get_cartesian_forces(
+    forces = force_field_score_network.repulsive_force.get_cartesian_forces(
         A=atom_types,
         cartesian_positions=cartesian_positions,
         basis_vectors=basis_vectors
@@ -420,18 +427,19 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             element_list=element_list_Si32,
             device="cpu",
         )
-        zbl_force = ZBLForce(zbl_parameters)
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)
         force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
-            score_network=score_network,
-            repulsive_force=zbl_force,
-            diffusion_time_scaling="linear",
+            repulsive_force_parameters=zbl_parameters,
             force_activation_scale=100.,
             use_for_training=False,
         )
-        model = ForceFieldAugmentedScoreNetworkParameters(force_field_parameters)
+        model = ForceFieldAugmentedScoreNetwork(
+            score_network=score_network,
+            force_field_parameters=force_field_parameters,
+        )
         model.eval()  # Set model.training to False
+        zbl_force = model.repulsive_force
 
         fake_model_output = AXL(
             A=torch.zeros([number_of_samples_Si32,
@@ -551,17 +559,17 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             element_list=element_list_Si32,
             device="cpu",
         )
-        zbl_force = ZBLForce(zbl_parameters)
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)
         force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
-            score_network=score_network,
-            repulsive_force=zbl_force,
-            diffusion_time_scaling="linear",
+            repulsive_force_parameters=zbl_parameters,
             force_activation_scale=100.0,
             use_for_training=False,
         )
-        model = ForceFieldAugmentedScoreNetworkParameters(force_field_parameters)
+        model = ForceFieldAugmentedScoreNetwork(
+            score_network=score_network,
+            force_field_parameters=force_field_parameters,
+        )
         model.eval()
 
         generator = LangevinGenerator(noise_parameters=noise_parameters_Si32,
