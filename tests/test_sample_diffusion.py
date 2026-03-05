@@ -220,7 +220,7 @@ def test_sample_diffusion(
     sample_diffusion.main(args)
 
     assert (output_path / "samples.pt").exists()
-    samples = torch.load(output_path / "samples.pt")
+    samples = torch.load(output_path / "samples.pt", weights_only=False)
 
     x = samples[AXL_COMPOSITION].X
     a = samples[AXL_COMPOSITION].A

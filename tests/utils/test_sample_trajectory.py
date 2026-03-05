@@ -274,7 +274,7 @@ def sample_trajectory(
 def pickle_data(sample_trajectory, tmp_path_factory):
     path_to_pickle = tmp_path_factory.mktemp("sample_trajectory") / "test.pkl"
     sample_trajectory.write_to_pickle(path_to_pickle)
-    data = torch.load(path_to_pickle)
+    data = torch.load(path_to_pickle, weights_only=False)
     return data
 
 
