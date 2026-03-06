@@ -14,13 +14,11 @@ class RepulsiveForceParameters:
 
     Args:
         radial_cutoff (ang): The minimal interatomic distance with no contribution from this analytical model.
-        device: torch device used for internal tensors.
     """
     radial_cutoff: float
-    device: str = "cpu"
 
 
-class RepulsiveForce(ABC):
+class RepulsiveForce(ABC, torch.nn.Module):
     """Analytical Atomic Repulsion Score.
 
     This class calculates a score based on an analytical model to helps stability.
@@ -28,8 +26,8 @@ class RepulsiveForce(ABC):
 
     def __init__(self, hyper_params: RepulsiveForceParameters):
         """Init method."""
-        self.device = hyper_params.device
-        self.radial_cutoff = torch.tensor(hyper_params.radial_cutoff, dtype=torch.float32, device=self.device)
+        super().__init__()
+        self.radial_cutoff = hyper_params.radial_cutoff
 
     def get_atomic_distances(self, cartesian_positions, basis_vectors):
         """Return the atomic distance between every pair of atoms up to radial_cutoff. Else, gives -1.

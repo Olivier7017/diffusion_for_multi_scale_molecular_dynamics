@@ -152,6 +152,7 @@ class AXLDiffusionLightningModel(pl.LightningModule):
                            3. model.use_force_field_augmented_score_network
         Note : If not model.eval and not forcefield.use_for_training, then the forcefield won't be used
         """
+        force_field_augmented_score_network.to(self.device)
         self.axl_network = force_field_augmented_score_network
         if at_eval:
             self.eval()

@@ -18,7 +18,6 @@ class ZBLForceParameters(RepulsiveForceParameters):
         radial_cutoff: distance where the ZBL interaction is fully switched off (Angstrom).
         element_list: ordered list of element symbols used to map atom type indices A -> atomic number.
         inner_radius_fraction: inner_radius = fraction * radial_cutoff, where the switching polynomial starts.
-        device: torch device used for internal tensors.
     """
     architecture: str = "zbl"
     element_list: list[str]
@@ -36,11 +35,13 @@ class ZBLForce(RepulsiveForce):
         # How does ZBL should deal with masked atom type ? For now, it will be the average Z over types.
         Z_of_index = [atomic_numbers[s] for s in hyper_params.element_list]
         Z_of_index.append(sum(Z_of_index) / len(Z_of_index))  # Adding masked element
-        self.index_to_atomic_numbers = torch.tensor(Z_of_index, dtype=torch.float32, device=self.device)
+        self.register_buffer("index_to_atomic_numbers", torch.tensor(Z_of_index, dtype=torch.float32))
 
         # eps0 in C^2/(J*m) and _e in C
-        self.prefactor = torch.tensor(_e**2 / (4 * torch.pi * _eps0) * J * m,  # e^2/(4pi epsilon_0) in eV ang
-                                      dtype=torch.float32, device=self.device)
+        self.register_buffer(
+            "prefactor",  # e^2/(4pi epsilon_0) in eV ang
+            torch.tensor(_e**2 / (4 * torch.pi * _eps0) * J * m)
+        )
         self.calc_abc()
 
     def get_cartesian_forces(self, A, cartesian_positions, basis_vectors):
@@ -64,7 +65,9 @@ class ZBLForce(RepulsiveForce):
             # atomic_mask is True for interacting atoms with shape [batch_size, number_of_atoms, number_of_atoms]
             atomic_distances = self.get_atomic_distances(cartesian_positions, basis_vectors)
             triu = torch.triu(  # To remove double counting
-                torch.ones((number_of_atoms, number_of_atoms), device=cartesian_positions.device, dtype=torch.bool),
+                torch.ones((number_of_atoms, number_of_atoms),
+                           dtype=torch.bool,
+                           device=cartesian_positions.device),
                 diagonal=1
             )[None]
             atomic_mask = (atomic_distances > 0) & triu
@@ -135,7 +138,7 @@ class ZBLForce(RepulsiveForce):
         A = (-3 * Eprc + (rc - ri) * Epprc) / (rc - ri)**2
         B = (2 * Eprc - (rc - ri) * Epprc) / (rc - ri)**3
         C = -Erc + 1 / 2 * (rc - ri) * Eprc - 1 / 12 * (rc - ri)**2 * Epprc
-        self.abc = torch.stack((A, B, C), dim=-1)
+        self.register_buffer("abc", torch.stack((A, B, C), dim=-1))
 
     def zbl_S(self, r, idx_i, idx_j):
         """Calculate the Switching function S(r) based on Lammps ZBL.

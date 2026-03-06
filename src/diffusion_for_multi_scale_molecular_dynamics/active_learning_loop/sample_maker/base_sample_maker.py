@@ -225,7 +225,7 @@ class BaseExciseSampleMaker(BaseSampleMaker):
         """Replace the lattice parameters of a structure with new ones.
 
         This replaces the L component of the AXL object, and also rescale the relative coordinates X.
-        Typically, replace a large box with a smaller one. Note that doing so translates the original atoms.
+        Typically, replace a MLIP-sized box with a DFT-sized box. Note that doing so translates the original atoms.
 
         Args:
             structure_with_centered_atoms: structure as an AXL object with atoms centered
