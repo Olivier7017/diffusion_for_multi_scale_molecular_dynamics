@@ -79,12 +79,15 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
 
         force_directions, force_importance = self.get_force_score_from_batch(batch)
 
-        # Give the same norm to force_directions as raw_scores.X, with a minimum of eps if model is too small
-        eps = 1e-1
-        raw_norm = raw_scores.X.norm(dim=(1, 2)).clamp_min(eps)
+        eps = 1e-1  # If forces from the model are really small, we still want ZBL to have some impact
+        overflow_security = 1e+16  # torch.float32 max val is e38 meaning norm is limited to e19
+        raw_norm = torch.clamp(raw_scores.X,
+                               -overflow_security,
+                               overflow_security).norm(dim=(1, 2)).clamp_min(eps)
+
         force_scores = force_directions * raw_norm[:, None, None]
 
-        # Mix the two scores together, keeping raw_scores unchanged
+        # Mix the two scores together, keeping he didn't give us a raid message but hi raw_scores unchanged
         force_prefactor = force_importance / (1 - force_importance)
 
         updated_X_scores = raw_scores.X + force_prefactor[:, None, None] * force_scores
@@ -139,7 +142,7 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         )
 
         normalization_over_batch = relative_forces.norm(dim=[1, 2]).clamp_min(epsilon)  # [B]
-        normalized_relative_forces = cartesian_forces / normalization_over_batch[:, None, None]  # [B,N,3]
+        normalized_relative_forces = relative_forces / normalization_over_batch[:, None, None]  # [B,N,3]
         g = normalization_over_batch / (normalization_over_batch + self._force_activation_scale)  # [B]
 
         analytical_fraction = (1 - time[:, 0]) * g[:]  # We want a constant scaling wrt sigma_i, =0 at T and max at 0
