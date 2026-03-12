@@ -88,6 +88,7 @@ class ForceFieldAugmentedScoreNetwork(torch.nn.Module):
         force_scores = force_directions * raw_norm[:, None, None]
 
         # Mix the two scores together, keeping he didn't give us a raid message but hi raw_scores unchanged
+        force_importance = force_importance.clamp(max=1 - 1e-6)  # force_importance=1 would cause inf
         force_prefactor = force_importance / (1 - force_importance)
 
         updated_X_scores = raw_scores.X + force_prefactor[:, None, None] * force_scores
