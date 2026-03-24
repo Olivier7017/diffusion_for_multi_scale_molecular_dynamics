@@ -91,12 +91,14 @@ class TrajectoryProcessorForDiffusion:
             logging.info(
                 f"Processing trajectory {d} ({count} of {len(trajectory_list)})..."
             )
-            if f"{d}.parquet" not in os.listdir(self.data_dir):
+            parquet_path = Path(self.data_dir) / f"{mode}_{Path(d).with_suffix('.parquet').name}"
+            if parquet_path.exists():
+                logging.info(f"     * parquet file already exists at {parquet_path}. Skipping.")
+            else:
                 logging.info("     * parquet file is absent. Generating...")
                 df = self.parse_trajectory(d)
                 if df is not None:
                     logging.info("     * writing parquet file to disk...")
-                    parquet_path = Path(self.data_dir) / f"{mode}_{d.with_suffix('.parquet').name}"
                     df.to_parquet(
                         str(parquet_path),
                         engine="pyarrow",
