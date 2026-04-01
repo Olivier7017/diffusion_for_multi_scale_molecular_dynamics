@@ -1,36 +1,34 @@
-from unittest.mock import patch
-
 import pytest
 import torch
 from ase import Atoms
+from unittest.mock import patch
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.langevin_generator import \
-    LangevinGenerator
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import \
-    PredictorCorrectorSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.force_field_augmented_score_network import (
     ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_score_network import (
     MLPScoreNetwork, MLPScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import \
-    HarmonicForceParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import \
-    ZBLForceParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME, UNIT_CELL)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
-    NoiseParameters
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
-    NoiseScheduler
+from tests.models.score_network.base_test_score_network import \
+    BaseTestScoreNetwork
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import (
+    HarmonicForceParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates,
     map_lattice_parameters_to_unit_cell_vectors)
-from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import \
-    get_periodic_adjacency_information
-from tests.models.score_network.base_test_score_network import \
-    BaseTestScoreNetwork
+from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import (
+    get_periodic_adjacency_information)
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
+    EGNNScoreNetworkParameters, EGNNScoreNetwork)
+from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import (
+    PredictorCorrectorSamplingParameters)
+from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import NoiseParameters
+from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
+    NoiseScheduler
+from diffusion_for_multi_scale_molecular_dynamics.generators.langevin_generator import \
+    LangevinGenerator
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import (
+    ZBLForceParameters)
 
 
 @pytest.mark.parametrize("number_of_atoms", [4, 8, 16])
@@ -427,6 +425,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             radial_cutoff=2.19293,
             inner_radius_fraction=0.5552844824048191,
             element_list=element_list_Si32,
+            device="cpu",
         )
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)
@@ -558,6 +557,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             radial_cutoff=1e-4,  # Tiny radial_cutoff so there's no interacting pairs
             inner_radius_fraction=0.5,
             element_list=element_list_Si32,
+            device="cpu",
         )
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)

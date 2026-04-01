@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 import pytest
 import torch
 
@@ -82,6 +81,7 @@ class TestZBLForce:
             radial_cutoff=2.19293,
             inner_radius_fraction=0.5552844824048191,
             element_list=["Si", "P"],
+            device="cpu",
         )
         zbl_force = ZBLForce(zbl_parameters)
 
@@ -105,6 +105,7 @@ class TestZBLForce:
             radial_cutoff=2.19293,
             inner_radius_fraction=0.5552844824048191,
             element_list=["Si", "Ge"],
+            device="cpu",
         )
         zbl_force = ZBLForce(zbl_parameters)
 

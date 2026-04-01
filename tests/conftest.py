@@ -1,6 +1,3 @@
-import os
-from functools import lru_cache
-
 import numpy as np
 import pytest
 import torch
@@ -10,7 +7,8 @@ from tests.fake_data_utils import (create_dump_yaml_documents,
                                    generate_random_string,
                                    get_configuration_runs, write_to_yaml)
 
-os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "true")
+
+from functools import lru_cache
 
 
 @lru_cache(maxsize=1)

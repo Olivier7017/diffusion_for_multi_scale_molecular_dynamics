@@ -1,11 +1,12 @@
 from typing import Any, AnyStr, Dict
 
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import (
-    HarmonicForce, HarmonicForceParameters)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.repulsive_force import (
     RepulsiveForce, RepulsiveForceParameters)
+from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import (
+    HarmonicForce, HarmonicForceParameters)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import (
     ZBLForce, ZBLForceParameters)
+
 
 REPULSIVE_FORCE_BY_ARCH = dict(
     harmonic=HarmonicForce,
@@ -24,7 +25,7 @@ def create_repulsive_force(repulsive_force_parameters: RepulsiveForceParameters)
     This is a factory method responsible for instantiating the repulsive force.
     """
     architecture = repulsive_force_parameters.architecture
-    assert (
+    assert(
         architecture in REPULSIVE_FORCE_BY_ARCH.keys()
     ), f"Architecture {architecture} is not implemented. Possible choices are {REPULSIVE_FORCE_BY_ARCH.keys()}"
 
