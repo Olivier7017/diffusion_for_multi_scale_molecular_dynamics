@@ -71,7 +71,7 @@ def input_to_diffusion_mace(
     basis_vectors[:, spatial_dimension:] = 0  # TODO enforce orthogonal cells
     basis_vectors = map_lattice_parameters_to_unit_cell_vectors(basis_vectors)
 
-    adj_matrix, shift_matrix, batch_tensor, num_edges = get_adj_matrix(
+    adj_matrix, shift_matrix, batch_tensor, num_edges, _ = get_adj_matrix(
         positions=cartesian_positions,
         basis_vectors=basis_vectors,
         radial_cutoff=radial_cutoff,

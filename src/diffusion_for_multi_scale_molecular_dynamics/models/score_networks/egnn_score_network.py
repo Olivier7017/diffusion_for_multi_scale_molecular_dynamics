@@ -42,7 +42,6 @@ class EGNNScoreNetworkParameters(ScoreNetworkParameters):
     n_layers: int = 4
     edges: str = "fully_connected"
     radial_cutoff: Union[float, None] = None
-    drop_duplicate_edges: bool = True
 
 
 class EGNNScoreNetwork(ScoreNetwork):
@@ -106,8 +105,6 @@ class EGNNScoreNetwork(ScoreNetwork):
             assert (
                 type(self.radial_cutoff) is float
             ), "A floating point value for the radial cutoff is needed for edges=radial_cutoff."
-
-        self.drop_duplicate_edges = hyper_params.drop_duplicate_edges
 
         self.egnn = EGNN(
             input_size=self.number_of_features_per_node,
@@ -226,11 +223,15 @@ class EGNNScoreNetwork(ScoreNetwork):
     def _forward_unchecked(
         self, batch: Dict[AnyStr, torch.Tensor], conditional: bool = False
     ) -> AXL:
-        relative_coordinates = batch[NOISY_AXL_COMPOSITION].X
-        batch_size, number_of_atoms, spatial_dimension = relative_coordinates.shape
+        reduced_coordinates = batch[NOISY_AXL_COMPOSITION].X
+        batch_size, number_of_atoms, spatial_dimension = reduced_coordinates.shape
 
         if self.edges == "fully_connected":
-            edges = get_edges_batch(n_nodes=number_of_atoms, batch_size=batch_size)
+            lattice_parameters = batch[NOISY_AXL_COMPOSITION].L
+            lattice_parameters[:, spatial_dimension:] = 0  # TODO force orthogonal cell
+            unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
+            edges = get_edges_batch(n_nodes=number_of_atoms, batch_size=batch_size,
+                                    reduced_coordinates=reduced_coordinates, unit_cell=unit_cell)
         else:
             # TODO cheap hack to avoid box collapse
             lattice_parameters = batch[NOISY_AXL_COMPOSITION].L.clip(
@@ -239,23 +240,24 @@ class EGNNScoreNetwork(ScoreNetwork):
             lattice_parameters[:, spatial_dimension:] = 0  # TODO force orthogonal cell
             unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
             edges = get_edges_with_radial_cutoff(
-                relative_coordinates,
+                reduced_coordinates,
                 unit_cell,
                 self.radial_cutoff,
-                drop_duplicate_edges=self.drop_duplicate_edges,
                 spatial_dimension=self.spatial_dimension,
             )
 
-        edges = edges.to(relative_coordinates.device)
+        edges = edges.to(reduced_coordinates.device)
 
-        flat_relative_coordinates = einops.rearrange(
-            relative_coordinates,
+        print("EDGES", edges)
+        exit()
+        flat_reduced_coordinates = einops.rearrange(
+            reduced_coordinates,
             "batch natom spatial_dimension -> (batch natom) spatial_dimension",
         )
 
-        # Uplift the relative coordinates to the embedding Euclidean space.
+        # Uplift the reduced coordinates to the embedding Euclidean space.
         #   Dimensions [number_of_nodes, 2 x spatial_dimension]
-        euclidean_positions = self._get_euclidean_positions(flat_relative_coordinates)
+        euclidean_positions = self._get_euclidean_positions(flat_reduced_coordinates)
 
         node_attributes_h = self._get_node_attributes(
             batch, num_atom_types=self.num_atom_types

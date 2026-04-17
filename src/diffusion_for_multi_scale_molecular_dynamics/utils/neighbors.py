@@ -29,6 +29,7 @@ AdjacencyInfo = namedtuple(
         "edge_batch_indices",  # original batch index of each edge.
         "node_batch_indices",  # original batch index of each node.
         "number_of_edges",  # number of edges in each batch element.
+        "squared_distances",  # squared distances of each edge.
     ],
 )
 
@@ -196,7 +197,8 @@ def get_periodic_adjacency_information(
         zero < squared_distances, squared_distances <= radial_cutoff**2
     )
     # Dimensions: [batch_size, number_of_relative_lattice_vectors, max_natom, max_number_of_neighbors]
-
+    masked_squared_distances = squared_distances[valid_neighbor_mask]
+    
     # Combine all the non-batch dimensions to obtain the maximum number of edges per batch element
     number_of_edges = valid_neighbor_mask.view(batch_size, -1).sum(dim=1)
 
@@ -224,6 +226,7 @@ def get_periodic_adjacency_information(
         edge_batch_indices=edge_batch_indices,
         node_batch_indices=torch.repeat_interleave(torch.arange(batch_size), max_natom),
         number_of_edges=number_of_edges,
+        squared_distances=masked_squared_distances,
     )
 
 
