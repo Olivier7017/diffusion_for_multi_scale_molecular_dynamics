@@ -389,8 +389,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             message_agg="mean",
             n_layers=4,
             edges="radial_cutoff",
-            radial_cutoff=5.,
-            drop_duplicate_edges=True)
+            radial_cutoff=5.)
         return score_network_parameters
 
     @pytest.fixture()
@@ -425,7 +424,6 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             radial_cutoff=2.19293,
             inner_radius_fraction=0.5552844824048191,
             element_list=element_list_Si32,
-            device="cpu",
         )
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)
@@ -529,9 +527,9 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
         assert torch.allclose(Ttime_struct, composition_Si32.X, atol=1e-4)
 
         # 3.4 Verify that the minimal interatomic distances is bigger in the updated_struct
-        initial_dist = zbl_force.get_atomic_distances(composition_Si32.X, basis_vectors_Si32)
-        zerotime_dist = zbl_force.get_atomic_distances(updated_structs[0][0], basis_vectors_Si32)
-        halftime_dist = zbl_force.get_atomic_distances(updated_structs[1][0], basis_vectors_Si32)
+        initial_adj, initial_dist = zbl_force.get_atomic_distances(composition_Si32.X, basis_vectors_Si32)
+        zerotime_adj, zerotime_dist = zbl_force.get_atomic_distances(updated_structs[0][0], basis_vectors_Si32)
+        halftime_adj, halftime_dist = zbl_force.get_atomic_distances(updated_structs[1][0], basis_vectors_Si32)
 
         # Here, we need to filter out atoms outside rcut (dist=-1) with a mask
         initial_min_dist = initial_dist.masked_fill(initial_dist < 0, float("inf")).min()
@@ -557,7 +555,6 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             radial_cutoff=1e-4,  # Tiny radial_cutoff so there's no interacting pairs
             inner_radius_fraction=0.5,
             element_list=element_list_Si32,
-            device="cpu",
         )
 
         score_network = EGNNScoreNetwork(score_network_parameters_Si32)

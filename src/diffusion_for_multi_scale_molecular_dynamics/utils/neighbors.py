@@ -198,7 +198,7 @@ def get_periodic_adjacency_information(
     )
     # Dimensions: [batch_size, number_of_relative_lattice_vectors, max_natom, max_number_of_neighbors]
     masked_squared_distances = squared_distances[valid_neighbor_mask]
-    
+
     # Combine all the non-batch dimensions to obtain the maximum number of edges per batch element
     number_of_edges = valid_neighbor_mask.view(batch_size, -1).sum(dim=1)
 
