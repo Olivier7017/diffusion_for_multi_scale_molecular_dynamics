@@ -7,6 +7,8 @@ import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.diffusion_mace_score_network import (
     DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.models.egnn_utils import \
+    get_edges_with_radial_cutoff
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
     EGNNScoreNetwork, EGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mace_score_network import (
@@ -423,3 +425,24 @@ class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
         torch.testing.assert_close(
             expected_euclidean_positions, computed_euclidean_positions
         )
+
+    @pytest.mark.parametrize("box_size", [10.0, 20.0])
+    def test_edge_distances_are_cell_size_independent(self, box_size):
+        """Cartesian edge distances should be the same regardless of box size.
+
+        Two Si atoms separated by 2.36 Ang in either a 10 Ang or 20 Ang cubic box
+        should produce the same cartesian distance in the edge features.
+        """
+        si_bond_length = 2.36  # Ang
+        radial_cutoff = 2.5  # Ang
+
+        reduced_coordinates = torch.tensor([[[0.0, 0.0, 0.0],
+                                             [si_bond_length / box_size, 0.0, 0.0]]])
+        unit_cell = torch.diag(torch.tensor([box_size, box_size, box_size])).unsqueeze(0)
+
+        edges = get_edges_with_radial_cutoff(
+            reduced_coordinates, unit_cell, radial_cutoff=radial_cutoff, spatial_dimension=3
+        )
+
+        distances = edges[:, 2]
+        torch.testing.assert_close(distances, torch.full_like(distances, si_bond_length))
