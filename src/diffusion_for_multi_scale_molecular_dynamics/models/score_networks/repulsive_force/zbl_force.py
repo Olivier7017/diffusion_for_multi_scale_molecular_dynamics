@@ -63,7 +63,7 @@ class ZBLForce(RepulsiveForce):
             adj, distances = self.get_atomic_distances(cartesian_positions, basis_vectors)
             src, dst = adj.adjacency_matrix
             b = adj.edge_batch_indices
-            
+
             # Keep only unique pairs (src < dst) to avoid double counting
             unique_mask = src < dst
             b_unique = b[unique_mask]

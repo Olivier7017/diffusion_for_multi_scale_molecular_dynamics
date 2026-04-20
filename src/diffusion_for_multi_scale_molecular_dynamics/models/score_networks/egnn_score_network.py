@@ -248,8 +248,6 @@ class EGNNScoreNetwork(ScoreNetwork):
 
         edges = edges.to(reduced_coordinates.device)
 
-        print("EDGES", edges)
-        exit()
         flat_reduced_coordinates = einops.rearrange(
             reduced_coordinates,
             "batch natom spatial_dimension -> (batch natom) spatial_dimension",
