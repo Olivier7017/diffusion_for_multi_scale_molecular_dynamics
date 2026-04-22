@@ -2,7 +2,8 @@ import pytest
 import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.models.egnn_utils import (
-    unsorted_segment_mean, unsorted_segment_sum)
+    get_edges_batch, get_edges_with_radial_cutoff, unsorted_segment_mean,
+    unsorted_segment_sum)
 
 
 @pytest.fixture()
@@ -28,6 +29,39 @@ def num_message_features():
 @pytest.fixture()
 def messages(num_messages, num_message_features):
     return torch.randn(num_messages, num_message_features)
+
+
+SI_BOND_LENGTH_ANG = 2.36
+
+
+@pytest.mark.parametrize("box_size", [10.0, 20.0])
+def test_get_edges_batch_distances_are_cell_size_independent(box_size):
+    """Fully-connected edge distances should be the same regardless of box size."""
+    reduced_coordinates = torch.tensor([[[0.0, 0.0, 0.0],
+                                         [SI_BOND_LENGTH_ANG / box_size, 0.0, 0.0]]])
+    unit_cell = torch.diag(torch.tensor([box_size, box_size, box_size])).unsqueeze(0)
+
+    edges = get_edges_batch(n_nodes=2, batch_size=1,
+                            reduced_coordinates=reduced_coordinates,
+                            unit_cell=unit_cell)
+
+    distances = edges[:, 2]
+    torch.testing.assert_close(distances, torch.full_like(distances, SI_BOND_LENGTH_ANG))
+
+
+@pytest.mark.parametrize("box_size", [10.0, 20.0])
+def test_get_edges_with_radial_cutoff_distances_are_cell_size_independent(box_size):
+    """Radial-cutoff edge distances should be the same regardless of box size."""
+    radial_cutoff = 2.5
+    reduced_coordinates = torch.tensor([[[0.0, 0.0, 0.0],
+                                         [SI_BOND_LENGTH_ANG / box_size, 0.0, 0.0]]])
+    unit_cell = torch.diag(torch.tensor([box_size, box_size, box_size])).unsqueeze(0)
+
+    edges = get_edges_with_radial_cutoff(reduced_coordinates, unit_cell,
+                                         radial_cutoff=radial_cutoff, spatial_dimension=3)
+
+    distances = edges[:, 2]
+    torch.testing.assert_close(distances, torch.full_like(distances, SI_BOND_LENGTH_ANG))
 
 
 def test_unsorted_segment_sum(
