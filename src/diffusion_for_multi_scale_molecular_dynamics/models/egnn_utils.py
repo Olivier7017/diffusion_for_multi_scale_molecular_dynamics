@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import torch
 
@@ -83,7 +83,11 @@ def get_edges(n_nodes: int) -> List[List[int]]:
 
 
 def get_edges_batch(
-    n_nodes: int, batch_size: int, reduced_coordinates: torch.Tensor, unit_cell: torch.Tensor
+    n_nodes: int,
+    batch_size: int,
+    reduced_coordinates: torch.Tensor,
+    unit_cell: torch.Tensor,
+    natoms: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Get edges batch with cartesian distances.
 
@@ -91,14 +95,16 @@ def get_edges_batch(
     minimum-image cartesian distance (Angstrom) as a third column.
 
     Args:
-        n_nodes: number of nodes in a graph
+        n_nodes: number of nodes per graph (including any padding)
         batch_size: number of graphs
         reduced_coordinates: atomic positions in fractional coordinates [batch_size, n_nodes, spatial_dimension]
         unit_cell: unit cell vectors [batch_size, spatial_dimension, spatial_dimension]
+        natoms: optional tensor of shape [batch_size] with the real (non-padded) atom count per sample.
+            If provided, edges involving padded atom slots are excluded.
 
     Returns:
-        float tensor of size [number of edges = batch_size * n_nodes * (n_nodes - 1), 3], where the
-        first two columns are edge indices (src, dst) and the third is the cartesian distance in Angstrom.
+        float tensor of size [number of edges, 3], where the first two columns are edge indices
+        (src, dst) and the third is the cartesian distance in Angstrom.
     """
     edges = get_edges(n_nodes)
     edges = torch.LongTensor(edges)
@@ -112,6 +118,14 @@ def get_edges_batch(
     flat_reduced = reduced_coordinates.view(-1, reduced_coordinates.shape[-1])
     src, dst = edges[:, 0], edges[:, 1]
     batch_idx = src // n_nodes
+
+    if natoms is not None:
+        real_edge_mask = (
+            (src % n_nodes < natoms[batch_idx]) & (dst % n_nodes < natoms[batch_idx])
+        )
+        edges = edges[real_edge_mask]
+        src, dst = edges[:, 0], edges[:, 1]
+        batch_idx = src // n_nodes
 
     delta_x = flat_reduced[dst] - flat_reduced[src]
     delta_x = delta_x - torch.round(delta_x)  # minimum image convention in reduced space

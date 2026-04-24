@@ -12,7 +12,7 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks import \
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_network import \
     ScoreNetwork
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, NOISE, NOISY_AXL_COMPOSITION)
+    AXL, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_lattice_parameters_to_unit_cell_vectors
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
@@ -42,13 +42,14 @@ class EGNNScoreNetworkParameters(ScoreNetworkParameters):
     n_layers: int = 4
     edges: str = "fully_connected"
     radial_cutoff: Union[float, None] = None
+    supports_variable_natoms: bool = True
 
 
 class EGNNScoreNetwork(ScoreNetwork):
     """Score network using EGNN.
 
     This implementation leverages the baseline EGNN architecture from Satorras et al.
-    It assumes that all "graphs" have the same number of nodes and are fully connected.
+    Supports variable numbers of atoms across samples in the same batch via padding.
     """
 
     def __init__(self, hyper_params: EGNNScoreNetworkParameters):
@@ -173,14 +174,14 @@ class EGNNScoreNetwork(ScoreNetwork):
             node_attributes: a tensor of dimension [batch, natoms, num_atom_types + 2]
         """
         relative_coordinates = batch[NOISY_AXL_COMPOSITION].X
-        batch_size, number_of_atoms, spatial_dimension = relative_coordinates.shape
+        batch_size, max_atoms, spatial_dimension = relative_coordinates.shape
 
         sigmas = batch[NOISE].to(relative_coordinates.device)
         repeated_sigmas = einops.repeat(
-            sigmas, "batch 1 -> (batch natoms) 1", natoms=number_of_atoms
+            sigmas, "batch 1 -> (batch natoms) 1", natoms=max_atoms
         )
 
-        atom_types = batch[NOISY_AXL_COMPOSITION].A
+        atom_types = batch[NOISY_AXL_COMPOSITION].A.clamp(min=0)  # Cannot have -1 padding in onehot
         atom_types_one_hot = class_index_to_onehot(
             atom_types, num_classes=num_atom_types + 1
         )
@@ -224,14 +225,17 @@ class EGNNScoreNetwork(ScoreNetwork):
         self, batch: Dict[AnyStr, torch.Tensor], conditional: bool = False
     ) -> AXL:
         reduced_coordinates = batch[NOISY_AXL_COMPOSITION].X
-        batch_size, number_of_atoms, spatial_dimension = reduced_coordinates.shape
+        batch_size, max_atoms, spatial_dimension = reduced_coordinates.shape
+        natoms = batch[NUMBER_OF_ATOMS]
 
         if self.edges == "fully_connected":
             lattice_parameters = batch[NOISY_AXL_COMPOSITION].L
             lattice_parameters[:, spatial_dimension:] = 0  # TODO force orthogonal cell
             unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
-            edges = get_edges_batch(n_nodes=number_of_atoms, batch_size=batch_size,
-                                    reduced_coordinates=reduced_coordinates, unit_cell=unit_cell)
+            edges = get_edges_batch(n_nodes=max_atoms, batch_size=batch_size,
+                                    reduced_coordinates=reduced_coordinates,
+                                    unit_cell=unit_cell, natoms=natoms
+            )
         else:
             # TODO cheap hack to avoid box collapse
             lattice_parameters = batch[NOISY_AXL_COMPOSITION].L.clip(
@@ -284,14 +288,14 @@ class EGNNScoreNetwork(ScoreNetwork):
             flat_normalized_scores,
             "(batch natoms) spatial_dimension -> batch natoms spatial_dimension",
             batch=batch_size,
-            natoms=number_of_atoms,
+            natoms=max_atoms,
         )
 
         atom_reshaped_scores = einops.rearrange(
             raw_normalized_score.A,
             "(batch natoms) num_classes -> batch natoms num_classes",
             batch=batch_size,
-            natoms=number_of_atoms,
+            natoms=max_atoms,
         )
 
         axl_scores = AXL(
