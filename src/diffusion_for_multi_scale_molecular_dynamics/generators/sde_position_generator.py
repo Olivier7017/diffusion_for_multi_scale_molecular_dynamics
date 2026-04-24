@@ -11,7 +11,7 @@ from diffusion_for_multi_scale_molecular_dynamics.generators.axl_generator impor
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks import \
     ScoreNetwork
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME)
+    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, TIME)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.exploding_variance import \
     VarianceScheduler
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
@@ -193,9 +193,9 @@ class SDE(torch.nn.Module):
             ),
             NOISE: sigmas,
             TIME: times,
-            CARTESIAN_FORCES: torch.zeros_like(
-                relative_coordinates
-            ),  # TODO: handle forces correctly.
+            CARTESIAN_FORCES: torch.zeros_like(relative_coordinates),  # TODO: handle forces correctly.
+            NUMBER_OF_ATOMS: torch.full((atom_types.shape[0],), self.number_of_atoms,
+                                        dtype=torch.long, device=atom_types.device),
         }
         # Shape for the coordinates scores [batch_size, number of atoms, spatial dimension]
         model_predictions = self.axl_network(batch)

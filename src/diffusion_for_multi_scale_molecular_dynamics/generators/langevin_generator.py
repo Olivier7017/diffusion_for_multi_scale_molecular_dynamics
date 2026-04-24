@@ -11,7 +11,7 @@ from diffusion_for_multi_scale_molecular_dynamics.generators.trajectory_initiali
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_network import \
     ScoreNetwork
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME)
+    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, TIME)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
@@ -147,6 +147,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             TIME: time_tensor,
             NOISE: sigma_noise_tensor,
             CARTESIAN_FORCES: cartesian_forces,
+            NUMBER_OF_ATOMS: torch.full((number_of_samples,), composition.X.shape[1],
+                                        dtype=torch.long, device=composition.X.device),
         }
 
         # TODO do not hard-code conditional to False - need to be able to condition sampling

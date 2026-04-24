@@ -25,9 +25,9 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_ne
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, AXL, AXL_COMPOSITION, AXL_NAME_DICT, CARTESIAN_FORCES,
     CARTESIAN_POSITIONS, LATTICE_PARAMETERS, NOISE, NOISY_ATOM_TYPES,
-    NOISY_AXL_COMPOSITION, NOISY_LATTICE_PARAMETERS,
-    NOISY_RELATIVE_COORDINATES, Q_BAR_MATRICES, Q_BAR_TM1_MATRICES, Q_MATRICES,
-    RELATIVE_COORDINATES, TIME, TIME_INDICES)
+    NOISY_AXL_COMPOSITION, NOISY_LATTICE_PARAMETERS, NOISY_RELATIVE_COORDINATES,
+    PADDED_ATOM_TYPE, Q_BAR_MATRICES, Q_BAR_TM1_MATRICES, Q_MATRICES,
+    RELATIVE_COORDINATES, TIME, TIME_INDICES, NUMBER_OF_ATOMS)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle import \
     OracleParameters
 from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle_factory import \
@@ -263,6 +263,10 @@ class AXLDiffusionLightningModel(pl.LightningModule):
         lt = batch[NOISY_LATTICE_PARAMETERS]
         noisy_composition = AXL(A=at, X=xt, L=lt)
 
+        pad_mask = (a0 == PADDED_ATOM_TYPE)
+        x0_for_score = torch.nan_to_num(x0, nan=0.0)
+        xt_for_score = torch.nan_to_num(xt, nan=0.0)
+
         # Get the loss targets
         # Coordinates: The target is :math:`sigma(t) \nabla log p_{t|0} (xt | x0)`
         # it is NOT the "score", but rather a "conditional" (on x0) score.
@@ -270,7 +274,7 @@ class AXLDiffusionLightningModel(pl.LightningModule):
                                "batch 1 -> batch natoms space",
                                natoms=x0.shape[1], space=x0.shape[2])
         target_coordinates_normalized_conditional_scores = (
-            self._get_coordinates_target_normalized_score(xt, x0, sigmas)
+            self._get_coordinates_target_normalized_score(xt_for_score, x0_for_score, sigmas)
         )
 
         # for the atom types, the loss is constructed from the Q and Qbar matrices
@@ -281,9 +285,8 @@ class AXLDiffusionLightningModel(pl.LightningModule):
                                            "batch 1 -> batch space",
                                            space=l0.shape[-1])
         # same values as for X diffusion, but different shape
-        num_atoms = (
-            torch.ones_like(l0) * a0.shape[1]
-        )  # TODO should depend on data - not a constant
+        num_atoms = batch["natom"].unsqueeze(-1).expand_as(l0).to(l0)
+
         # num_atoms should be broadcasted to match sigmas_for_lattice
         sigmas_n = scale_sigma_by_number_of_atoms(
             sigmas_for_lattice, num_atoms, spatial_dimension=l0.shape[-1]
@@ -297,6 +300,7 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             TIME: batch[TIME],
             NOISE: batch[NOISE],
             CARTESIAN_FORCES: batch[CARTESIAN_FORCES],
+            NUMBER_OF_ATOMS: batch[NUMBER_OF_ATOMS],
         }
 
         use_conditional = None if no_conditional is False else False
@@ -316,8 +320,10 @@ class AXLDiffusionLightningModel(pl.LightningModule):
         )
 
         # we also need the atom types to be one-hot vector and not a class index
-        a0_onehot = class_index_to_onehot(a0, self.num_atom_types + 1)
-        at_onehot = class_index_to_onehot(at, self.num_atom_types + 1)
+        a0_for_loss = a0.masked_fill(pad_mask, 0)
+        at_for_loss = at.masked_fill(pad_mask, 0)
+        a0_onehot = class_index_to_onehot(a0_for_loss, self.num_atom_types + 1)
+        at_onehot = class_index_to_onehot(at_for_loss, self.num_atom_types + 1)
 
         unreduced_loss_atom_types = self.loss_calculator.A.calculate_unreduced_loss(
             predicted_logits=model_predictions.A,
@@ -335,19 +341,18 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             sigmas_for_lattice,
         )
 
+        real_atom_counts = batch["natom"].float()
+        coord_loss = unreduced_loss_coordinates.masked_fill(
+            pad_mask.unsqueeze(-1), 0.0
+        ).sum(dim=(-2, -1)) / (real_atom_counts * x0.shape[-1])
+        atom_type_loss = unreduced_loss_atom_types.masked_fill(
+            pad_mask.unsqueeze(-1), 0.0
+        ).sum(dim=(-2, -1)) / (real_atom_counts * (self.num_atom_types + 1))
+
         aggregated_weighted_loss = (
-            self.loss_weights.X
-            * unreduced_loss_coordinates.mean(
-                dim=(-2, -1)
-            )  # averaged over number of atoms and spatial dimension
-            + self.loss_weights.L
-            * unreduced_loss_lattice.mean(
-                dim=-1
-            )  # averaged over number of lattice parameters
-            + self.loss_weights.A
-            * unreduced_loss_atom_types.mean(
-                dim=(-2, -1)
-            )  # averaged over number of atoms and number of classes
+            self.loss_weights.X * coord_loss
+            + self.loss_weights.L * unreduced_loss_lattice.mean(dim=-1)
+            + self.loss_weights.A * atom_type_loss
         )  # results in a tensor of dimension [batch_size]
 
         weighted_loss = torch.mean(aggregated_weighted_loss)

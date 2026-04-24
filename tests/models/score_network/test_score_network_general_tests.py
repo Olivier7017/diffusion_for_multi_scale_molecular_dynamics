@@ -19,7 +19,7 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_pr
     MaceEquivariantScorePredictionHeadParameters,
     MaceMLPScorePredictionHeadParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME, UNIT_CELL)
+    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, TIME, UNIT_CELL)
 from tests.fake_data_utils import generate_random_string
 from tests.models.score_network.base_test_score_network import \
     BaseTestScoreNetwork
@@ -137,6 +137,8 @@ class BaseScoreNetworkGeneralTests(BaseTestScoreNetwork):
         basis_vectors,
         lattice_parameters,
         atom_types,
+        number_of_atoms,
+        batch_size,
     ):
         return {
             NOISY_AXL_COMPOSITION: AXL(
@@ -148,6 +150,7 @@ class BaseScoreNetworkGeneralTests(BaseTestScoreNetwork):
             UNIT_CELL: basis_vectors,  # TODO remove this
             NOISE: noises,
             CARTESIAN_FORCES: cartesian_forces,
+            NUMBER_OF_ATOMS: torch.full((batch_size,), number_of_atoms, dtype=torch.long),
         }
 
     @pytest.fixture()

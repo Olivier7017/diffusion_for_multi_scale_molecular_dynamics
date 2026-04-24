@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME)
+    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, TIME)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.sigma_calculator import \
     ExponentialSigmaCalculator
 from tests.regularizers.differentiable_score_network import (
@@ -71,7 +71,8 @@ class BaseTestRegularizer:
 
     @pytest.fixture()
     def augmented_batch(
-        self, relative_coordinates, times, sigmas, atom_types, lattice_parameters
+        self, relative_coordinates, times, sigmas, atom_types, lattice_parameters,
+        batch_size, number_of_atoms
     ):
         forces = torch.zeros_like(relative_coordinates)
         composition = AXL(A=atom_types, X=relative_coordinates, L=lattice_parameters)
@@ -81,6 +82,7 @@ class BaseTestRegularizer:
             NOISE: sigmas,
             TIME: times,
             CARTESIAN_FORCES: forces,
+            NUMBER_OF_ATOMS: torch.full((batch_size,), number_of_atoms, dtype=torch.long),
         }
         return batch
 
