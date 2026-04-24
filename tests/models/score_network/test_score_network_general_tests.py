@@ -19,7 +19,7 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_pr
     MaceEquivariantScorePredictionHeadParameters,
     MaceMLPScorePredictionHeadParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, TIME, UNIT_CELL)
+    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, PADDED_ATOM_TYPE, TIME, UNIT_CELL)
 from tests.fake_data_utils import generate_random_string
 from tests.models.score_network.base_test_score_network import \
     BaseTestScoreNetwork
@@ -154,6 +154,27 @@ class BaseScoreNetworkGeneralTests(BaseTestScoreNetwork):
         }
 
     @pytest.fixture()
+    def padded_batch(self, batch, number_of_atoms, batch_size, spatial_dimension):
+        """Batch where half the samples have their last atom slot padded."""
+        atom_types = batch[NOISY_AXL_COMPOSITION].A.clone()
+        relative_coordinates = batch[NOISY_AXL_COMPOSITION].X.clone()
+        natoms = batch[NUMBER_OF_ATOMS].clone()
+
+        padded_indices = torch.arange(batch_size // 2)
+        atom_types[padded_indices, -1] = PADDED_ATOM_TYPE
+        relative_coordinates[padded_indices, -1, :] = float('nan')
+        natoms[padded_indices] = number_of_atoms - 1
+
+        padded_batch = dict(batch)
+        padded_batch[NOISY_AXL_COMPOSITION] = AXL(
+            A=atom_types,
+            X=relative_coordinates,
+            L=batch[NOISY_AXL_COMPOSITION].L,
+        )
+        padded_batch[NUMBER_OF_ATOMS] = natoms
+        return padded_batch
+
+    @pytest.fixture()
     def global_parameters_dictionary(self, spatial_dimension, unique_elements):
         return dict(spatial_dimension=spatial_dimension, irrelevant=123, elements=unique_elements)
 
@@ -204,6 +225,10 @@ class BaseScoreNetworkGeneralTests(BaseTestScoreNetwork):
 
         with pytest.raises(AssertionError):
             torch.testing.assert_close(output1, output2)
+
+    def test_check_batch_raises_with_variable_natoms(self, score_network, padded_batch):
+        with pytest.raises(AssertionError):
+            score_network._check_batch(padded_batch)
 
 
 @pytest.mark.parametrize("spatial_dimension", [2, 3])
@@ -369,6 +394,10 @@ class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
         with pytest.raises(AssertionError):
             # Check that the code crashes when inconsistent parameters are fed in.
             EGNNScoreNetwork(score_network_parameters)
+
+    def test_check_batch_raises_with_variable_natoms(self, score_network, padded_batch):
+        # EGNN supports variable natoms: _check_batch should not raise.
+        score_network._check_batch(padded_batch)
 
     def test_create_block_diagonal_projection_matrices(
         self, score_network, spatial_dimension
