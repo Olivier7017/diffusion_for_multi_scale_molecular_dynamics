@@ -399,6 +399,11 @@ class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
         # EGNN supports variable natoms: _check_batch should not raise.
         score_network._check_batch(padded_batch)
 
+    def test_forward_with_padded_batch(self, score_network, padded_batch):
+        # EGNN should run forward without error on a batch with variable natoms.
+        with torch.no_grad():
+            score_network(padded_batch)
+
     def test_create_block_diagonal_projection_matrices(
         self, score_network, spatial_dimension
     ):
@@ -455,4 +460,3 @@ class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
         torch.testing.assert_close(
             expected_euclidean_positions, computed_euclidean_positions
         )
-

@@ -234,8 +234,7 @@ class EGNNScoreNetwork(ScoreNetwork):
             unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
             edges = get_edges_batch(n_nodes=max_atoms, batch_size=batch_size,
                                     reduced_coordinates=reduced_coordinates,
-                                    unit_cell=unit_cell, natoms=natoms
-            )
+                                    unit_cell=unit_cell, natoms=natoms)
         else:
             # TODO cheap hack to avoid box collapse
             lattice_parameters = batch[NOISY_AXL_COMPOSITION].L.clip(
