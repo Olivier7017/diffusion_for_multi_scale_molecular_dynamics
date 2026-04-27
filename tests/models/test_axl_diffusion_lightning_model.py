@@ -424,14 +424,14 @@ class TestAXLDiffusionLightningModelWithPadding:
 
     @pytest.fixture()
     def hyper_params(self, num_atom_types, spatial_dimension, loss_parameters, optimizer_parameters, edges_connection):
-        if edges_connection=="radial_cutoff":
+        if edges_connection == "radial_cutoff":
             score_network_parameters = EGNNScoreNetworkParameters(
                 num_atom_types=num_atom_types,
                 spatial_dimension=spatial_dimension,
                 edges="radial_cutoff",
                 radial_cutoff=3.0,
             )
-        elif edges_connection=="fully_connected":
+        elif edges_connection == "fully_connected":
             score_network_parameters = EGNNScoreNetworkParameters(
                 num_atom_types=num_atom_types,
                 spatial_dimension=spatial_dimension,
