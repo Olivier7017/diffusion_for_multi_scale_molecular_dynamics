@@ -20,6 +20,8 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations im
     map_relative_coordinates_to_unit_cell)
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import (
     class_index_to_onehot, get_probability_at_previous_time_step)
+from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
+    get_lattice_length_scale
 from diffusion_for_multi_scale_molecular_dynamics.utils.sample_trajectory import \
     SampleTrajectory
 
@@ -138,9 +140,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         number_of_samples = composition.X.shape[0]
 
         time_tensor = time * torch.ones(number_of_samples, 1).to(composition.X)
-        sigma_noise_tensor = sigma_noise * torch.ones(number_of_samples, 1).to(
-            composition.X
-        )
+        # sigma_noise is sigma_rel [batch_size] — already in relative coordinate units.
+        sigma_noise_tensor = sigma_noise.reshape(number_of_samples, 1).to(composition.X)
 
         augmented_batch = {
             NOISY_AXL_COMPOSITION: composition,
@@ -445,7 +446,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         self,
         lattice_parameters: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
-        sigma_n_i: torch.Tensor,
+        sigma_i: torch.Tensor,
         score_weight: torch.Tensor,
         gaussian_noise_weight: torch.Tensor,
         z: Optional[torch.Tensor] = None,
@@ -461,8 +462,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             sigma_normalized_scores: output of the model - an estimate of the normalized
                 score :math:`\sigma \nabla log p(x)`.
                 Dimension: [number_of_samples, spatial_dimension * (spatial_dimension + 1) / 2]
-            sigma_n_i: noise parameter for variance exploding noise scheduler scaled by the number of atoms.
-                Dimension: [number_of_samples]
+            sigma_i: noise parameter for variance exploding noise scheduler in Cartesian units.
+                Dimension: scalar or [number_of_samples]
             score_weight: prefactor in front of the normalized score update. Should be g2_i in the predictor step and
                 eps_i in the corrector step. Dimension: [number_of_samples]
             gaussian_noise_weight: prefactor in front of the random noise update. Should be g_i in the
@@ -487,7 +488,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         updated_lattice_parameters = (
             lattice_parameters
-            + score_weight * sigma_normalized_scores / sigma_n_i
+            + score_weight * sigma_normalized_scores / sigma_i
             + gaussian_noise_weight * z
         )
         return updated_lattice_parameters
@@ -496,7 +497,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         self,
         lattice_parameters: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
-        sigma_n_i: torch.Tensor,
+        sigma_i: torch.Tensor,
         score_weight: torch.Tensor,
         gaussian_noise_weight: torch.Tensor,
         z: Optional[torch.Tensor] = None,
@@ -508,7 +509,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         return self._lattice_parameters_update(
             lattice_parameters,
             sigma_normalized_scores,
-            sigma_n_i,
+            sigma_i,
             score_weight,
             gaussian_noise_weight,
             z,
@@ -518,7 +519,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         self,
         lattice_parameters: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
-        sigma_n_i: torch.Tensor,
+        sigma_i: torch.Tensor,
         score_weight: torch.Tensor,
         gaussian_noise_weight: torch.Tensor,
         z: Optional[torch.Tensor] = None,
@@ -530,7 +531,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         return self._lattice_parameters_update(
             lattice_parameters,
             sigma_normalized_scores,
-            sigma_n_i,
+            sigma_i,
             score_weight,
             gaussian_noise_weight,
             z,
@@ -561,15 +562,15 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         idx = index_i - 1  # python starts indices at zero
         t_i = self.noise.time[idx].to(composition_i.X)
-        g_i = self.noise.g[idx].to(composition_i.X)
-        g2_i = self.noise.g_squared[idx].to(composition_i.X)
-        sigma_i = self.noise.sigma[idx].to(composition_i.X)
+        sigma_cart_i = self.noise.sigma[idx].to(composition_i.X)
+        g_cart_i = self.noise.g[idx].to(composition_i.X)
+        g2_cart_i = self.noise.g_squared[idx].to(composition_i.X)
 
-        # TODO we should consider scaling sigma_i by the number of atoms for the relative coordinates update
-        # for now, we are only scaling for the lattice parameters
-        n_atom = composition_i.X.shape[-2]
-        spatial_dimension_inv = 1 / composition_i.X.shape[-1]
-        sigma_n_i = sigma_i / (n_atom ** spatial_dimension_inv)
+        # Convert Cartesian sigma/g to relative coordinate units, per sample.
+        L = get_lattice_length_scale(composition_i.L, self.spatial_dimension)  # [number_of_samples]
+        sigma_rel_i = sigma_cart_i / L   # [number_of_samples]
+        g_rel_i = g_cart_i / L           # [number_of_samples]
+        g2_rel_i = g2_cart_i / L ** 2   # [number_of_samples]
 
         # Broadcast the q matrices to the expected dimensions.
         q_matrices_i = einops.repeat(
@@ -594,7 +595,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         )
 
         model_predictions_i = self._get_model_predictions(
-            composition_i, t_i, sigma_i, cartesian_forces
+            composition_i, t_i, sigma_rel_i, cartesian_forces
         )
 
         # Even if the global flag 'one_atom_type_transition_per_step' is set to True, a single atomic transition
@@ -629,7 +630,9 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         # Update the position according to the predictor
         x_im1 = self._relative_coordinates_update_predictor_step(
-            composition_i.X, model_predictions_i.X, sigma_i, g2_i, g_i, z_coordinates
+            composition_i.X, model_predictions_i.X,
+            sigma_rel_i[:, None, None], g2_rel_i[:, None, None], g_rel_i[:, None, None],
+            z_coordinates,
         )
 
         # update lattice parameters
@@ -637,7 +640,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.L
         )
         lp_im1 = self._lattice_parameters_update_predictor_step(
-            composition_i.L, model_predictions_i.L, sigma_n_i, g2_i, g_i, z_lattice
+            composition_i.L, model_predictions_i.L, sigma_cart_i, g2_cart_i, g_cart_i, z_lattice
         )
 
         composition_im1 = AXL(A=a_im1, X=x_im1, L=lp_im1)
@@ -684,7 +687,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
     def _get_lattice_parameters_corrector_step_size(
         self,
         index_i: int,
-        sigma_n_i: torch.Tensor,
+        sigma_i: torch.Tensor,
         model_predictions_i: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
@@ -721,22 +724,20 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         if index_i == 0:
             # TODO: we are extrapolating here; the score network will never have seen this time step...
-            sigma_i = (
-                self.noise_parameters.sigma_min
-            )  # no need to change device, this is a float
+            sigma_cart_i = self.noise_parameters.sigma_min_cart  # no need to change device, this is a float
             t_i = 0.0  # same for device - this is a float
             idx = index_i
         else:
             idx = index_i - 1  # python starts indices at zero
-            sigma_i = self.noise.sigma[idx].to(composition_i.X)
+            sigma_cart_i = self.noise.sigma[idx].to(composition_i.X)
             t_i = self.noise.time[idx].to(composition_i.X)
 
-        n_atom = composition_i.X.shape[-2]
-        spatial_dimension_inv = 1 / composition_i.X.shape[-1]
-        sigma_n_i = sigma_i / (n_atom ** spatial_dimension_inv)
+        # Convert Cartesian sigma to relative coordinate units, per sample.
+        L = get_lattice_length_scale(composition_i.L, self.spatial_dimension)  # [number_of_samples]
+        sigma_rel_i = sigma_cart_i / L  # [number_of_samples]
 
         model_predictions_i = self._get_model_predictions(
-            composition_i, t_i, sigma_i, cartesian_forces
+            composition_i, t_i, sigma_rel_i, cartesian_forces
         )
 
         # draw a gaussian noise sample and update the positions accordingly
@@ -746,7 +747,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         # get the step size eps_i
         eps_i_coordinates = self._get_coordinates_corrector_step_size(
-            index_i, sigma_i, model_predictions_i.X, z_coordinates
+            index_i, sigma_rel_i, model_predictions_i.X, z_coordinates
         )
         # the size for the noise part is sqrt(2 * eps_i)
         sqrt_2eps_i_coordinates = torch.sqrt(2 * eps_i_coordinates)
@@ -754,7 +755,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         corrected_x_i = self._relative_coordinates_update_corrector_step(
             composition_i.X,
             model_predictions_i.X,
-            sigma_i,
+            sigma_rel_i[:, None, None],
             eps_i_coordinates,
             sqrt_2eps_i_coordinates,
             z_coordinates,
@@ -767,14 +768,14 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         # get the step size eps_i
         eps_i_lattice = self._get_lattice_parameters_corrector_step_size(
-            index_i, sigma_n_i, model_predictions_i.L, z_lattice
+            index_i, sigma_cart_i, model_predictions_i.L, z_lattice
         )
         sqrt_2eps_i_lattice = torch.sqrt(2 * eps_i_lattice)
 
         corrected_lp_i = self._lattice_parameters_update(
             composition_i.L,
             model_predictions_i.L,
-            sigma_n_i,
+            sigma_cart_i,
             eps_i_lattice,
             sqrt_2eps_i_lattice,
         )
