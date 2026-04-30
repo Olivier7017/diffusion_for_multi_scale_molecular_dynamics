@@ -160,29 +160,32 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         self,
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
-        sigma_i: torch.Tensor,
-        score_weight: torch.Tensor,
-        gaussian_noise_weight: torch.Tensor,
+        sigma_cart: torch.Tensor,
+        score_weight_cart: torch.Tensor,
+        gaussian_noise_weight_cart: torch.Tensor,
+        lattice_diagonals: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
         r"""Generic update for the relative coordinates.
 
-        This is useful for both the predictor and the corrector step. The score weight and gaussian weight noise differs
-        in these two settings.
+        This is useful for both the predictor and the corrector step. All weights are in Cartesian units.
+        The Cartesian displacement is computed first, then converted to relative coordinates by dividing by
+        the lattice diagonal per direction.
 
         Args:
             relative_coordinates: starting coordinates. Dimension: [number_of_samples, number_of_atoms,
                 spatial_dimension]
-
             sigma_normalized_scores: output of the model - an estimate of the normalized
                 score :math:`\sigma \nabla log p(x)`.
                 Dimension: [number_of_samples, number_of_atoms, spatial_dimension]
-            sigma_i: noise parameter for variance exploding noise scheduler. (In Relative coordinates).
-                     Dimension: [number_of_samples]
-            score_weight: prefactor in front of the normalized score update. Should be g2_i in the predictor step and
-                eps_i in the corrector step. (In Relative coordinates) Dimension: [number_of_samples]
-            gaussian_noise_weight: prefactor in front of the random noise update. Should be g_i in the predictor step
-                and sqrt_2eps_i in the corrector step. (In Relative coordinates) Dimension: [number_of_samples]
+            sigma_cart: noise parameter in Cartesian units. Scalar or Dimension: [number_of_samples].
+            score_weight_cart: prefactor in front of the normalized score update in Cartesian units.
+                Should be g2_cart in the predictor step and eps_cart in the corrector step.
+                Scalar or Dimension: [number_of_samples].
+            gaussian_noise_weight_cart: prefactor in front of the random noise update in Cartesian units.
+                Should be g_cart in the predictor step and sqrt_2eps_cart in the corrector step.
+                Scalar or Dimension: [number_of_samples].
+            lattice_diagonals: diagonal lattice elements. Dimension: [number_of_samples, spatial_dimension]
             z: gaussian noise used to update the coordinates. A sample drawn from the normal distribution.
                 Dimension: [number_of_samples, number_of_atoms, spatial_dimension].
 
@@ -195,23 +198,23 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             z = self._draw_coordinates_gaussian_sample(number_of_samples).to(
                 relative_coordinates
             )
-        updated_coordinates = (
-            relative_coordinates
-            + score_weight * sigma_normalized_scores / sigma_i
-            + gaussian_noise_weight * z
-        )
 
-        # map back to the range [0, 1)
-        updated_coordinates = map_relative_coordinates_to_unit_cell(updated_coordinates)
+        # Compute Cartesian displacement, then convert to relative by dividing by L per direction.
+        # This is equivalent to: dx_rel_d = g_rel_d^2 * score_rel_d + g_rel_d * z_d per direction d.
+        dx_cart = score_weight_cart * sigma_normalized_scores / sigma_cart + gaussian_noise_weight_cart * z
+        updated_coordinates = map_relative_coordinates_to_unit_cell(
+            relative_coordinates + dx_cart / lattice_diagonals[:, None, :]
+        )
         return updated_coordinates
 
     def _relative_coordinates_update_predictor_step(
         self,
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
-        sigma_i: torch.Tensor,
-        score_weight: torch.Tensor,
-        gaussian_noise_weight: torch.Tensor,
+        sigma_cart: torch.Tensor,
+        score_weight_cart: torch.Tensor,
+        gaussian_noise_weight_cart: torch.Tensor,
+        lattice_diagonals: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
         """Relative coordinates update for the predictor step.
@@ -221,9 +224,10 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         return self._relative_coordinates_update(
             relative_coordinates,
             sigma_normalized_scores,
-            sigma_i,
-            score_weight,
-            gaussian_noise_weight,
+            sigma_cart,
+            score_weight_cart,
+            gaussian_noise_weight_cart,
+            lattice_diagonals,
             z,
         )
 
@@ -231,9 +235,10 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         self,
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
-        sigma_i: torch.Tensor,
-        score_weight: torch.Tensor,
-        gaussian_noise_weight: torch.Tensor,
+        sigma_cart: torch.Tensor,
+        score_weight_cart: torch.Tensor,
+        gaussian_noise_weight_cart: torch.Tensor,
+        lattice_diagonals: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
         """Relative coordinates update for the corrector step.
@@ -243,9 +248,10 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         return self._relative_coordinates_update(
             relative_coordinates,
             sigma_normalized_scores,
-            sigma_i,
-            score_weight,
-            gaussian_noise_weight,
+            sigma_cart,
+            score_weight_cart,
+            gaussian_noise_weight_cart,
+            lattice_diagonals,
             z,
         )
 
@@ -567,11 +573,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         g_cart_i = self.noise.g[idx].to(composition_i.X)
         g2_cart_i = self.noise.g_squared[idx].to(composition_i.X)
 
-        # Convert Cartesian g values to relative coordinate units, per spatial direction.
-        # g_rel[d] = g_cart / L_dd. Shape: [number_of_samples, spatial_dimension].
         lattice_diagonals = composition_i.L[:, :self.spatial_dimension]
-        g_rel_i = g_cart_i / lattice_diagonals
-        g2_rel_i = g2_cart_i / lattice_diagonals ** 2
 
         # Broadcast the q matrices to the expected dimensions.
         q_matrices_i = einops.repeat(
@@ -629,13 +631,10 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
-        # Update the position according to the predictor.
-        # g_rel_i and g2_rel_i have shape [number_of_samples, spatial_dimension];
-        # unsqueeze over atoms to broadcast: [number_of_samples, 1, spatial_dimension].
         x_im1 = self._relative_coordinates_update_predictor_step(
             composition_i.X, model_predictions_i.X,
-            sigma_cart_i, g2_rel_i[:, None, :], g_rel_i[:, None, :],
-            z_coordinates,
+            sigma_cart_i, g2_cart_i, g_cart_i,
+            lattice_diagonals, z_coordinates,
         )
 
         # update lattice parameters
@@ -735,7 +734,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             sigma_cart_i = self.noise.sigma[idx].to(composition_i.X)
             t_i = self.noise.time[idx].to(composition_i.X)
 
-        # Convert Cartesian sigma to relative coordinate units, per sample.
+        lattice_diagonals = composition_i.L[:, :self.spatial_dimension]
         model_predictions_i = self._get_model_predictions(
             composition_i, t_i, sigma_cart_i, cartesian_forces
         )
@@ -745,7 +744,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
-        # get the step size eps_i
+        # get the step size eps_i (in Cartesian units)
         eps_i_coordinates = self._get_coordinates_corrector_step_size(
             index_i, sigma_cart_i, model_predictions_i.X, z_coordinates
         )
@@ -758,6 +757,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             sigma_cart_i,
             eps_i_coordinates,
             sqrt_2eps_i_coordinates,
+            lattice_diagonals,
             z_coordinates,
         )
 

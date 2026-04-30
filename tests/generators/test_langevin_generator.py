@@ -192,37 +192,16 @@ class TestLangevinGenerator(BaseTestGenerator):
             idx = index_i - 1
             sigma_cart_i = list_sigma[idx]
             t_i = list_time[idx]
-            # Use the precomputed g values from the noise schedule — same source as the generator.
-            # Recomputing from sigma differences would introduce floating-point discrepancies that
-            # get amplified when dividing by small cell dimensions.
             g_cart_i = noise.g[idx]
             g2_cart_i = noise.g_squared[idx]
-
-            # Per-direction relative g values: shape [number_of_samples, spatial_dimension].
-            g_rel = g_cart_i / lattice_diagonals
-            g2_rel = g2_cart_i / lattice_diagonals ** 2
-
-            # Verify sigma_rel is correctly scaled per direction from sigma_cart and cell dimensions.
-            sigma_rel_i = sigma_cart_i / lattice_diagonals
-            expected_sigma_rel_i = sigma_cart_i / torch.tensor(
-                cell_dimensions, dtype=axl_i.L.dtype, device=axl_i.L.device
-            )
-            torch.testing.assert_close(
-                sigma_rel_i, expected_sigma_rel_i.unsqueeze(0).expand(number_of_samples, -1)
-            )
 
             model_predictions = pc_generator._get_model_predictions(
                 axl_i, t_i, sigma_cart_i, forces
             )
 
-            s_i_coordinates = model_predictions.X / sigma_cart_i
-            expected_coordinates = (
-                axl_i.X
-                + g2_rel[:, None, :] * s_i_coordinates
-                + g_rel[:, None, :] * z_coordinates
-            )
+            dx_cart = g2_cart_i * model_predictions.X / sigma_cart_i + g_cart_i * z_coordinates
             expected_coordinates = map_relative_coordinates_to_unit_cell(
-                expected_coordinates
+                axl_i.X + dx_cart / lattice_diagonals[:, None, :]
             )
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)
@@ -551,6 +530,7 @@ class TestLangevinGenerator(BaseTestGenerator):
         list_time = noise.time
         sigma_1_cart = list_sigma[0]
         forces = torch.zeros_like(axl_i.X)
+        lattice_diagonals = axl_i.L[:, :spatial_dimension]
 
         z_coordinates = pc_generator._draw_coordinates_gaussian_sample(
             number_of_samples
@@ -585,15 +565,9 @@ class TestLangevinGenerator(BaseTestGenerator):
             )
 
             # test coordinates
-            s_i_coordinates = model_predictions.X / sigma_cart_i
-
-            expected_coordinates = (
-                axl_i.X
-                + eps_i * s_i_coordinates
-                + torch.sqrt(2.0 * eps_i) * z_coordinates
-            )
+            dx_cart = eps_i * model_predictions.X / sigma_cart_i + torch.sqrt(2.0 * eps_i) * z_coordinates
             expected_coordinates = map_relative_coordinates_to_unit_cell(
-                expected_coordinates
+                axl_i.X + dx_cart / lattice_diagonals[:, None, :]
             )
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)

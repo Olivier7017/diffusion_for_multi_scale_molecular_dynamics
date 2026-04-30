@@ -485,9 +485,10 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
                         generator._relative_coordinates_update(
                             relative_coordinates=composition_Si32.X,
                             sigma_normalized_scores=force_score.X,
-                            sigma_i=sigma_i,
-                            score_weight=score_weight,
-                            gaussian_noise_weight=gaussian_noise,
+                            sigma_cart=sigma_i,
+                            score_weight_cart=score_weight,
+                            gaussian_noise_weight_cart=gaussian_noise,
+                            lattice_diagonals=composition_Si32.L[:, :3],
                             z=z_noise,
                         )
                     )
@@ -610,9 +611,10 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             updated_struct = generator._relative_coordinates_update(
                 relative_coordinates=composition_Si32.X,
                 sigma_normalized_scores=force_score.X,
-                sigma_i=sigma,
-                score_weight=score_weight,
-                gaussian_noise_weight=gaussian_noise,
+                sigma_cart=sigma,
+                score_weight_cart=score_weight,
+                gaussian_noise_weight_cart=gaussian_noise,
+                lattice_diagonals=composition_Si32.L[:, :3],
                 z=z_noise,
             )
 

@@ -73,6 +73,7 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
         total_time_steps,
         number_of_samples,
         num_atomic_classes,
+        spatial_dimension,
     ):
         pc_generator.corrector_r = corrector_r
         sampler = NoiseScheduler(noise_parameters, num_classes=num_atomic_classes)
@@ -81,6 +82,7 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
         list_sigma = noise.sigma
         list_time = noise.time
         forces = torch.zeros_like(axl_i.X)
+        lattice_diagonals = axl_i.L[:, :spatial_dimension]
 
         z_coordinates = pc_generator._draw_coordinates_gaussian_sample(
             number_of_samples
@@ -98,12 +100,10 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
             pc_generator, "_draw_lattice_gaussian_sample", return_value=z_lattice
         )
 
-        z_coordinates_norm = torch.sqrt(
-            (z_coordinates**2).sum(dim=-1)
-        ).mean()  # norm of z
-        z_lattice_norm = torch.sqrt(
-            (z_lattice**2).sum(dim=-1)
-        ).mean()  # norm of z averaged over lattice parameters
+        # Match the generator's exact norm computation to avoid fp discrepancies amplified by /L.
+        # The generator uses torch.linalg.norm(...).mean() / sigma, not norm(x/sigma).mean().
+        z_coordinates_norm = torch.linalg.norm(z_coordinates, dim=-1).mean().view(1, 1, 1)
+        z_lattice_norm = torch.linalg.norm(z_lattice, dim=-1).mean().view(1, 1)
 
         for index_i in range(0, total_time_steps):
             computed_sample = pc_generator.corrector_step(axl_i, index_i, forces)
@@ -119,54 +119,34 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
                 axl_i, t_i, sigma_i, forces
             )
 
-            # test coordinates update
-            s_i_coordinates = model_predictions.X / sigma_i
-
-            s_i_coordinates_norm = torch.sqrt(
-                (s_i_coordinates**2).sum(dim=-1).sum(dim=-1)
-            ).mean(dim=-1)
-            # \epsilon_i = 2 \left(r \frac{||z||_2}{||s(x_i, t_i)||_2}\right)^2
+            # test coordinates update — match _generic_corrector_step_size exactly
+            sigma_score_norm_coordinates = (
+                torch.linalg.norm(model_predictions.X, dim=[-2, -1]).mean() / sigma_i
+            ).view(1, 1, 1)
             eps_i_coordinates = (
-                2
-                * (
-                    corrector_r
-                    * z_coordinates_norm
-                    / s_i_coordinates_norm.clip(min=pc_generator.small_epsilon)
-                )
-                ** 2
+                2 * (corrector_r * z_coordinates_norm
+                     / sigma_score_norm_coordinates.clip(min=pc_generator.small_epsilon))**2
             )
-            eps_i_coordinates = eps_i_coordinates.view(1, 1, 1)
 
-            expected_coordinates = (
-                axl_i.X
-                + eps_i_coordinates * s_i_coordinates
-                + torch.sqrt(2.0 * eps_i_coordinates) * z_coordinates
-            )
+            dx_cart = (eps_i_coordinates * model_predictions.X / sigma_i
+                       + torch.sqrt(2.0 * eps_i_coordinates) * z_coordinates)
             expected_coordinates = map_relative_coordinates_to_unit_cell(
-                expected_coordinates
+                axl_i.X + dx_cart / lattice_diagonals[:, None, :]
             )
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)
 
-            # test lattice parameters update
-            s_i_lattice = model_predictions.L / sigma_i
-
-            s_i_lattice_norm = torch.sqrt((s_i_lattice**2).sum(dim=-1)).mean()
-            # \epsilon_i = 2 \left(r \frac{||z||_2}{||s(x_i, t_i)||_2}\right)^2
+            # test lattice parameters update — match _generic_corrector_step_size exactly
+            sigma_score_norm_lattice = (
+                torch.linalg.norm(model_predictions.L, dim=-1).mean() / sigma_i
+            ).view(1, 1)
             eps_i_lattice = (
-                2
-                * (
-                    corrector_r
-                    * z_lattice_norm
-                    / s_i_lattice_norm.clip(min=pc_generator.small_epsilon)
-                )
-                ** 2
+                2 * (corrector_r * z_lattice_norm / sigma_score_norm_lattice.clip(min=pc_generator.small_epsilon)) ** 2
             )
-            eps_i_lattice = eps_i_lattice.view(-1, 1)
 
             expected_lattice = (
                 axl_i.L
-                + eps_i_lattice * s_i_lattice
+                + eps_i_lattice * model_predictions.L / sigma_i
                 + torch.sqrt(2.0 * eps_i_lattice) * z_lattice
             )
 

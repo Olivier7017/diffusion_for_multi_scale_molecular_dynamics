@@ -30,7 +30,11 @@ class TestExplodingVariance:
     @pytest.fixture()
     def noise_parameters(self, sigma_min_cart, sigma_max_cart, schedule_type):
         return NoiseParameters(
-            total_time_steps=10, sigma_min_cart=sigma_min_cart, sigma_max_cart=sigma_max_cart, schedule_type=schedule_type)
+            total_time_steps=10,
+            sigma_min_cart=sigma_min_cart,
+            sigma_max_cart=sigma_max_cart,
+            schedule_type=schedule_type,
+        )
 
     @pytest.fixture()
     def times(self):
