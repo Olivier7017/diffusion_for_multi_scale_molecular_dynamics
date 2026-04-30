@@ -43,7 +43,7 @@ from diffusion_for_multi_scale_molecular_dynamics.sampling.diffusion_sampling_pa
 from diffusion_for_multi_scale_molecular_dynamics.score.gaussian_score import \
     get_lattice_sigma_normalized_score
 from diffusion_for_multi_scale_molecular_dynamics.score.wrapped_gaussian_score import \
-    get_coordinates_sigma_normalized_score
+    get_coordinates_sigma_normalized_score_cartesian
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_number_of_lattice_parameters, get_positions_from_coordinates,
     map_lattice_parameters_to_unit_cell_vectors,
@@ -273,8 +273,16 @@ class AXLDiffusionLightningModel(pl.LightningModule):
         sigmas = einops.repeat(batch[NOISE],
                                "batch 1 -> batch natoms space",
                                natoms=x0.shape[1], space=x0.shape[2])
+
+        sigma_cart = batch[NOISE].squeeze(-1)  # shape [batch_size]
+        lattice_diagonals = l0[:, :x0.shape[-1]]  # shape [batch_size, spatial_dimension]
         target_coordinates_normalized_conditional_scores = (
-            self._get_coordinates_target_normalized_score(xt_for_score, x0_for_score, sigmas)
+            self._get_relative_coordinates_target_cartesian_normalized_score(
+                noisy_relative_coordinates=xt_for_score,
+                real_relative_coordinates=x0_for_score,
+                sigma_cart=sigma_cart,
+                lattice_diagonals=lattice_diagonals,
+            )
         )
 
         # for the atom types, the loss is constructed from the Q and Qbar matrices
@@ -398,37 +406,40 @@ class AXLDiffusionLightningModel(pl.LightningModule):
 
         return output
 
-    def _get_coordinates_target_normalized_score(
+    def _get_relative_coordinates_target_cartesian_normalized_score(
         self,
         noisy_relative_coordinates: torch.Tensor,
         real_relative_coordinates: torch.Tensor,
-        sigmas: torch.Tensor,
+        sigma_cart: torch.Tensor,
+        lattice_diagonals: torch.Tensor,
     ) -> torch.Tensor:
-        """Get target normalized score for the relative coordinates.
+        """Get the sigma_cart-normalized Cartesian target score for relative coordinates.
 
         It is assumed that the inputs are consistent, ie, the noisy relative coordinates correspond
-        to the real relative coordinates noised with sigmas. It is also assumed that sigmas has
-        been broadcast so that the same value sigma(t) is applied to all atoms + dimensions within a configuration.
+        to the real relative coordinates noised with sigma_cart converted per direction.
 
         Args:
             noisy_relative_coordinates : noised relative coordinates.
                 Tensor of dimensions [batch_size, number_of_atoms, spatial_dimension]
             real_relative_coordinates : original relative coordinates, before the addition of noise.
                 Tensor of dimensions [batch_size, number_of_atoms, spatial_dimension]
-            sigmas :
-                Tensor of dimensions [batch_size, number_of_atoms, spatial_dimension]
+            sigma_cart : Cartesian sigma in Angstrom. Tensor of dimensions [batch_size].
+            lattice_diagonals : diagonal lattice parameters in Angstrom.
+                Tensor of dimensions [batch_size, spatial_dimension].
 
         Returns:
-        target normalized score: sigma times target score, ie, sigma times nabla_xt log P_{t|0}(xt| x0).
+            target normalized score: sigma_cart * score_cart_d = sigma_rel_d * score_rel_d.
                 Tensor of dimensions [batch_size, number_of_atoms, spatial_dimension]
         """
         delta_relative_coordinates = map_relative_coordinates_to_unit_cell(
             noisy_relative_coordinates - real_relative_coordinates
         )
-        target_normalized_scores = get_coordinates_sigma_normalized_score(
-            delta_relative_coordinates, sigmas, kmax=self.hyper_params.kmax_target_score
+        return get_coordinates_sigma_normalized_score_cartesian(
+            delta_relative_coordinates,
+            sigma_cart,
+            lattice_diagonals,
+            kmax=self.hyper_params.kmax_target_score,
         )
-        return target_normalized_scores
 
     def _get_lattice_target_normalized_score(
         self,
