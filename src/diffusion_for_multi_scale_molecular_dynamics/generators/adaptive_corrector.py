@@ -42,9 +42,10 @@ class AdaptiveCorrectorGenerator(LangevinGenerator):
         self,
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
-        sigma_i: torch.Tensor,
-        score_weight: torch.Tensor,
-        gaussian_noise_weight: torch.Tensor,
+        sigma_cart: torch.Tensor,
+        score_weight_cart: torch.Tensor,
+        gaussian_noise_weight_cart: torch.Tensor,
+        lattice_diagonals: torch.Tensor,
         z: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Do not update the relative coordinates in the predictor."""
