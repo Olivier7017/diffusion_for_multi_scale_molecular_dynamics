@@ -367,8 +367,8 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
     def noise_parameters_Si32(self):
         noise_parameters = NoiseParameters(
             total_time_steps=3,
-            sigma_min=0.005,
-            sigma_max=0.5,
+            sigma_min_cart=0.005,
+            sigma_max_cart=2.0,
             schedule_type="exponential",
         )
         return noise_parameters

@@ -16,8 +16,8 @@ class NoiseParameters:
     # sigma_min_cart and sigma_max_cart are in Angstroms (Cartesian units).
     # NoisingTransform and generators convert to relative coordinate units per sample using the cell dimensions,
     # so that the noise level is physically meaningful and size-independent.
-    sigma_min_cart: float = 0.005
-    sigma_max_cart: float = 0.5
+    sigma_min_cart: float = 1e-4
+    sigma_max_cart: float = 5.0
 
     # Default value comes from "Generative Modeling by Estimating Gradients of the Data Distribution"
     corrector_step_epsilon: float = 2e-5

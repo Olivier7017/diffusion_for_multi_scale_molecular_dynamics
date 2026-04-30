@@ -1,30 +1,27 @@
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
-    get_lattice_length_scale
-
 
 def get_sigma_for_relative_coordinates(
     sigma_angstrom: torch.Tensor,
     lattice_parameters: torch.Tensor,
     spatial_dimension: int,
 ) -> torch.Tensor:
-    r"""Convert sigma from Angstrom units to relative coordinate units.
+    r"""Convert sigma from Angstrom units to relative coordinate units, per spatial direction.
 
-    The sigma in relative coordinates is :math:`\sigma_\text{rel} = \sigma_\text{cart} / a`, where
-    :math:`a` is the cubic lattice constant. This conversion ensures that equal Cartesian sigma values
-    produce the same physical noise regardless of cell size.
+    For each spatial direction :math:`d`, the sigma in relative coordinates is
+    :math:`\sigma_{\text{rel},d} = \sigma_\text{cart} / L_{dd}`, where :math:`L_{dd}` is the diagonal
+    lattice element for that direction. Each direction is converted independently.
 
     Args:
-        sigma_angstrom: sigma in Angstrom units. Scalar or shape [batch_size].
+        sigma_angstrom: sigma in Angstrom units. Shape [batch_size].
         lattice_parameters: Voigt lattice parameters [L11, L22, L33, ...]. Shape [batch_size, num_lattice_params].
         spatial_dimension: number of spatial dimensions.
 
     Returns:
-        sigma_rel: sigma in relative coordinate units, shape [batch_size].
+        sigma_rel: per-direction sigma in relative coordinate units. Shape [batch_size, spatial_dimension].
     """
-    a = get_lattice_length_scale(lattice_parameters, spatial_dimension)
-    return sigma_angstrom / a
+    lattice_diagonals = lattice_parameters[:, :spatial_dimension]  # [batch_size, spatial_dimension]
+    return sigma_angstrom.unsqueeze(-1) / lattice_diagonals  # [batch_size, spatial_dimension]
 
 
 def scale_sigma_by_number_of_atoms(
