@@ -20,8 +20,6 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations im
     map_relative_coordinates_to_unit_cell)
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import (
     class_index_to_onehot, get_probability_at_previous_time_step)
-from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
-    get_lattice_length_scale
 from diffusion_for_multi_scale_molecular_dynamics.utils.sample_trajectory import \
     SampleTrajectory
 
@@ -127,7 +125,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
                 relative coordinates, of shape [number_of_samples, number_of_atoms, spatial_dimension]
                 lattice parameters, of shape [number_of_samples, spatial_dimension * (spatial_dimension + 1) / 2]
             time : time at which to evaluate the score
-            sigma_noise: the diffusion sigma parameter corresponding to the time at which to evaluate the score
+            sigma_noise: the diffusion sigma parameter corresponding to the noise parameter (in cartesian units)
             cartesian_forces: forces to condition the sampling from. Shape [number_of_samples, number_of_atoms,
                 spatial_dimension]
 
@@ -140,8 +138,10 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         number_of_samples = composition.X.shape[0]
 
         time_tensor = time * torch.ones(number_of_samples, 1).to(composition.X)
-        # sigma_noise is sigma_rel [batch_size] — already in relative coordinate units.
-        sigma_noise_tensor = sigma_noise.reshape(number_of_samples, 1).to(composition.X)
+        sigma_noise_tensor = torch.full(
+            (number_of_samples, 1), float(sigma_noise),
+            device=composition.X.device, dtype=composition.X.dtype,
+        )
 
         augmented_batch = {
             NOISY_AXL_COMPOSITION: composition,
@@ -177,11 +177,12 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             sigma_normalized_scores: output of the model - an estimate of the normalized
                 score :math:`\sigma \nabla log p(x)`.
                 Dimension: [number_of_samples, number_of_atoms, spatial_dimension]
-            sigma_i: noise parameter for variance exploding noise scheduler. Dimension: [number_of_samples]
+            sigma_i: noise parameter for variance exploding noise scheduler. (In Relative coordinates).
+                     Dimension: [number_of_samples]
             score_weight: prefactor in front of the normalized score update. Should be g2_i in the predictor step and
-                eps_i in the corrector step. Dimension: [number_of_samples]
+                eps_i in the corrector step. (In Relative coordinates) Dimension: [number_of_samples]
             gaussian_noise_weight: prefactor in front of the random noise update. Should be g_i in the predictor step
-                and sqrt_2eps_i in the corrector step. Dimension: [number_of_samples]
+                and sqrt_2eps_i in the corrector step. (In Relative coordinates) Dimension: [number_of_samples]
             z: gaussian noise used to update the coordinates. A sample drawn from the normal distribution.
                 Dimension: [number_of_samples, number_of_atoms, spatial_dimension].
 
@@ -566,11 +567,11 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         g_cart_i = self.noise.g[idx].to(composition_i.X)
         g2_cart_i = self.noise.g_squared[idx].to(composition_i.X)
 
-        # Convert Cartesian sigma/g to relative coordinate units, per sample.
-        L = get_lattice_length_scale(composition_i.L, self.spatial_dimension)  # [number_of_samples]
-        sigma_rel_i = sigma_cart_i / L   # [number_of_samples]
-        g_rel_i = g_cart_i / L           # [number_of_samples]
-        g2_rel_i = g2_cart_i / L ** 2   # [number_of_samples]
+        # Convert Cartesian g values to relative coordinate units, per spatial direction.
+        # g_rel[d] = g_cart / L_dd. Shape: [number_of_samples, spatial_dimension].
+        lattice_diagonals = composition_i.L[:, :self.spatial_dimension]
+        g_rel_i = g_cart_i / lattice_diagonals
+        g2_rel_i = g2_cart_i / lattice_diagonals ** 2
 
         # Broadcast the q matrices to the expected dimensions.
         q_matrices_i = einops.repeat(
@@ -595,7 +596,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         )
 
         model_predictions_i = self._get_model_predictions(
-            composition_i, t_i, sigma_rel_i, cartesian_forces
+            composition_i, t_i, sigma_cart_i, cartesian_forces
         )
 
         # Even if the global flag 'one_atom_type_transition_per_step' is set to True, a single atomic transition
@@ -628,10 +629,12 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
-        # Update the position according to the predictor
+        # Update the position according to the predictor.
+        # g_rel_i and g2_rel_i have shape [number_of_samples, spatial_dimension];
+        # unsqueeze over atoms to broadcast: [number_of_samples, 1, spatial_dimension].
         x_im1 = self._relative_coordinates_update_predictor_step(
             composition_i.X, model_predictions_i.X,
-            sigma_rel_i[:, None, None], g2_rel_i[:, None, None], g_rel_i[:, None, None],
+            sigma_cart_i, g2_rel_i[:, None, :], g_rel_i[:, None, :],
             z_coordinates,
         )
 
@@ -733,11 +736,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             t_i = self.noise.time[idx].to(composition_i.X)
 
         # Convert Cartesian sigma to relative coordinate units, per sample.
-        L = get_lattice_length_scale(composition_i.L, self.spatial_dimension)  # [number_of_samples]
-        sigma_rel_i = sigma_cart_i / L  # [number_of_samples]
-
         model_predictions_i = self._get_model_predictions(
-            composition_i, t_i, sigma_rel_i, cartesian_forces
+            composition_i, t_i, sigma_cart_i, cartesian_forces
         )
 
         # draw a gaussian noise sample and update the positions accordingly
@@ -747,7 +747,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         # get the step size eps_i
         eps_i_coordinates = self._get_coordinates_corrector_step_size(
-            index_i, sigma_rel_i, model_predictions_i.X, z_coordinates
+            index_i, sigma_cart_i, model_predictions_i.X, z_coordinates
         )
         # the size for the noise part is sqrt(2 * eps_i)
         sqrt_2eps_i_coordinates = torch.sqrt(2 * eps_i_coordinates)
@@ -755,7 +755,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         corrected_x_i = self._relative_coordinates_update_corrector_step(
             composition_i.X,
             model_predictions_i.X,
-            sigma_rel_i[:, None, None],
+            sigma_cart_i,
             eps_i_coordinates,
             sqrt_2eps_i_coordinates,
             z_coordinates,

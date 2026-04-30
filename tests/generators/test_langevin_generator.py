@@ -35,15 +35,20 @@ class TestLangevinGenerator(BaseTestGenerator):
         return request.param
 
     @pytest.fixture()
-    def sigma_min(self):
-        return 0.15
+    def sigma_min_cart(self):
+        return 1.5
 
     @pytest.fixture()
-    def noise_parameters(self, total_time_steps, sigma_min):
+    def sigma_max_cart(self):
+        return 5.
+
+    @pytest.fixture()
+    def noise_parameters(self, total_time_steps, sigma_min_cart, sigma_max_cart):
         noise_parameters = NoiseParameters(
             total_time_steps=total_time_steps,
             time_delta=0.1,
-            sigma_min=sigma_min,
+            sigma_min_cart=sigma_min_cart,
+            sigma_max_cart=sigma_max_cart,
             corrector_step_epsilon=0.25,
         )
         return noise_parameters
@@ -119,14 +124,25 @@ class TestLangevinGenerator(BaseTestGenerator):
         pc_generator.sample(number_of_samples, device)
 
     @pytest.fixture()
+    def cell_dimensions(self, spatial_dimension):
+        # Rectangular (non-cubic) cell: each direction has a distinct length.
+        generator = torch.Generator().manual_seed(23)
+        cell_dimensions = torch.rand(3, generator=generator).tolist()
+        return cell_dimensions[:spatial_dimension]
+
+    @pytest.fixture()
     def axl_i(
         self,
+        cell_dimensions,
         number_of_samples,
         number_of_atoms,
         spatial_dimension,
         num_atomic_classes,
         device,
     ):
+        num_lattice_params = int(spatial_dimension * (spatial_dimension + 1) / 2)
+        L = torch.zeros(number_of_samples, num_lattice_params).to(device)
+        L[:, :spatial_dimension] = torch.tensor(cell_dimensions, dtype=torch.float32, device=device)
         return AXL(
             A=torch.randint(
                 0, num_atomic_classes, (number_of_samples, number_of_atoms)
@@ -134,9 +150,7 @@ class TestLangevinGenerator(BaseTestGenerator):
             X=map_relative_coordinates_to_unit_cell(
                 torch.rand(number_of_samples, number_of_atoms, spatial_dimension)
             ).to(device),
-            L=torch.randn(
-                number_of_samples, int(spatial_dimension * (spatial_dimension + 1) / 2)
-            ).to(device),
+            L=L,
         )
 
     def test_predictor_step_relative_coordinates_and_lattice(
@@ -144,16 +158,17 @@ class TestLangevinGenerator(BaseTestGenerator):
         mocker,
         pc_generator,
         noise,
-        sigma_min,
         axl_i,
         total_time_steps,
         number_of_samples,
-        number_of_atoms,
         spatial_dimension,
+        cell_dimensions,
     ):
-        list_sigma = noise.sigma
+        list_sigma = noise.sigma  # Cartesian sigmas
         list_time = noise.time
         forces = torch.zeros_like(axl_i.X)
+        # Diagonal lattice elements per direction: shape [number_of_samples, spatial_dimension].
+        lattice_diagonals = axl_i.L[:, :spatial_dimension]
 
         z_coordinates = pc_generator._draw_coordinates_gaussian_sample(
             number_of_samples
@@ -174,23 +189,37 @@ class TestLangevinGenerator(BaseTestGenerator):
         for index_i in range(1, total_time_steps + 1):
             computed_sample = pc_generator.predictor_step(axl_i, index_i, forces)
 
-            sigma_i = list_sigma[index_i - 1]
-            t_i = list_time[index_i - 1]
-            if index_i == 1:
-                sigma_im1 = sigma_min
-            else:
-                sigma_im1 = list_sigma[index_i - 2]
+            idx = index_i - 1
+            sigma_cart_i = list_sigma[idx]
+            t_i = list_time[idx]
+            # Use the precomputed g values from the noise schedule — same source as the generator.
+            # Recomputing from sigma differences would introduce floating-point discrepancies that
+            # get amplified when dividing by small cell dimensions.
+            g_cart_i = noise.g[idx]
+            g2_cart_i = noise.g_squared[idx]
 
-            g2 = sigma_i**2 - sigma_im1**2
+            # Per-direction relative g values: shape [number_of_samples, spatial_dimension].
+            g_rel = g_cart_i / lattice_diagonals
+            g2_rel = g2_cart_i / lattice_diagonals ** 2
 
-            model_predictions = pc_generator._get_model_predictions(
-                axl_i, t_i, sigma_i, forces
+            # Verify sigma_rel is correctly scaled per direction from sigma_cart and cell dimensions.
+            sigma_rel_i = sigma_cart_i / lattice_diagonals
+            expected_sigma_rel_i = sigma_cart_i / torch.tensor(
+                cell_dimensions, dtype=axl_i.L.dtype, device=axl_i.L.device
+            )
+            torch.testing.assert_close(
+                sigma_rel_i, expected_sigma_rel_i.unsqueeze(0).expand(number_of_samples, -1)
             )
 
-            s_i_coordinates = model_predictions.X / sigma_i
+            model_predictions = pc_generator._get_model_predictions(
+                axl_i, t_i, sigma_cart_i, forces
+            )
 
+            s_i_coordinates = model_predictions.X / sigma_cart_i
             expected_coordinates = (
-                axl_i.X + g2 * s_i_coordinates + torch.sqrt(g2) * z_coordinates
+                axl_i.X
+                + g2_rel[:, None, :] * s_i_coordinates
+                + g_rel[:, None, :] * z_coordinates
             )
             expected_coordinates = map_relative_coordinates_to_unit_cell(
                 expected_coordinates
@@ -198,10 +227,8 @@ class TestLangevinGenerator(BaseTestGenerator):
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)
 
-            # scale back sigma_i for the number of atoms
-            sigma_i_for_lattice = sigma_i / (number_of_atoms ** (1 / spatial_dimension))
-            s_i_lattice = model_predictions.L / sigma_i_for_lattice
-            expected_lattice = axl_i.L + g2 * s_i_lattice + torch.sqrt(g2) * z_lattice
+            s_i_lattice = model_predictions.L / sigma_cart_i
+            expected_lattice = axl_i.L + g2_cart_i * s_i_lattice + g_cart_i * z_lattice
 
             torch.testing.assert_close(computed_sample.L, expected_lattice)
 
@@ -432,6 +459,7 @@ class TestLangevinGenerator(BaseTestGenerator):
         self,
         mocker,
         pc_generator,
+        cell_dimensions,
         total_time_steps,
         number_of_samples,
         number_of_atoms,
@@ -446,9 +474,9 @@ class TestLangevinGenerator(BaseTestGenerator):
 
         forces = torch.zeros_like(random_x)
 
-        random_l = torch.zeros(
-            number_of_samples, int(spatial_dimension * (spatial_dimension + 1) / 2)
-        ).to(device)
+        num_lattice_params = int(spatial_dimension * (spatial_dimension + 1) / 2)
+        random_l = torch.zeros(number_of_samples, num_lattice_params).to(device)
+        random_l[:, :spatial_dimension] = torch.tensor(cell_dimensions, dtype=torch.float32, device=device)
 
         # Initialize to fully masked
         a_ip1 = pc_generator.masked_atom_type_index * torch.ones(
@@ -517,11 +545,11 @@ class TestLangevinGenerator(BaseTestGenerator):
 
         sampler = NoiseScheduler(noise_parameters, num_classes=num_atomic_classes)
         noise, _ = sampler.get_all_sampling_parameters()
-        sigma_min = noise_parameters.sigma_min
+        sigma_min_cart = noise_parameters.sigma_min_cart
         epsilon = noise_parameters.corrector_step_epsilon
-        list_sigma = noise.sigma
+        list_sigma = noise.sigma  # Cartesian sigmas
         list_time = noise.time
-        sigma_1 = list_sigma[0]
+        sigma_1_cart = list_sigma[0]
         forces = torch.zeros_like(axl_i.X)
 
         z_coordinates = pc_generator._draw_coordinates_gaussian_sample(
@@ -544,20 +572,20 @@ class TestLangevinGenerator(BaseTestGenerator):
             computed_sample = pc_generator.corrector_step(axl_i, index_i, forces)
 
             if index_i == 0:
-                sigma_i = sigma_min
+                sigma_cart_i = sigma_min_cart
                 t_i = 0.0
             else:
-                sigma_i = list_sigma[index_i - 1]
+                sigma_cart_i = list_sigma[index_i - 1]
                 t_i = list_time[index_i - 1]
 
-            eps_i = 0.5 * epsilon * sigma_i**2 / sigma_1**2
+            eps_i = 0.5 * epsilon * sigma_cart_i**2 / sigma_1_cart**2
 
             model_predictions = pc_generator._get_model_predictions(
-                axl_i, t_i, sigma_i, forces
+                axl_i, t_i, sigma_cart_i, forces
             )
 
             # test coordinates
-            s_i_coordinates = model_predictions.X / sigma_i
+            s_i_coordinates = model_predictions.X / sigma_cart_i
 
             expected_coordinates = (
                 axl_i.X
@@ -570,9 +598,8 @@ class TestLangevinGenerator(BaseTestGenerator):
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)
 
-            # test lattice
-            sigma_i_for_lattice = sigma_i / (number_of_atoms ** (1 / spatial_dimension))
-            s_i_lattice = model_predictions.L / sigma_i_for_lattice
+            # test lattice — sigma_cart_i directly (no atom-count scaling)
+            s_i_lattice = model_predictions.L / sigma_cart_i
 
             expected_lattice = (
                 axl_i.L + eps_i * s_i_lattice + torch.sqrt(2.0 * eps_i) * z_lattice

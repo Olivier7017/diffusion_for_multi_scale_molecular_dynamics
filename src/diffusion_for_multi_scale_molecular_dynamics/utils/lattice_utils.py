@@ -7,27 +7,6 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.geometric_utils import \
     get_cubic_point_group_symmetries
 
 
-def get_lattice_length_scale(lattice_parameters: torch.Tensor, spatial_dimension: int) -> torch.Tensor:
-    r"""Get the lattice constant of a cubic unit cell.
-
-    This function only works for cubic (equal side lengths, orthogonal) cells.
-
-    For a cubic cell with lattice constant :math:`a`, the Voigt diagonal elements satisfy
-    :math:`L_{11} = L_{22} = L_{33} = a`, and this function returns :math:`a`.
-
-    Args:
-        lattice_parameters: Voigt lattice parameters [L11, L22, L33, ...]. Shape [batch_size, num_lattice_params].
-        spatial_dimension: number of spatial dimensions.
-
-    Returns:
-        a: lattice constant in Angstrom, shape [batch_size].
-    """
-    diagonals = lattice_parameters[:, :spatial_dimension]
-    assert torch.allclose(diagonals, diagonals[:, :1].expand_as(diagonals)), \
-        "get_lattice_length_scale only works for cubic cells (equal side lengths along all dimensions)."
-    return diagonals[:, 0]
-
-
 def get_relative_coordinates_lattice_vectors(
     number_of_shells: int = 1, spatial_dimension: int = 3
 ) -> torch.Tensor:

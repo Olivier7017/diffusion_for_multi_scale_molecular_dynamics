@@ -19,7 +19,7 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
         noise_parameters = NoiseParameters(
             total_time_steps=total_time_steps,
             time_delta=0.1,
-            sigma_min=0.15,
+            sigma_min_cart=0.15,
             corrector_r=0.15,
         )
         return noise_parameters
@@ -73,13 +73,11 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
         total_time_steps,
         number_of_samples,
         num_atomic_classes,
-        number_of_atoms,
-        spatial_dimension
     ):
         pc_generator.corrector_r = corrector_r
         sampler = NoiseScheduler(noise_parameters, num_classes=num_atomic_classes)
         noise, _ = sampler.get_all_sampling_parameters()
-        sigma_min = noise_parameters.sigma_min
+        sigma_min_cart = noise_parameters.sigma_min_cart
         list_sigma = noise.sigma
         list_time = noise.time
         forces = torch.zeros_like(axl_i.X)
@@ -111,7 +109,7 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
             computed_sample = pc_generator.corrector_step(axl_i, index_i, forces)
 
             if index_i == 0:
-                sigma_i = sigma_min
+                sigma_i = sigma_min_cart
                 t_i = 0.0
             else:
                 sigma_i = list_sigma[index_i - 1]
@@ -151,8 +149,7 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
             torch.testing.assert_close(computed_sample.X, expected_coordinates)
 
             # test lattice parameters update
-            sigma_i_for_lattice = sigma_i / (number_of_atoms ** (1 / spatial_dimension))
-            s_i_lattice = model_predictions.L / sigma_i_for_lattice
+            s_i_lattice = model_predictions.L / sigma_i
 
             s_i_lattice_norm = torch.sqrt((s_i_lattice**2).sum(dim=-1)).mean()
             # \epsilon_i = 2 \left(r \frac{||z||_2}{||s(x_i, t_i)||_2}\right)^2

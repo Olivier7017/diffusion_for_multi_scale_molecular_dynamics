@@ -24,8 +24,7 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
 from diffusion_for_multi_scale_molecular_dynamics.utils.noise_utils import (
     get_sigma_for_relative_coordinates, scale_sigma_by_number_of_atoms)
 from diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import (
-    broadcast_batch_matrix_tensor_to_all_dimensions,
-    broadcast_batch_tensor_to_all_dimensions)
+    broadcast_batch_matrix_tensor_to_all_dimensions)
 
 
 class NoisingTransform:
@@ -144,23 +143,21 @@ class NoisingTransform:
         # We cannot add noise to NaN so we transform NaN to 0, add noise, and retransform padded atoms to NaN
         pad_mask = (a0 == PADDED_ATOM_TYPE)
 
-        # Convert sigma from Angstrom (Cartesian) to relative coordinate units per sample.
-        # sigma_rel = sigma_cart / L_eff where L_eff = (L11 * L22 * L33)^(1/3) = V^(1/3).
+        # Convert sigma from Angstrom (Cartesian) to relative coordinate units per direction.
+        # sigma_rel[d] = sigma_cart / L_dd. Shape: [batch_size, spatial_dimension].
         sigma_rel = get_sigma_for_relative_coordinates(noise_sample.sigma, l0, spatial_dimension)
 
         # the datasets library does mysterious things if we use an AXL. Let's use raw tensors.
         augmentation_data[TIME] = noise_sample.time.reshape(-1, 1)
         augmentation_data[TIME_INDICES] = noise_sample.indices
-        augmentation_data[NOISE] = sigma_rel.reshape(-1, 1)
+        augmentation_data[NOISE] = noise_sample.sigma.reshape(-1, 1)  # sigma_cart: model uses Cartesian sigma
 
-        # sigma_rel has dimension [batch_size]. Broadcast to shape
+        # sigma_rel has shape [batch_size, spatial_dimension]. Expand over atoms to
         # [batch_size, number_of_atoms, spatial_dimension].
-        sigmas = broadcast_batch_tensor_to_all_dimensions(
-            batch_values=sigma_rel, final_shape=shape
-        )
+        sigmas_rel = sigma_rel.unsqueeze(1).expand(shape)
 
         x0_for_noising = torch.nan_to_num(x0, nan=0.0)
-        xt = self.noisers.X.get_noisy_relative_coordinates_sample(x0_for_noising, sigmas)
+        xt = self.noisers.X.get_noisy_relative_coordinates_sample(x0_for_noising, sigmas_rel)
 
         if self.use_optimal_transport:
             # Transport xt to be as close to x0 as possible
