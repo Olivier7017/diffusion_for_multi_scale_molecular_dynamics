@@ -299,12 +299,12 @@ class TestPositionDiffusionLightningModel:
         return times
 
     @pytest.fixture()
-    def sigmas(self, batch_size, number_of_atoms, spatial_dimension):
-        sigma_values = 0.5 * torch.rand(batch_size)  # smaller sigmas for harder tests!
-        sigmas = broadcast_batch_tensor_to_all_dimensions(
-            sigma_values, final_shape=(batch_size, number_of_atoms, spatial_dimension)
-        )
-        return sigmas
+    def sigma_cart(self, batch_size):
+        return 0.5 + 4.5 * torch.rand(batch_size)
+
+    @pytest.fixture()
+    def unit_cell_lattice_diagonals(self, unit_cell_size, batch_size, spatial_dimension):
+        return torch.full((batch_size, spatial_dimension), unit_cell_size)
 
     @pytest.fixture()
     def lightning_model(self, mocker, hyper_params):
@@ -319,22 +319,29 @@ class TestPositionDiffusionLightningModel:
 
     @pytest.fixture()
     def brute_force_target_normalized_score(
-        self, noisy_relative_coordinates, real_relative_coordinates, sigmas
+        self, noisy_relative_coordinates, real_relative_coordinates, sigma_cart, unit_cell_size,
+        number_of_atoms, spatial_dimension, batch_size,
     ):
         shape = noisy_relative_coordinates.shape
 
+        # sigma_rel_d = sigma_cart / unit_cell_size (same for all directions for a cubic cell)
+        sigma_rel_values = sigma_cart / unit_cell_size  # shape [batch_size]
+        sigma_rel_broadcast = broadcast_batch_tensor_to_all_dimensions(
+            sigma_rel_values, final_shape=(batch_size, number_of_atoms, spatial_dimension)
+        )
+
         expected_scores = []
-        for xt, x0, sigma in zip(
+        for xt, x0, sigma_rel in zip(
             noisy_relative_coordinates.flatten(),
             real_relative_coordinates.flatten(),
-            sigmas.flatten(),
+            sigma_rel_broadcast.flatten(),
         ):
             u = torch.remainder(xt - x0, 1.0)
 
             # Note that the brute force algorithm is not robust and can sometimes produce NaNs in single precision!
             # Let's compute in double precision to avoid NaNs.
             expected_score = get_sigma_normalized_score_brute_force(
-                u.to(torch.double), sigma.to(torch.double), kmax=20
+                u.to(torch.double), sigma_rel.to(torch.double), kmax=20
             ).to(torch.float)
             expected_scores.append(expected_score)
 
@@ -343,12 +350,6 @@ class TestPositionDiffusionLightningModel:
             expected_scores.isnan()
         ), "The brute force algorithm produced NaN scores. Review input."
         return expected_scores
-
-    @pytest.fixture()
-    def unit_cell_sample(self, unit_cell_size, spatial_dimension, batch_size):
-        return torch.diag(torch.Tensor([unit_cell_size] * spatial_dimension)).repeat(
-            batch_size, 1, 1
-        )
 
     # The brute force target normalized scores are *fragile*; they can return NaNs easily.
     # There is no point in running this test for all possible component combinations.
@@ -360,13 +361,16 @@ class TestPositionDiffusionLightningModel:
         lightning_model,
         noisy_relative_coordinates,
         real_relative_coordinates,
-        sigmas,
+        sigma_cart,
+        unit_cell_lattice_diagonals,
         brute_force_target_normalized_score,
-        unit_cell_sample,
     ):
         computed_target_normalized_scores = (
-            lightning_model._get_coordinates_target_normalized_score(
-                noisy_relative_coordinates, real_relative_coordinates, sigmas
+            lightning_model._get_relative_coordinates_target_cartesian_normalized_score(
+                noisy_relative_coordinates,
+                real_relative_coordinates,
+                sigma_cart,
+                unit_cell_lattice_diagonals,
             )
         )
 
