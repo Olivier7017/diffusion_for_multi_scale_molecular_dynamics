@@ -641,8 +641,13 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         z_lattice = self._draw_lattice_gaussian_sample(number_of_samples).to(
             composition_i.L
         )
+        # The model predicts sigma_n * score_L where sigma_n = sigma_cart / n_atom^(1/d).
+        # Use the sigma_n schedule (g2_n, g_n, sigma_n) to get the correct step size.
+        sigma_n_i = sigma_cart_i / (number_of_atoms ** (1.0 / self.spatial_dimension))
+        g2_n_i = g2_cart_i / (number_of_atoms ** (2.0 / self.spatial_dimension))
+        g_n_i = g_cart_i / (number_of_atoms ** (1.0 / self.spatial_dimension))
         lp_im1 = self._lattice_parameters_update_predictor_step(
-            composition_i.L, model_predictions_i.L, sigma_cart_i, g2_cart_i, g_cart_i, z_lattice
+            composition_i.L, model_predictions_i.L, sigma_n_i, g2_n_i, g_n_i, z_lattice
         )
 
         composition_im1 = AXL(A=a_im1, X=x_im1, L=lp_im1)
@@ -766,16 +771,20 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.L
         )
 
-        # get the step size eps_i
+        number_of_atoms_corrector = composition_i.X.shape[1]
+        # The model predicts sigma_n * score_L where sigma_n = sigma_cart / n_atom^(1/d).
+        # For the sigma_n schedule, eps_n = eps_cart (atom scaling cancels in sigma_n^2/sigma_n_1^2).
+        # Only the denominator in the update needs to use sigma_n_i.
+        sigma_n_i_corrector = sigma_cart_i / (number_of_atoms_corrector ** (1.0 / self.spatial_dimension))
         eps_i_lattice = self._get_lattice_parameters_corrector_step_size(
-            index_i, sigma_cart_i, model_predictions_i.L, z_lattice
+            index_i, sigma_n_i_corrector, model_predictions_i.L, z_lattice
         )
         sqrt_2eps_i_lattice = torch.sqrt(2 * eps_i_lattice)
 
         corrected_lp_i = self._lattice_parameters_update(
             composition_i.L,
             model_predictions_i.L,
-            sigma_cart_i,
+            sigma_n_i_corrector,
             eps_i_lattice,
             sqrt_2eps_i_lattice,
         )
