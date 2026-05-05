@@ -252,3 +252,31 @@ def test_get_sigma_normalized_score(
         sigma_normalized_score_small_sigma,
         expected_sigma_normalized_scores,
     )
+
+
+@pytest.mark.parametrize("sigma_cart", [0.1, 0.5, 1.0, 1.5])
+@pytest.mark.parametrize("kmax", [4])
+class TestCellSizeIndependenceAtTraining:
+    """Verifies that the sigma-normalized score is cell-size-independent.
+
+    Atoms are separated by 1 Å in a cubic cell. For L=5 the relative separation is 0.2;
+    for L=20 it is 0.05. Converting sigma_cart to sigma_rel per cell size, both calls to
+    get_coordinates_sigma_normalized_score must return the same sigma-normalized score.
+    """
+
+    delta_cart = 1.0  # Å, atoms separated by 1 Å
+
+    def test_sigma_normalized_score_cell_size_independent(self, sigma_cart, kmax):
+        cell_sizes = [15.0, 20.0, 30.0, 40.0, 50.0]
+        scores = []
+        for cell_size in cell_sizes:
+            relative_coordinates = torch.tensor(
+                [[0.0, 0.0, 0.0], [self.delta_cart / cell_size, 0.0, 0.0]]
+            )
+            sigma_rel = sigma_cart / cell_size
+            sigmas = torch.full_like(relative_coordinates, sigma_rel)
+            score = get_coordinates_sigma_normalized_score(relative_coordinates, sigmas, kmax)
+            scores.append(score)
+
+        for score in scores[1:]:
+            torch.testing.assert_close(score, scores[0])
