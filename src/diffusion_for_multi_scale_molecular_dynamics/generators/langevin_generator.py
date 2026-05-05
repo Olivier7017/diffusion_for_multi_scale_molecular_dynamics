@@ -161,16 +161,14 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
         sigma_cart: torch.Tensor,
-        score_weight_cart: torch.Tensor,
-        gaussian_noise_weight_cart: torch.Tensor,
-        lattice_diagonals: torch.Tensor,
+        score_weight: torch.Tensor,
+        gaussian_noise_weight: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
-        r"""Generic update for the relative coordinates.
+        r"""Generic cell-independent update for the relative coordinates.
 
-        This is useful for both the predictor and the corrector step. All weights are in Cartesian units.
-        The Cartesian displacement is computed first, then converted to relative coordinates by dividing by
-        the lattice diagonal per direction.
+        Callers are responsible for pre-scaling score_weight and gaussian_noise_weight so that
+        this formula is cell-independent (see predictor and corrector step methods).
 
         Args:
             relative_coordinates: starting coordinates. Dimension: [number_of_samples, number_of_atoms,
@@ -179,13 +177,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
                 score :math:`\sigma \nabla log p(x)`.
                 Dimension: [number_of_samples, number_of_atoms, spatial_dimension]
             sigma_cart: noise parameter in Cartesian units. Scalar or Dimension: [number_of_samples].
-            score_weight_cart: prefactor in front of the normalized score update in Cartesian units.
-                Should be g2_cart in the predictor step and eps_cart in the corrector step.
-                Scalar or Dimension: [number_of_samples].
-            gaussian_noise_weight_cart: prefactor in front of the random noise update in Cartesian units.
-                Should be g_cart in the predictor step and sqrt_2eps_cart in the corrector step.
-                Scalar or Dimension: [number_of_samples].
-            lattice_diagonals: diagonal lattice elements. Dimension: [number_of_samples, spatial_dimension]
+            score_weight: pre-scaled prefactor for the score term. Shape broadcastable to sigma_normalized_scores.
+            gaussian_noise_weight: pre-scaled prefactor for the noise term. Shape broadcastable to z.
             z: gaussian noise used to update the coordinates. A sample drawn from the normal distribution.
                 Dimension: [number_of_samples, number_of_atoms, spatial_dimension].
 
@@ -199,35 +192,46 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
                 relative_coordinates
             )
 
-        # Compute Cartesian displacement, then convert to relative by dividing by L per direction.
-        # This is equivalent to: dx_rel_d = g_rel_d^2 * score_rel_d + g_rel_d * z_d per direction d.
-        dx_cart = score_weight_cart * sigma_normalized_scores / sigma_cart + gaussian_noise_weight_cart * z
-        updated_coordinates = map_relative_coordinates_to_unit_cell(
-            relative_coordinates + dx_cart / lattice_diagonals[:, None, :]
-        )
-        return updated_coordinates
+        dx_rel = score_weight * sigma_normalized_scores / sigma_cart + gaussian_noise_weight * z
+        return map_relative_coordinates_to_unit_cell(relative_coordinates + dx_rel)
 
     def _relative_coordinates_update_predictor_step(
         self,
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
         sigma_cart: torch.Tensor,
-        score_weight_cart: torch.Tensor,
-        gaussian_noise_weight_cart: torch.Tensor,
+        g2_cart: torch.Tensor,
+        g_cart: torch.Tensor,
         lattice_diagonals: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
-        """Relative coordinates update for the predictor step.
+        """Relative coordinates update for the predictor step following :
+            x_i+1 = x_i + (sigma_i^2 - sigma_i-1^2) s_theta(x_i,t_i) + sqrt(sigma_i^2 - sigma_i-1^2) z
 
-        This returns the generic _relative_coordinates_update.
+        g2_cart propto lattice_diagonals^2. g_cart and sigma_cart propto lattice_diagonals.
+        We divide g2_cart and g_cart by lattice_diagonals to have a cell independent SDE.
+
+        Args:
+            relative_coordinates: x_i. Current relative coordinates in [0, 1). Shape [samples, atoms, spatial_dim].
+            sigma_normalized_scores: s_theta. Model estimate of the score. Unitless. Shape [samples, atoms, spatial_dim].
+            sigma_cart: sigma_i. Cartesian noise level in ang. Scalar or shape [samples].
+            g2_cart: sigma_i^2-sigma_i-1^2. Squared Cartesian diffusion coefficient in ang^2. Scalar or [samples].
+            g_cart: sqrt(sigma_i^2-sigma_i-1^2). Cartesian diffusion coefficient in ang. Scalar or [samples].
+            lattice_diagonals: diagonal cell lengths [L_11, L_22, ...] in ang. Shape [samples, spatial_dim].
+            z: standard Gaussian noise in relative coordinates. Shape [samples, atoms, spatial_dim].
+
+        Returns:
+            updated_coordinates: relative coordinates after the predictor step, wrapped to [0, 1).
+                Shape [samples, atoms, spatial_dim].
         """
+        score_weight = (g2_cart / lattice_diagonals)[:, None, :]
+        noise_weight = (g_cart / lattice_diagonals)[:, None, :]
         return self._relative_coordinates_update(
             relative_coordinates,
             sigma_normalized_scores,
             sigma_cart,
-            score_weight_cart,
-            gaussian_noise_weight_cart,
-            lattice_diagonals,
+            score_weight,
+            noise_weight,
             z,
         )
 
@@ -236,22 +240,37 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
         sigma_cart: torch.Tensor,
-        score_weight_cart: torch.Tensor,
-        gaussian_noise_weight_cart: torch.Tensor,
+        eps: torch.Tensor,
+        sqrt_2eps: torch.Tensor,
         lattice_diagonals: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
-        """Relative coordinates update for the corrector step.
+        """Relative coordinates update for the corrector step following :
+            x_i = x_i + eps_i * s_theta(x_i,t_i) + sqrt(2*eps_i) * z
 
-        This returns the generic _relative_coordinates_update.
+        eps and sqrt_2eps are dimensionless. sigma_cart propto lattice_diagonals.
+        We multiply eps_i by lattice_diagonals to have a cell independent SDE.
+
+        Args:
+            relative_coordinates: x_i. Current relative coordinates in [0, 1). Shape [samples, atoms, spatial_dim].
+            sigma_normalized_scores: s_theta. Model estimate of the score. Unitless. Shape [samples, atoms, spatial_dim].
+            sigma_cart: sigma_i. Cartesian noise level in ang. Scalar or shape [samples].
+            eps: eps_i = 0.5*corrector_step_epsilon*sigma_i^2/sigma_1^2. Unitless. Scalar or [samples].
+            sqrt_2eps: sqrt(2*eps_i). Unitless. Scalar or [samples].
+            lattice_diagonals: diagonal cell lengths [L_11, L_22, ...] in ang. Shape [samples, spatial_dim].
+            z: standard Gaussian noise for the stochastic term. Shape [samples, atoms, spatial_dim].
+
+        Returns:
+            updated_coordinates: relative coordinates after the corrector step, wrapped to [0, 1).
+                Shape [samples, atoms, spatial_dim].
         """
+        score_weight = (eps * lattice_diagonals)[:, None, :]
         return self._relative_coordinates_update(
             relative_coordinates,
             sigma_normalized_scores,
             sigma_cart,
-            score_weight_cart,
-            gaussian_noise_weight_cart,
-            lattice_diagonals,
+            score_weight,
+            sqrt_2eps,
             z,
         )
 
