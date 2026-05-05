@@ -43,8 +43,8 @@ class AdaptiveCorrectorGenerator(LangevinGenerator):
         relative_coordinates: torch.Tensor,
         sigma_normalized_scores: torch.Tensor,
         sigma_cart: torch.Tensor,
-        score_weight_cart: torch.Tensor,
-        gaussian_noise_weight_cart: torch.Tensor,
+        g2_cart: torch.Tensor,
+        g_cart: torch.Tensor,
         lattice_diagonals: torch.Tensor,
         z: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
