@@ -453,11 +453,16 @@ class TestAXLDiffusionLightningModelWithPadding:
 
     @pytest.fixture()
     def noising_transform(self, num_atom_types, spatial_dimension):
+        # Fix the lattice so the noisy cell never shrinks below radial_cutoff.
+        # With sigma_max_cart=5.0 and natoms=4, sigma_n ~ 3.15 Å — enough to push an 8 Å
+        # diagonal below radial_cutoff=3.0. This test targets variable-natom padding, not
+        # lattice noising, so fixing the lattice is the right approach.
         return NoisingTransform(
             noise_parameters=NoiseParameters(total_time_steps=10),
             num_atom_types=num_atom_types,
             spatial_dimension=spatial_dimension,
             use_optimal_transport=False,
+            use_fixed_lattice_parameters=True,
         )
 
     @pytest.fixture()

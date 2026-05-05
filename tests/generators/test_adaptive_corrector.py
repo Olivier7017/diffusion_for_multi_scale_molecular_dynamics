@@ -128,17 +128,21 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
                      / sigma_score_norm_coordinates.clip(min=pc_generator.small_epsilon))**2
             )
 
-            dx_cart = (eps_i_coordinates * model_predictions.X / sigma_i
-                       + torch.sqrt(2.0 * eps_i_coordinates) * z_coordinates)
             expected_coordinates = map_relative_coordinates_to_unit_cell(
-                axl_i.X + dx_cart / lattice_diagonals[:, None, :]
+                axl_i.X
+                + eps_i_coordinates * lattice_diagonals[:, None, :] * model_predictions.X / sigma_i
+                + torch.sqrt(2.0 * eps_i_coordinates) * z_coordinates
             )
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)
 
+            # TODO: Unsure if there should be a dependence on the number of atoms.
+            number_of_atoms = axl_i.X.shape[1]
+            sigma_n_i_corrector = sigma_i / (number_of_atoms ** (1.0 / spatial_dimension))
+
             # test lattice parameters update — match _generic_corrector_step_size exactly
             sigma_score_norm_lattice = (
-                torch.linalg.norm(model_predictions.L, dim=-1).mean() / sigma_i
+                torch.linalg.norm(model_predictions.L, dim=-1).mean() / sigma_n_i_corrector
             ).view(1, 1)
             eps_i_lattice = (
                 2 * (corrector_r * z_lattice_norm / sigma_score_norm_lattice.clip(min=pc_generator.small_epsilon)) ** 2
@@ -146,7 +150,7 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
 
             expected_lattice = (
                 axl_i.L
-                + eps_i_lattice * model_predictions.L / sigma_i
+                + eps_i_lattice * model_predictions.L / sigma_n_i_corrector
                 + torch.sqrt(2.0 * eps_i_lattice) * z_lattice
             )
 
