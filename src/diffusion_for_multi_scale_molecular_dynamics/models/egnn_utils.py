@@ -139,7 +139,8 @@ def get_edges_with_radial_cutoff(
     reduced_coordinates: torch.Tensor,
     unit_cell: torch.Tensor,
     radial_cutoff: float = 4.0,
-    spatial_dimension: int = 3
+    spatial_dimension: int = 3,
+    natoms: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """Get edges for a batch with a cutoff based on distance, including cartesian distances.
 
@@ -151,6 +152,8 @@ def get_edges_with_radial_cutoff(
         unit_cell: batch x spatial dimension x spatial dimension tensor with the unit cell vectors
         radial_cutoff (optional): cutoff distance in Angstrom. Defaults to 4.0
         spatial_dimension (optional): spatial dimension. Defaults to 3.
+        natoms (optional): tensor of shape [batch_size] with the real (non-padded) atom count per sample.
+            If provided, edges involving padded atom slots are excluded.
 
     Returns:
         float tensor of size [number of edges, 3], where the first two columns are edge indices (src, dst)
@@ -160,6 +163,17 @@ def get_edges_with_radial_cutoff(
     adj_matrix, _, _, _, squared_distances = get_adj_matrix(
         cartesian_coordinates, unit_cell, radial_cutoff, spatial_dimension
     )
+
+    if natoms is not None:
+        n_nodes = reduced_coordinates.shape[1]
+        src, dst = adj_matrix[0], adj_matrix[1]
+        batch_idx = src // n_nodes
+        real_edge_mask = (
+            (src % n_nodes < natoms[batch_idx]) & (dst % n_nodes < natoms[batch_idx])
+        )
+        adj_matrix = adj_matrix[:, real_edge_mask]
+        squared_distances = squared_distances[real_edge_mask]
+
     edge_distances = squared_distances.sqrt()
 
     # MACE adj calculations returns a (2, n_edges) tensor and EGNN expects a (n_edges, 2) tensor
