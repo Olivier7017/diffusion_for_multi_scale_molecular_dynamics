@@ -248,8 +248,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         """Relative coordinates update for the corrector step following :
             x_i = x_i + eps_i * s_theta(x_i,t_i) + sqrt(2*eps_i) * z
 
-        eps and sqrt_2eps are dimensionless. sigma_cart propto lattice_diagonals.
-        We multiply eps_i by lattice_diagonals to have a cell independent SDE.
+        eps, sqrt_2eps and sigma_cart are all L-independent. Both score and noise weights are divided
+        by lattice_diagonals so that dx_rel scales as 1/L, giving a cell-independent dx_cart = L * dx_rel.
 
         Args:
             relative_coordinates: x_i. Current relative coordinates in [0, 1). Shape [samples, atoms, spatial_dim].
@@ -264,13 +264,14 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             updated_coordinates: relative coordinates after the corrector step, wrapped to [0, 1).
                 Shape [samples, atoms, spatial_dim].
         """
-        score_weight = eps * lattice_diagonals[:, None, :]
+        score_weight = eps / lattice_diagonals[:, None, :]
+        noise_weight = sqrt_2eps / lattice_diagonals[:, None, :]
         return self._relative_coordinates_update(
             relative_coordinates,
             sigma_normalized_scores,
             sigma_cart,
             score_weight,
-            sqrt_2eps,
+            noise_weight,
             z,
         )
 

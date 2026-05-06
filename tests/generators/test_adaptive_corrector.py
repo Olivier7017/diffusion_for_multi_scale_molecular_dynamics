@@ -130,8 +130,8 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
 
             expected_coordinates = map_relative_coordinates_to_unit_cell(
                 axl_i.X
-                + eps_i_coordinates * lattice_diagonals[:, None, :] * model_predictions.X / sigma_i
-                + torch.sqrt(2.0 * eps_i_coordinates) * z_coordinates
+                + eps_i_coordinates / lattice_diagonals[:, None, :] * model_predictions.X / sigma_i
+                + torch.sqrt(2.0 * eps_i_coordinates) / lattice_diagonals[:, None, :] * z_coordinates
             )
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)

@@ -573,8 +573,8 @@ class TestLangevinGenerator(BaseTestGenerator):
             # test coordinates
             expected_coordinates = map_relative_coordinates_to_unit_cell(
                 axl_i.X
-                + eps_i * lattice_diagonals[:, None, :] * model_predictions.X / sigma_cart_i
-                + torch.sqrt(2.0 * eps_i) * z_coordinates
+                + eps_i / lattice_diagonals[:, None, :] * model_predictions.X / sigma_cart_i
+                + torch.sqrt(2.0 * eps_i) / lattice_diagonals[:, None, :] * z_coordinates
             )
 
             torch.testing.assert_close(computed_sample.X, expected_coordinates)
@@ -702,7 +702,7 @@ class TestPredictorStepDenoisingDirection:
 
 
 class TestCellSizeIndependence:
-    """Tests that relative-coordinate updates are invariant to cell size when sigma_rel is fixed."""
+    """Tests that coordinate updates produce cell-size-independent Cartesian displacements."""
 
     @pytest.fixture(scope="class", autouse=True)
     def set_random_seed(self):
@@ -801,29 +801,28 @@ class TestCellSizeIndependence:
         relative_coordinates,
         sigma_normalized_scores,
         gaussian_noise_z,
-        sigma_rel,
         batch_size,
         spatial_dimension,
     ):
-        """Corrector dx_rel is identical for L=5 and L=20 when sigma_rel and eps are fixed.
+        """Corrector dx_cart = L * dx_rel is identical for L=5 and L=20 when sigma_cart and eps are fixed.
 
-        eps is dimensionless; sigma_cart = sigma_rel * L. The pre-scaling eps * L cancels with sigma_cart,
-        giving dx_rel = eps/sigma_rel * sigma_normalized_scores + sqrt(2*eps) * z (L-independent).
-        The old buggy code omitted the * L pre-scaling, making the corrector under-step by L^2 in the
-        score term and L in the noise term on larger cells.
+        sigma_cart is L-independent (fixed in Angstroms). Both score_weight = eps/L and
+        noise_weight = sqrt_2eps/L scale as 1/L, so dx_rel scales as 1/L and
+        dx_cart = L * dx_rel = eps * score_cart + sqrt_2eps * z is L-independent.
         """
+        sigma_cart = torch.tensor(0.5)  # fixed in Angstroms, L-independent
         eps = 0.002
         sqrt_2eps = torch.sqrt(torch.tensor(2.0 * eps))
-        list_updated_coordinates = []
+        list_dx_cart = []
 
         for L_diag in [5.0, 20.0]:
             lattice_diagonals = L_diag * torch.ones(batch_size, spatial_dimension)
-            sigma_cart = torch.tensor(sigma_rel * L_diag)
 
             x_updated = generator._relative_coordinates_update_corrector_step(
                 relative_coordinates, sigma_normalized_scores,
                 sigma_cart, torch.tensor(eps), sqrt_2eps, lattice_diagonals, gaussian_noise_z,
             )
-            list_updated_coordinates.append(x_updated)
+            dx_cart = L_diag * (x_updated - relative_coordinates)
+            list_dx_cart.append(dx_cart)
 
-        torch.testing.assert_close(list_updated_coordinates[0], list_updated_coordinates[1])
+        torch.testing.assert_close(list_dx_cart[0], list_dx_cart[1])
