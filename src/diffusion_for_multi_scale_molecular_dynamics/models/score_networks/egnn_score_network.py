@@ -244,6 +244,7 @@ class EGNNScoreNetwork(ScoreNetwork):
                 unit_cell,
                 self.radial_cutoff,
                 spatial_dimension=self.spatial_dimension,
+                natoms=natoms,
             )
 
         edges = edges.to(reduced_coordinates.device)

@@ -130,6 +130,71 @@ class FakeAXLDataModule(LightningDataModule):
         return DataLoader(self.test_data, batch_size=self.batch_size)
 
 
+class FakeVariableNatomAXLDataModule(LightningDataModule):
+    """DataModule for variable-natom training smoke tests.
+
+    Samples have different numbers of real atoms; padded atoms get NaN coordinates
+    and PADDED_ATOM_TYPE. The lattice is fixed (not noised) so it stays safely above
+    any radial cutoff.
+    """
+
+    def __init__(
+        self,
+        spatial_dimension: int = 3,
+        num_atom_types: int = 2,
+        max_atoms: int = 8,
+        lattice_size: float = 10.0,
+    ):
+        super().__init__()
+        natoms_list = [3, 5, max_atoms, 4, 6, max_atoms, 5, 3]
+        dataset_size = len(natoms_list)
+        self.batch_size = 4
+
+        noising_transform = NoisingTransform(
+            noise_parameters=NoiseParameters(total_time_steps=10),
+            num_atom_types=num_atom_types,
+            spatial_dimension=spatial_dimension,
+            use_optimal_transport=False,
+            use_fixed_lattice_parameters=True,
+        )
+
+        lattice_params_dim = spatial_dimension * (spatial_dimension + 1) // 2
+        lattice_params = torch.zeros(lattice_params_dim)
+        lattice_params[:spatial_dimension] = lattice_size
+
+        x0 = torch.rand(dataset_size, max_atoms, spatial_dimension)
+        a0 = torch.randint(0, num_atom_types, (dataset_size, max_atoms))
+        for b, n in enumerate(natoms_list):
+            x0[b, n:] = float('nan')
+            a0[b, n:] = PADDED_ATOM_TYPE
+
+        raw_data = {
+            RELATIVE_COORDINATES: x0,
+            ATOM_TYPES: a0,
+            LATTICE_PARAMETERS: lattice_params.unsqueeze(0).expand(dataset_size, -1).clone(),
+            CARTESIAN_FORCES: torch.zeros(dataset_size, max_atoms, spatial_dimension),
+            "natom": torch.tensor(natoms_list),
+        }
+        batched_data = noising_transform.transform(raw_data)
+        keys = batched_data.keys()
+        self.data = [{key: batched_data[key][idx] for key in keys} for idx in range(dataset_size)]
+        self.train_data = self.val_data = self.test_data = None
+
+    def setup(self, stage: str):
+        self.train_data, self.val_data, self.test_data = random_split(
+            self.data, lengths=[0.5, 0.3, 0.2]
+        )
+
+    def train_dataloader(self):
+        return DataLoader(self.train_data, batch_size=self.batch_size)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_data, batch_size=self.batch_size)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_data, batch_size=self.batch_size)
+
+
 @pytest.mark.parametrize("spatial_dimension", [2, 3])
 class TestPositionDiffusionLightningModel:
     @pytest.fixture(scope="class", autouse=True)
@@ -584,3 +649,15 @@ class TestAXLDiffusionLightningModelWithPadding:
             output_B = lightning_model._generic_step(batch_B, batch_idx=0)
 
         torch.testing.assert_close(output_A["loss"], output_B["loss"])
+
+    @pytest.fixture()
+    def fake_datamodule(self, num_atom_types, spatial_dimension):
+        return FakeVariableNatomAXLDataModule(
+            spatial_dimension=spatial_dimension,
+            num_atom_types=num_atom_types,
+        )
+
+    def test_smoke_test(self, lightning_model, fake_datamodule, accelerator):
+        trainer = Trainer(fast_dev_run=3, accelerator=accelerator)
+        trainer.fit(lightning_model, fake_datamodule)
+        trainer.test(lightning_model, fake_datamodule)

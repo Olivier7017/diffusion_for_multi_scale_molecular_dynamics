@@ -261,11 +261,12 @@ class AXLDiffusionLightningModel(pl.LightningModule):
         at = batch[NOISY_ATOM_TYPES]
         xt = batch[NOISY_RELATIVE_COORDINATES]
         lt = batch[NOISY_LATTICE_PARAMETERS]
-        noisy_composition = AXL(A=at, X=xt, L=lt)
 
         pad_mask = (a0 == PADDED_ATOM_TYPE)
         x0_for_score = torch.nan_to_num(x0, nan=0.0)
         xt_for_score = torch.nan_to_num(xt, nan=0.0)
+        # Padded atoms have NaN coordinates; replace with 0 so the network receives valid inputs.
+        noisy_composition = AXL(A=at, X=xt_for_score, L=lt)
 
         # Get the loss targets
         # Coordinates: The target is :math:`sigma(t) \nabla log p_{t|0} (xt | x0)`
