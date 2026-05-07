@@ -205,7 +205,9 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         lattice_diagonals: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
-        """Relative coordinates update for the predictor step following :
+        """Relative coordinates update for the predictor step.
+
+        The update is given by the following formula:
             x_i+1 = x_i + (sigma_i^2 - sigma_i-1^2) s_theta(x_i,t_i) + sqrt(sigma_i^2 - sigma_i-1^2) z
 
         g2_cart propto lattice_diagonals^2. g_cart and sigma_cart propto lattice_diagonals.
@@ -213,7 +215,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         Args:
             relative_coordinates: x_i. Current relative coordinates in [0, 1). Shape [samples, atoms, spatial_dim].
-            sigma_normalized_scores: s_theta. Model estimate of the score. Unitless. Shape [samples, atoms, spatial_dim].
+            sigma_normalized_scores: s_theta. Model estimate of the score.
+                                     Unitless. Shape [samples, atoms, spatial_dim].
             sigma_cart: sigma_i. Cartesian noise level in ang. Scalar or shape [samples].
             g2_cart: sigma_i^2-sigma_i-1^2. Squared Cartesian diffusion coefficient in ang^2. Scalar or [samples].
             g_cart: sqrt(sigma_i^2-sigma_i-1^2). Cartesian diffusion coefficient in ang. Scalar or [samples].
@@ -245,7 +248,9 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         lattice_diagonals: torch.Tensor,
         z: torch.Tensor,
     ) -> torch.Tensor:
-        """Relative coordinates update for the corrector step following :
+        """Relative coordinates update for the corrector step.
+
+        The update is given by the following formula:
             x_i = x_i + eps_i * s_theta(x_i,t_i) + sqrt(2*eps_i) * z
 
         eps, sqrt_2eps and sigma_cart are all L-independent. Both score and noise weights are divided
@@ -253,7 +258,8 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         Args:
             relative_coordinates: x_i. Current relative coordinates in [0, 1). Shape [samples, atoms, spatial_dim].
-            sigma_normalized_scores: s_theta. Model estimate of the score. Unitless. Shape [samples, atoms, spatial_dim].
+            sigma_normalized_scores: s_theta. Model estimate of the score.
+                                     Unitless. Shape [samples, atoms, spatial_dim].
             sigma_cart: sigma_i. Cartesian noise level in ang. Scalar or shape [samples].
             eps: eps_i = 0.5*corrector_step_epsilon*sigma_i^2/sigma_1^2. Unitless. Scalar or [samples].
             sqrt_2eps: sqrt(2*eps_i). Unitless. Scalar or [samples].
