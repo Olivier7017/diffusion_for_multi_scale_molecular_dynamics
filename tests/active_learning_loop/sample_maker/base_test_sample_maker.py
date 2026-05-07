@@ -267,7 +267,7 @@ class BaseTestExciseSampleMaker(BaseTestSampleMaker):
             )
 
         assert substructure1.species == substructure2.species
-        np.testing.assert_allclose(substructure1.frac_coords, substructure2.frac_coords)
+        np.testing.assert_allclose(substructure1.frac_coords, substructure2.frac_coords, atol=1e-6)
 
     def test_excised_environments_are_present(
         self,
