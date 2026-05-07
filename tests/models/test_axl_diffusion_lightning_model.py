@@ -27,7 +27,7 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_scor
     MLPScoreNetworkParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, AXL_COMPOSITION, CARTESIAN_FORCES, LATTICE_PARAMETERS,
-    NOISE, NOISY_ATOM_TYPES, NOISY_LATTICE_PARAMETERS,
+    NOISE, NOISY_AXL_COMPOSITION, NOISY_ATOM_TYPES, NOISY_LATTICE_PARAMETERS,
     NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE, Q_BAR_MATRICES,
     Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME, TIME_INDICES)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
@@ -558,6 +558,24 @@ class TestAXLDiffusionLightningModelWithPadding:
             "natom": torch.tensor(natoms_list),
         }
         return noising_transform.transform(batch)
+
+    def test_no_padded_atom_type_reaches_score_network(self, mocker, lightning_model, mixed_natom_noised_batch):
+        """PADDED_ATOM_TYPE (-1) must be replaced with 0 before reaching the score network.
+
+        On CPU, nn.Embedding(-1) silently wraps to the last element, so checking the loss
+        is not sufficient. On CUDA the same index produces NaN. This test catches the
+        regression on any device by inspecting the atom types the network actually receives.
+        """
+        spy = mocker.spy(lightning_model.axl_network, 'forward')
+
+        with torch.no_grad():
+            lightning_model._generic_step(mixed_natom_noised_batch, batch_idx=0)
+
+        assert spy.called, "Score network forward was never called"
+        batch_arg = spy.call_args[0][0]
+        at_seen = batch_arg[NOISY_AXL_COMPOSITION].A
+        assert (at_seen != PADDED_ATOM_TYPE).all(), \
+            f"PADDED_ATOM_TYPE (-1) reached the score network in positions: {(at_seen == PADDED_ATOM_TYPE).nonzero()}"
 
     def test_loss_is_finite_with_variable_natom(self, lightning_model, mixed_natom_noised_batch):
         with torch.no_grad():
