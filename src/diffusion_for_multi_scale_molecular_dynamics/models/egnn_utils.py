@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 import torch
 
@@ -70,16 +70,20 @@ def unsorted_segment_mean(
     )  # avoid dividing by zeros by clamping the counts to be at least 1
 
 
-def get_edges(n_nodes: int) -> List[List[int]]:
-    """Get a list of nodes for a fully connected graph.
+def get_edges(n_nodes: int) -> torch.Tensor:
+    """Get a tensor of edges for a fully connected graph.
 
     Args:
         n_nodes: number of nodes
 
     Returns:
-        list of n_nodes * (n_nodes - 1) connections (list of 2 integers)
+        LongTensor of shape [n_nodes * (n_nodes - 1), 2] with (src, dst) pairs
     """
-    return [[x, y] for x in range(n_nodes) for y in range(n_nodes) if x != y]
+    indices = torch.arange(n_nodes)
+    src = indices.repeat_interleave(n_nodes)
+    dst = indices.repeat(n_nodes)
+    mask = src != dst
+    return torch.stack([src[mask], dst[mask]], dim=1)
 
 
 def get_edges_batch(
@@ -107,12 +111,10 @@ def get_edges_batch(
         (src, dst) and the third is the cartesian distance in Angstrom.
     """
     edges = get_edges(n_nodes)
-    edges = torch.LongTensor(edges)
     if batch_size > 1:
-        all_edges = []
-        for i in range(batch_size):
-            all_edges.append(edges + n_nodes * i)
-        edges = torch.cat(all_edges)
+        num_edges = edges.shape[0]
+        offsets = torch.arange(batch_size, dtype=torch.long).repeat_interleave(num_edges) * n_nodes
+        edges = edges.repeat(batch_size, 1) + offsets.unsqueeze(1)
     edges = edges.to(reduced_coordinates.device)
 
     flat_reduced = reduced_coordinates.view(-1, reduced_coordinates.shape[-1])
