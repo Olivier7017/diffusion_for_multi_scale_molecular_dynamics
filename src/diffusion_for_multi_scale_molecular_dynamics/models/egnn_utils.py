@@ -161,13 +161,21 @@ def get_edges_with_radial_cutoff(
         float tensor of size [number of edges, 3], where the first two columns are edge indices (src, dst)
         and the third is the cartesian distance in Angstrom.
     """
+    if natoms is not None:
+        # Padded atoms have finite (non-NaN) positions that would be counted as neighbors by KeOps,
+        # inflating max_number_of_neighbors and K by orders of magnitude. Set them to NaN so KeOps
+        # correctly ignores them (NaN <= r² evaluates to False in IEEE 754).
+        n_nodes = reduced_coordinates.shape[1]
+        padded_mask = torch.arange(n_nodes, device=reduced_coordinates.device).unsqueeze(0) >= natoms.unsqueeze(1)
+        reduced_coordinates = reduced_coordinates.clone()
+        reduced_coordinates[padded_mask] = float('nan')
+
     cartesian_coordinates = get_positions_from_coordinates(reduced_coordinates, unit_cell)
     adj_matrix, _, _, _, squared_distances = get_adj_matrix(
         cartesian_coordinates, unit_cell, radial_cutoff, spatial_dimension
     )
 
     if natoms is not None:
-        n_nodes = reduced_coordinates.shape[1]
         src, dst = adj_matrix[0], adj_matrix[1]
         batch_idx = src // n_nodes
         real_edge_mask = (
