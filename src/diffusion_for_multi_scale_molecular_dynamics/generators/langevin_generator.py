@@ -49,6 +49,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             use_fixed_lattice_parameters=sampling_parameters.use_fixed_lattice_parameters,
             fixed_lattice_parameters=sampling_parameters.fixed_lattice_parameters,
             trajectory_initializer=trajectory_initializer,
+            progress_bar=sampling_parameters.progress_bar,
         )
 
         self.noise_parameters = noise_parameters
