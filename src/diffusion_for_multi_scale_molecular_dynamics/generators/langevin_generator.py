@@ -141,6 +141,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         sigma_noise_tensor = sigma_noise * torch.ones(number_of_samples, 1).to(
             composition.X
         )
+
         augmented_batch = {
             NOISY_AXL_COMPOSITION: composition,
             TIME: time_tensor,
@@ -190,12 +191,12 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             z = self._draw_coordinates_gaussian_sample(number_of_samples).to(
                 relative_coordinates
             )
-
         updated_coordinates = (
             relative_coordinates
             + score_weight * sigma_normalized_scores / sigma_i
             + gaussian_noise_weight * z
         )
+
         # map back to the range [0, 1)
         updated_coordinates = map_relative_coordinates_to_unit_cell(updated_coordinates)
         return updated_coordinates
@@ -624,11 +625,11 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             composition_i.X
         )
 
+        # Update the position according to the predictor
         x_im1 = self._relative_coordinates_update_predictor_step(
             composition_i.X, model_predictions_i.X, sigma_i, g2_i, g_i, z_coordinates
         )
 
-        # TODO sigma_i should depend on the number of atoms - actually, this should be tested empirically
         # update lattice parameters
         z_lattice = self._draw_lattice_gaussian_sample(number_of_samples).to(
             composition_i.L

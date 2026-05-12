@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from diffusion_for_multi_scale_molecular_dynamics.analysis import (
     PLEASANT_FIG_SIZE, PLOT_STYLE_PATH)
 from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.force_field_augmented_score_network import (
-    ForceFieldAugmentedScoreNetwork, ForceFieldParameters)
+    ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, NOISY_AXL_COMPOSITION, UNIT_CELL)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
@@ -32,7 +32,7 @@ strength = 20
 
 acell = 10.86
 
-force_field_parameters = ForceFieldParameters(
+force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
     radial_cutoff=radial_cutoff, strength=strength
 )
 

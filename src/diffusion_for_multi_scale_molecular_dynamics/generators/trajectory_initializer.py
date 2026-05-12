@@ -154,7 +154,7 @@ class StartFromGivenConfigurationTrajectoryInitializer(TrajectoryInitializer):
             path_to_starting_configuration_data_pickle
         ), f"The file {path_to_starting_configuration_data_pickle} does not exist. Review input."
 
-        data = torch.load(path_to_starting_configuration_data_pickle)
+        data = torch.load(path_to_starting_configuration_data_pickle, weights_only=False)
 
         noisy_starting_composition = data[NOISY_AXL_COMPOSITION]
         start_time_step_index = data["start_time_step_index"]

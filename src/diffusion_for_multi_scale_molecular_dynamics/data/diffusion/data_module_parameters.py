@@ -18,7 +18,7 @@ class DataModuleParameters:
     max_atom: int = 64
     spatial_dimension: int = 3  # the dimension of Euclidean space where atoms live.
     use_fixed_lattice_parameters: bool = False  # if True, do not noise the lattice parameters and use a fixed box
-    elements: list[str]  # the elements that can exist.
+    elements: list[str]  # the elements that can exist. -> Could they be inferred ?
 
     def __post_init__(self):
         """Post init."""

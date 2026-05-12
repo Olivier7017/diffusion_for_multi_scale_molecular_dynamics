@@ -23,7 +23,10 @@ OPTIONAL_CALLBACK_DICTIONARY = dict(
 
 
 def create_all_callbacks(
-    hyper_params: Dict[AnyStr, Any], output_directory: str, verbose: bool
+    hyper_params: Dict[AnyStr, Any],
+    output_directory: str,
+    verbose: bool,
+    enable_progress_bar: bool = True,
 ) -> Dict[str, Callback]:
     """Create all callbacks.
 
@@ -36,15 +39,16 @@ def create_all_callbacks(
         hyper_params : configuration parameters.
         output_directory: path to where outputs are to be written.
         verbose: if relevant, should the callback produce verbose output.
-
+        enable_progress_bar: allows the use of Trainer(progress_bar=False) by removing CustomProgressBar
     Returns:
         all_callbacks_dict: a dictionary of instantiated callbacks with relevant names as keys.
     """
     # We always need a progress bar. We always want to know the learning rate.
     all_callbacks_dict = dict(
-        progress_bar=CustomProgressBar(),
         learning_rate=LearningRateMonitor(logging_interval="epoch"),
     )
+    if enable_progress_bar:
+        all_callbacks_dict["progress_bar"] = CustomProgressBar()
 
     for callback_name, instantiate_callback in OPTIONAL_CALLBACK_DICTIONARY.items():
         if callback_name not in hyper_params:
