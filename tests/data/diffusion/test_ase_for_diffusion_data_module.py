@@ -1,14 +1,15 @@
+import ase
+import ase.io
 import numpy as np
 import pytest
 import torch
-import ase
-import ase.io
 from ase.calculators.singlepoint import SinglePointCalculator
 
 from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.ase_for_diffusion_data_module import (
     ASEForDiffusionDataModule, ASEForDiffusionDataModuleParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    NOISY_ATOM_TYPES, NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS, PADDED_ATOM_TYPE)
+    NOISY_ATOM_TYPES, NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS,
+    PADDED_ATOM_TYPE)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
     NoiseParameters
 

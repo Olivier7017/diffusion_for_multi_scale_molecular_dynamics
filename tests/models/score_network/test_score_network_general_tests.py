@@ -19,7 +19,8 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_pr
     MaceEquivariantScorePredictionHeadParameters,
     MaceMLPScorePredictionHeadParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, PADDED_ATOM_TYPE, TIME, UNIT_CELL)
+    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS,
+    PADDED_ATOM_TYPE, TIME, UNIT_CELL)
 from tests.fake_data_utils import generate_random_string
 from tests.models.score_network.base_test_score_network import \
     BaseTestScoreNetwork

@@ -8,8 +8,8 @@ from diffusion_for_multi_scale_molecular_dynamics.data.element_types import \
     NULL_ELEMENT
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, CARTESIAN_FORCES, CARTESIAN_POSITIONS, LATTICE_PARAMETERS,
-    NOISY_ATOM_TYPES, NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS, PADDED_ATOM_TYPE,
-    RELATIVE_COORDINATES)
+    NOISY_ATOM_TYPES, NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS,
+    PADDED_ATOM_TYPE, RELATIVE_COORDINATES)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
     NoiseParameters
 from tests.data.diffusion.conftest import TestLammpsForDiffusionDataModuleBase

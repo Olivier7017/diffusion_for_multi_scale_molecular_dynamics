@@ -10,8 +10,7 @@ from diffusion_for_multi_scale_molecular_dynamics.score.wrapped_gaussian_score i
     _get_small_sigma_large_u_mask, _get_small_sigma_small_u_mask,
     get_coordinates_sigma_normalized_score,
     get_coordinates_sigma_normalized_score_cartesian,
-    get_log_wrapped_gaussians,
-    get_sigma_normalized_score_brute_force)
+    get_log_wrapped_gaussians, get_sigma_normalized_score_brute_force)
 
 
 @pytest.fixture(scope="module", autouse=True)
