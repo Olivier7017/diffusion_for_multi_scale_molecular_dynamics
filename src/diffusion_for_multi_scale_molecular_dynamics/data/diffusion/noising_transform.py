@@ -5,8 +5,8 @@ import torch
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, AXL, LATTICE_PARAMETERS, NOISE, NOISY_ATOM_TYPES,
     NOISY_LATTICE_PARAMETERS, NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE,
-    Q_BAR_MATRICES, Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES,
-    TIME, TIME_INDICES)
+    Q_BAR_MATRICES, Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME,
+    TIME_INDICES)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import (
@@ -23,8 +23,8 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
     class_index_to_onehot
 from diffusion_for_multi_scale_molecular_dynamics.utils.noise_utils import (
     get_sigma_for_relative_coordinates, scale_sigma_by_number_of_atoms)
-from diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import (
-    broadcast_batch_matrix_tensor_to_all_dimensions)
+from diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import \
+    broadcast_batch_matrix_tensor_to_all_dimensions
 
 
 class NoisingTransform:

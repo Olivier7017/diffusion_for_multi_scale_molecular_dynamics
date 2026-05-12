@@ -6,10 +6,9 @@ from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.lammps_for_diff
 from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.noising_transform import \
     NoisingTransform
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    ATOM_TYPES, CARTESIAN_FORCES, LATTICE_PARAMETERS, NOISE,
-    NOISY_ATOM_TYPES, NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE,
-    Q_BAR_MATRICES, Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES,
-    TIME, TIME_INDICES)
+    ATOM_TYPES, CARTESIAN_FORCES, LATTICE_PARAMETERS, NOISE, NOISY_ATOM_TYPES,
+    NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE, Q_BAR_MATRICES,
+    Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME, TIME_INDICES)
 from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
     NoiseParameters
 from tests.data.diffusion.conftest import TestLammpsForDiffusionDataModuleBase

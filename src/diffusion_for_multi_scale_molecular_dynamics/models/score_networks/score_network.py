@@ -18,7 +18,7 @@ from typing import AnyStr, Dict, Optional
 import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME, NUMBER_OF_ATOMS)
+    AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, TIME)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     get_number_of_lattice_parameters
 

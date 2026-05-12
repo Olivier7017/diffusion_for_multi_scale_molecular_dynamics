@@ -18,7 +18,8 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_pr
     MaceMLPScorePredictionHeadParameters, MaceScorePredictionHeadParameters,
     instantiate_mace_prediction_head)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    AXL, NOISY_AXL_COMPOSITION, NOISY_CARTESIAN_POSITIONS, NUMBER_OF_ATOMS, TIME)
+    AXL, NOISY_AXL_COMPOSITION, NOISY_CARTESIAN_POSITIONS, NUMBER_OF_ATOMS,
+    TIME)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_lattice_parameters_to_unit_cell_vectors
 
