@@ -18,7 +18,7 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
     get_relative_coordinates_lattice_vectors
 
 INDEX_PADDING_VALUE = -1
-POSITION_PADDING_VALUE = np.NaN
+POSITION_PADDING_VALUE = np.nan
 
 
 AdjacencyInfo = namedtuple(
