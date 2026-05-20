@@ -310,9 +310,10 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             NOISY_AXL_COMPOSITION: noisy_composition,
             TIME: batch[TIME],
             NOISE: batch[NOISE],
-            CARTESIAN_FORCES: batch[CARTESIAN_FORCES],
             NUMBER_OF_ATOMS: batch[NUMBER_OF_ATOMS],
         }
+        if CARTESIAN_FORCES in batch:
+            augmented_batch[CARTESIAN_FORCES] = batch[CARTESIAN_FORCES]
 
         use_conditional = None if no_conditional is False else False
 
