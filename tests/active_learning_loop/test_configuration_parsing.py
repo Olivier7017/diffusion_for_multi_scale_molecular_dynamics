@@ -11,7 +11,7 @@ from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_scor
     MLPScoreNetworkParameters
 
 try:
-    import flare_pp  # noqa
+    from flare.bffs.sgp.calculator import SGP_Calculator
 except ImportError:
     pytest.skip("Skipping FLARE tests:  optional FLARE dependencies not installed.", allow_module_level=True)
 
