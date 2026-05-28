@@ -10,7 +10,7 @@ import pymatgen
 from flare.bffs.sgp import SGP_Wrapper
 from flare.bffs.sgp.calculator import SGP_Calculator
 from flare.utils import NumpyEncoder
-from flare_pp import B2, NormalizedDotProduct
+from flare.bffs.sgp._C_flare import B2, NormalizedDotProduct
 from scipy.optimize import OptimizeResult
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.lammps.inputs import \

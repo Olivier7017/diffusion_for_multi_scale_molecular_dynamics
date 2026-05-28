@@ -5,7 +5,7 @@ from pathlib import Path
 import einops
 import numpy as np
 import pandas as pd
-from flare_pp import Structure as FlareStructure
+from flare.bffs.sgp._C_flare import Structure as FlareStructure
 from matplotlib import pyplot as plt
 from pymatgen.core import Structure
 from pymatgen.io.lammps.data import LammpsData
