@@ -112,8 +112,8 @@ class ArtnDriver:
         group_block, mass_block, elements_string = generate_named_elements_blocks(self.initial_structure)
 
         parameters = dict(configuration_file_path="initial_configuration.dat",
-                          pair_coeff_file_path=str(pair_coeff_file_path),
-                          mapped_uncertainty_file_path=str(mapped_uncertainty_file_path),
+                          pair_coeff_file_path=str(pair_coeff_file_path.resolve()),
+                          mapped_uncertainty_file_path=str(mapped_uncertainty_file_path.resolve()),
                           artn_library_plugin_path=str(self._artn_library_plugin_path),
                           uncertainty_threshold=f"{uncertainty_threshold:.12f}",
                           group_block=group_block,
