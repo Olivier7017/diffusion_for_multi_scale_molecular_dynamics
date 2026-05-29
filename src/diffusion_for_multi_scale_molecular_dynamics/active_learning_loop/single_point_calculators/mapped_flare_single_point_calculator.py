@@ -21,8 +21,8 @@ class MappedFlareSinglePointCalculator(BaseLAMMPSSinglePointCalculator):
         assert mapped_uncertainty_file_path.is_file(), \
             f"The file '{mapped_uncertainty_file_path}' does not exist. Review input."
 
-        self._pair_coeff_path = pair_coeff_file_path
-        self._map_unc_path = mapped_uncertainty_file_path
+        self._pair_coeff_path = pair_coeff_file_path.resolve()
+        self._map_unc_path = mapped_uncertainty_file_path.resolve()
 
     def _generate_pair_coeff_command(self, elements_string: str) -> str:
         line1 = f"pair_coeff * * {self._pair_coeff_path}"
