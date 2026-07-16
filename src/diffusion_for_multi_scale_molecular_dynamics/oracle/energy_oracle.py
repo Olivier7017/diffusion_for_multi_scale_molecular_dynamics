@@ -6,7 +6,7 @@ from typing import AnyStr, Dict, List, Tuple, Union
 import numpy as np
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.data.element_types import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
     ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, AXL_COMPOSITION, LATTICE_PARAMETERS, RELATIVE_COORDINATES)

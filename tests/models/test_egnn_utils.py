@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.egnn_utils import (
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_utils import (
     get_edges_batch, get_edges_with_radial_cutoff, unsorted_segment_mean,
     unsorted_segment_sum)
 

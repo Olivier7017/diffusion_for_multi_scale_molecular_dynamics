@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.data.element_types import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
     ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, AXL_COMPOSITION, CARTESIAN_POSITIONS)

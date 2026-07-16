@@ -7,26 +7,26 @@ import pandas as pd
 import yaml
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.artn.calculation_state import \
-    CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver.artn_driver import \
     ArtnDriver
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.lammps.outputs import \
-    extract_all_fields_from_dump
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.logging import (
     clean_up_campaign_logger, set_up_campaign_logger)
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.base_sample_maker import \
-    BaseSampleMaker
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.namespace import (
-    AXL_STRUCTURE_IN_NEW_BOX, AXL_STRUCTURE_IN_ORIGINAL_BOX)
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.structure_converter import \
-    StructureConverter
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.single_point_calculators.base_single_point_calculator import (  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation)
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.trainer.flare_hyperparameter_optimizer import \
+from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
+    CalculationState
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
+    extract_all_fields_from_dump
+from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import \
     FlareHyperparametersOptimizer
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.trainer.flare_trainer import \
+from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
     FlareTrainer
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.base_sample_maker import \
+    BaseSampleMaker
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.namespace import (
+    AXL_STRUCTURE_IN_NEW_BOX, AXL_STRUCTURE_IN_ORIGINAL_BOX)
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.structure_converter import \
+    StructureConverter
 
 
 class ActiveLearning:

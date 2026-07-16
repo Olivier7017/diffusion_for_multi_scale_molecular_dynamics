@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.atom_selector.threshold_atom_selector import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.threshold_atom_selector import (
     ThresholdAtomSelector, ThresholdAtomSelectorParameters)
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.atom_selector.top_k_atom_selector import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.top_k_atom_selector import (
     TopKAtomSelector, TopKAtomSelectorParameters)
 
 

@@ -1,16 +1,16 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.lammps_for_diffusion_data_module import \
-    LammpsForDiffusionDataModule
-from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.noising_transform import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.lammps_for_diffusion_data_module import \
+    LammpsForDiffusionDataModule  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.noising_transform import \
     NoisingTransform
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
+    NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, CARTESIAN_FORCES, LATTICE_PARAMETERS, NOISE, NOISY_ATOM_TYPES,
     NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE, Q_BAR_MATRICES,
     Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME, TIME_INDICES)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
-    NoiseParameters
 from tests.data.diffusion.conftest import TestLammpsForDiffusionDataModuleBase
 
 

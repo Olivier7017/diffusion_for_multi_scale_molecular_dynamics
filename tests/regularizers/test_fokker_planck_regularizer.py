@@ -2,7 +2,7 @@ import einops
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.regularizers.fokker_planck_regularizer import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.regularizers.fokker_planck_regularizer import (
     FokkerPlanckRegularizer, FokkerPlanckRegularizerParameters)
 from tests.regularizers.conftest import BaseTestRegularizer
 from tests.regularizers.differentiable_score_network import \

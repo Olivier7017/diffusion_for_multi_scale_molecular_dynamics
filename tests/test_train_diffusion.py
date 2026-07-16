@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from diffusion_for_multi_scale_molecular_dynamics import train_diffusion
-from diffusion_for_multi_scale_molecular_dynamics.callbacks.standard_callbacks import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.callbacks.standard_callbacks import (
     BEST_MODEL_NAME, LAST_MODEL_NAME)
 from tests.conftest import TestDiffusionDataBase
 
@@ -297,7 +297,7 @@ class TestTrainDiffusion(TestDiffusionDataBase):
         last_model_path = os.path.join(all_paths["output"], LAST_MODEL_NAME)
 
         method_to_patch = (
-            "diffusion_for_multi_scale_molecular_dynamics.models.position_diffusion_lightning_model."
+            "diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.position_diffusion_lightning_model."
             "PositionDiffusionLightningModel.on_train_epoch_start"
         )
 

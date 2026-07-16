@@ -5,13 +5,13 @@ import pytest
 import torch
 from ase.calculators.singlepoint import SinglePointCalculator
 
-from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.ase_for_diffusion_data_module import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.ase_for_diffusion_data_module import (  # noqa
     ASEForDiffusionDataModule, ASEForDiffusionDataModuleParameters)
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
+    NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     NOISY_ATOM_TYPES, NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS,
     PADDED_ATOM_TYPE)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
-    NoiseParameters
 
 
 class TestASEForDiffusionDataModule:

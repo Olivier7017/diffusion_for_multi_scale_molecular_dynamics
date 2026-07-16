@@ -5,17 +5,17 @@ import numpy as np
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.excise_and_repaint_sample_maker import (  # noqa
-    ExciseAndRepaintSampleMaker, ExciseAndRepaintSampleMakerArguments)
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import \
-    PredictorCorrectorSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.generators.sampling_constraint import \
-    SamplingConstraint
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
+from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excise_and_repaint_sample_maker import (  # noqa
+    ExciseAndRepaintSampleMaker, ExciseAndRepaintSampleMakerArguments)
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
+    PredictorCorrectorSamplingParameters
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.sampling_constraint import \
+    SamplingConstraint
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
+    EGNNScoreNetwork, EGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_reciprocal_basis_vectors,
     get_relative_coordinates_from_cartesian_positions,
@@ -225,7 +225,7 @@ class TestExciseAndRepaintSampleMaker(BaseTestExciseSampleMaker):
             return_value={"original_axl": torch_batch_axl}
         )
         with patch(
-            "diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker."
+            "diffusion_for_multi_scale_molecular_dynamics.sample_maker."
             "excise_and_repaint_sample_maker.create_batch_of_samples",
             new=mock_create_batch_of_samples,
         ):

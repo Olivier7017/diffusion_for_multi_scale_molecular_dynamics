@@ -1,12 +1,12 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.sde_position_generator import (
-    SDE, ExplodingVarianceSDEPositionGenerator, SDESamplingParameters)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.exploding_variance import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.exploding_variance import \
     VarianceScheduler
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.sde_position_generator import (
+    SDE, ExplodingVarianceSDEPositionGenerator, SDESamplingParameters)
 from tests.generators.conftest import BaseTestGenerator
 
 

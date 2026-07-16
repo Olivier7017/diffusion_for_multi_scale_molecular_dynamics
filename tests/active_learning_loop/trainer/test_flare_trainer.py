@@ -1,8 +1,8 @@
 import numpy as np
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.single_point_calculators.flare_single_point_calculator import \
+from diffusion_for_multi_scale_molecular_dynamics.calc.flare_single_point_calculator import \
     FlareSinglePointCalculator  # noqa
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.trainer.flare_trainer import \
+from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
     FlareTrainer  # noqa
 from tests.active_learning_loop.trainer.base_test_flare import BaseTestFlare
 

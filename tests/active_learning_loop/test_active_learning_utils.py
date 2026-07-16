@@ -4,7 +4,7 @@ from itertools import product
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.utils import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.utils import (
     find_partition_sizes, get_distances_from_reference_point,
     partition_relative_coordinates_for_voxels, select_occupied_voxels)
 

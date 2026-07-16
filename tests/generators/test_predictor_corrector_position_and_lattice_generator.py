@@ -1,13 +1,13 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import \
-    PredictorCorrectorAXLGenerator
-from diffusion_for_multi_scale_molecular_dynamics.generators.trajectory_initializer import (
-    StartFromGivenConfigurationTrajectoryInitializer, TrajectoryInitializer,
-    TrajectoryInitializerParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, NOISY_AXL_COMPOSITION)
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
+    PredictorCorrectorAXLGenerator
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.trajectory_initializer import (
+    StartFromGivenConfigurationTrajectoryInitializer, TrajectoryInitializer,
+    TrajectoryInitializerParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     map_axl_composition_to_unit_cell, map_relative_coordinates_to_unit_cell)
 from tests.generators.conftest import BaseTestGenerator

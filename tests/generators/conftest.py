@@ -3,10 +3,10 @@ from typing import AnyStr, Dict
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks import (
-    ScoreNetwork, ScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, NOISY_AXL_COMPOSITION)
+from diffusion_for_multi_scale_molecular_dynamics.score_network import (
+    ScoreNetwork, ScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
     class_index_to_onehot
 

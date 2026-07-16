@@ -1,7 +1,8 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.egnn import E_GCL
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import \
+    E_GCL
 
 
 class TestEGCL:

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from src.diffusion_for_multi_scale_molecular_dynamics.data.parse_lammps_outputs import (
+from src.diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.parse_lammps_outputs import (
     parse_lammps_dump, parse_lammps_output, parse_lammps_thermo_log)
 from tests.fake_data_utils import (create_dump_yaml_documents,
                                    generate_fake_configuration,

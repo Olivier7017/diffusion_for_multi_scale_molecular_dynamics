@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.excisor.nearest_neighbors_excisor import (
-    NearestNeighborsExcision, NearestNeighborsExcisionArguments)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excisor.nearest_neighbors_excisor import (
+    NearestNeighborsExcision, NearestNeighborsExcisionArguments)
 from tests.active_learning_loop.excisor.base_test_excision import \
     BaseTestExcision
 

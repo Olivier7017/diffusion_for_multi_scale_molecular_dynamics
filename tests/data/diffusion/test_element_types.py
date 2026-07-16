@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.data.element_types import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import (
     NULL_ELEMENT, NULL_ELEMENT_ID, ElementTypes)
 from tests.fake_data_utils import generate_random_string
 

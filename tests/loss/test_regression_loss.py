@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.loss import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loss import \
     create_loss_calculator
-from diffusion_for_multi_scale_molecular_dynamics.loss.loss_parameters import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loss.loss_parameters import (
     AtomTypeLossParameters, MSELossParameters, WeightedMSELossParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
 from src.diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import \

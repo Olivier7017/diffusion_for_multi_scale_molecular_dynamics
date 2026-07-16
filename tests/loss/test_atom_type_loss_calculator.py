@@ -4,9 +4,9 @@ import pytest
 import torch
 from torch.nn import KLDivLoss
 
-from diffusion_for_multi_scale_molecular_dynamics.loss import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loss import \
     D3PMLossCalculator
-from diffusion_for_multi_scale_molecular_dynamics.loss.loss_parameters import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loss.loss_parameters import \
     AtomTypeLossParameters
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
     class_index_to_onehot

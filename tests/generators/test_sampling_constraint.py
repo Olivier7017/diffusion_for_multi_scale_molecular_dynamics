@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.sampling_constraint import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.sampling_constraint import (
     SamplingConstraint, read_sampling_constraint, write_sampling_constraint)
 
 

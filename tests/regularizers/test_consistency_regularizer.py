@@ -1,17 +1,17 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import \
-    PredictorCorrectorSamplingParameters
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
+    NoiseParameters
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_scheduler import \
+    NoiseScheduler
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.regularizers.consistency_regularizer import (
+    ConsistencyRegularizer, ConsistencyRegularizerParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
-    NoiseParameters
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
-    NoiseScheduler
-from diffusion_for_multi_scale_molecular_dynamics.regularizers.consistency_regularizer import (
-    ConsistencyRegularizer, ConsistencyRegularizerParameters)
-from diffusion_for_multi_scale_molecular_dynamics.score.wrapped_gaussian_score import \
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
+    PredictorCorrectorSamplingParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.wrapped_gaussian_score import \
     get_coordinates_sigma_normalized_score
 from tests.regularizers.conftest import BaseTestRegularizer
 

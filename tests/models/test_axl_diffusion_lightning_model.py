@@ -7,42 +7,42 @@ import torch
 from lightning import LightningDataModule, Trainer
 from torch.utils.data import DataLoader, default_collate, random_split
 
-from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.noising_transform import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.noising_transform import \
     NoisingTransform
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import \
-    PredictorCorrectorSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.loss.loss_parameters import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loss.loss_parameters import \
     create_loss_parameters
-from diffusion_for_multi_scale_molecular_dynamics.metrics.sampling_metrics_parameters import \
-    SamplingMetricsParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.axl_diffusion_lightning_model import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.axl_diffusion_lightning_model import (
     AXLDiffusionLightningModel, AXLDiffusionParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.optimizer import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.optimizer import \
     OptimizerParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.scheduler import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.scheduler import (
     CosineAnnealingLRSchedulerParameters, ReduceLROnPlateauSchedulerParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import \
-    EGNNScoreNetworkParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_score_network import \
-    MLPScoreNetworkParameters
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
+    NoiseParameters
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_scheduler import \
+    NoiseScheduler
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noisers.lattice_noiser import \
+    LatticeDataParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, AXL_COMPOSITION, CARTESIAN_FORCES, LATTICE_PARAMETERS, NOISE,
     NOISY_ATOM_TYPES, NOISY_AXL_COMPOSITION, NOISY_LATTICE_PARAMETERS,
     NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE, Q_BAR_MATRICES,
     Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME, TIME_INDICES)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
-    NoiseParameters
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
-    NoiseScheduler
-from diffusion_for_multi_scale_molecular_dynamics.noisers.lattice_noiser import \
-    LatticeDataParameters
 from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle import (
     EnergyOracle, OracleParameters)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle_factory import (
     ENERGY_ORACLE_BY_NAME, ORACLE_PARAMETERS_BY_NAME)
-from diffusion_for_multi_scale_molecular_dynamics.sampling.diffusion_sampling_parameters import \
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
+    PredictorCorrectorSamplingParameters
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.metrics.sampling_metrics_parameters import \
+    SamplingMetricsParameters
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.sampling.diffusion_sampling_parameters import \
     DiffusionSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.score.wrapped_gaussian_score import \
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import \
+    EGNNScoreNetworkParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import \
+    MLPScoreNetworkParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.wrapped_gaussian_score import \
     get_sigma_normalized_score_brute_force
 from diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import (
     broadcast_batch_matrix_tensor_to_all_dimensions,

@@ -4,27 +4,27 @@ import pytest
 import torch
 from ase import Atoms
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.langevin_generator import \
-    LangevinGenerator
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import \
-    PredictorCorrectorSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.force_field_augmented_score_network import (
-    ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_score_network import (
-    MLPScoreNetwork, MLPScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.harmonic_force import \
-    HarmonicForceParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.zbl_force import \
-    ZBLForceParameters
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
+    NoiseParameters
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_scheduler import \
+    NoiseScheduler
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS, TIME,
     UNIT_CELL)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
-    NoiseParameters
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
-    NoiseScheduler
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.langevin_generator import \
+    LangevinGenerator
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
+    PredictorCorrectorSamplingParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
+    EGNNScoreNetwork, EGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.force_field_augmented_score_network import (
+    ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import (
+    MLPScoreNetwork, MLPScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.repulsive_force.harmonic_force import \
+    HarmonicForceParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.repulsive_force.zbl_force import \
+    ZBLForceParameters
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates,
     map_lattice_parameters_to_unit_cell_vectors)

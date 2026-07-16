@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from diffusion_for_multi_scale_molecular_dynamics.data.utils import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.utils import \
     crop_lammps_yaml
 
 # Sample data for dump and thermo YAML files

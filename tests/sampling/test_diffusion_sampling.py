@@ -1,14 +1,14 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.axl_generator import (
-    AXLGenerator, SamplingParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, AXL_COMPOSITION, CARTESIAN_POSITIONS)
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.axl_generator import (
+    AXLGenerator, SamplingParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates,
     map_lattice_parameters_to_unit_cell_vectors)
-from src.diffusion_for_multi_scale_molecular_dynamics.sampling.diffusion_sampling import \
+from src.diffusion_for_multi_scale_molecular_dynamics.sample_maker.sampling.diffusion_sampling import \
     create_batch_of_samples
 
 

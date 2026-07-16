@@ -1,16 +1,16 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.generators.predictor_corrector_axl_generator import \
-    PredictorCorrectorSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.analytical_score_network import \
-    AnalyticalScoreNetworkParameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.equivariant_analytical_score_network import \
-    EquivariantAnalyticalScoreNetworkParameters
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
-from diffusion_for_multi_scale_molecular_dynamics.regularizers.regression_regularizer import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.regularizers.regression_regularizer import (
     RegressionRegularizer, RegressionRegularizerParameters)
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
+    PredictorCorrectorSamplingParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.analytical_score_network import \
+    AnalyticalScoreNetworkParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.equivariant_analytical_score_network import \
+    EquivariantAnalyticalScoreNetworkParameters
 from tests.regularizers.conftest import BaseTestRegularizer
 
 

@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.optimizer import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.optimizer import (
     OptimizerParameters, load_optimizer)
 
 
