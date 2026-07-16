@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import ase
+import ase.io
 import numpy as np
 import pandas as pd
 from ase.calculators.calculator import \
