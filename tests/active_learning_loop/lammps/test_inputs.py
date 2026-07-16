@@ -2,7 +2,7 @@ import numpy as np
 import pymatgen
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.lammps.inputs import (
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import (
     generate_named_elements_blocks, sort_elements_by_atomic_mass)
 
 

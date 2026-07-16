@@ -12,10 +12,10 @@ from pymatgen.io.lammps.data import LammpsData
 from tqdm import tqdm
 
 from diffusion_for_multi_scale_molecular_dynamics import TOP_DIR
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.trainer.flare_trainer import (
-    FlareConfiguration, FlareTrainer)
 from diffusion_for_multi_scale_molecular_dynamics.analysis import (
     PLEASANT_FIG_SIZE, PLOT_STYLE_PATH)
+from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import (
+    FlareConfiguration, FlareTrainer)
 
 logging.basicConfig(level=logging.INFO)
 

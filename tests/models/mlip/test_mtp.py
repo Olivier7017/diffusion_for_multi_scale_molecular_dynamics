@@ -8,9 +8,9 @@ import yaml
 from pymatgen.core import Structure
 from sklearn.metrics import mean_absolute_error
 
-from diffusion_for_multi_scale_molecular_dynamics.models.mlip.mtp import (
+from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp import (
     MTPArguments, MTPWithMLIP3)
-from diffusion_for_multi_scale_molecular_dynamics.models.mlip.utils import (
+from diffusion_for_multi_scale_molecular_dynamics.mlip.utils import (
     MLIPInputs, extract_energy_from_thermo_log,
     extract_structure_and_forces_from_file, get_metrics_from_pred,
     prepare_mlip_inputs_from_lammps)
@@ -50,13 +50,13 @@ def test_train(mocker, mock_popen, tmpdir):
 
     # Mock check_structures_forces_stresses to return a value without needing real input
     mocker.patch(
-        "diffusion_for_multi_scale_molecular_dynamics.models.mlip.mtp.check_structures_forces_stresses",
+        "diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.check_structures_forces_stresses",
         side_effect=passthrough,
     )
 
     # Mock pool_from to return a simplified pool object
     mocker.patch(
-        "diffusion_for_multi_scale_molecular_dynamics.models.mlip.mtp.pool_from",
+        "diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.pool_from",
         return_value="simple_pool_object",
     )
 
@@ -116,13 +116,13 @@ def test_evaluate(mocker, fake_structure, mtp_instance, mock_popen):
 
     # Mock check_structures_forces_stresses to return the arguments unmodified
     mocker.patch(
-        "diffusion_for_multi_scale_molecular_dynamics.models.mlip.mtp.check_structures_forces_stresses",
+        "diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.check_structures_forces_stresses",
         side_effect=lambda s, f, st: (s, f, st),
     )
 
     # Mock pool_from to return a mocked value
     mocker.patch(
-        "diffusion_for_multi_scale_molecular_dynamics.models.mlip.mtp.pool_from",
+        "diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.pool_from",
         return_value="mock_pool",
     )
 
@@ -236,7 +236,7 @@ def test_extract_energy_from_thermo_log(tmpdir):
 @pytest.fixture
 def mock_extract_energy_from_thermo_log(mocker):
     return mocker.patch(
-        "diffusion_for_multi_scale_molecular_dynamics.models.mlip.utils.extract_energy_from_thermo_log",
+        "diffusion_for_multi_scale_molecular_dynamics.mlip.utils.extract_energy_from_thermo_log",
         return_value=[],
     )
 
@@ -244,7 +244,7 @@ def mock_extract_energy_from_thermo_log(mocker):
 @pytest.fixture
 def mock_extract_structure_and_forces(mocker):
     return mocker.patch(
-        "diffusion_for_multi_scale_molecular_dynamics.models.mlip.utils.extract_structure_and_forces_from_file",
+        "diffusion_for_multi_scale_molecular_dynamics.mlip.utils.extract_structure_and_forces_from_file",
         return_value=([], []),
     )
 

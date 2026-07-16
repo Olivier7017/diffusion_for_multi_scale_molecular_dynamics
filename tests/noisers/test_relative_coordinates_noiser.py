@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.noisers.relative_coordinates_noiser import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noisers.relative_coordinates_noiser import \
     RelativeCoordinatesNoiser
 
 

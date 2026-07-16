@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.trainer.flare_hyperparameter_optimizer import (
+from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import (
     FlareHyperparametersOptimizer, FlareOptimizerConfiguration,
     HyperparameterTranslator)
 from tests.active_learning_loop.trainer.base_test_flare import BaseTestFlare

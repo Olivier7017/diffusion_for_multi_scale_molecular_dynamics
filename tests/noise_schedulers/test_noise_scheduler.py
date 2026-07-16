@@ -2,9 +2,9 @@ import einops
 import pytest
 import torch
 
-from src.diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
+from src.diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
-from src.diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_scheduler import \
+from src.diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_scheduler import \
     NoiseScheduler
 
 

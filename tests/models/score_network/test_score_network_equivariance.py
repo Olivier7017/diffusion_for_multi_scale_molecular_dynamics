@@ -3,20 +3,20 @@ import pytest
 import torch
 from e3nn import o3
 
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.diffusion_mace_score_network import (
-    DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.equivariant_analytical_score_network import (
-    EquivariantAnalyticalScoreNetwork,
-    EquivariantAnalyticalScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mace_score_network import (
-    MACEScoreNetwork, MACEScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_prediction_head import \
-    MaceEquivariantScorePredictionHeadParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION,
     NOISY_CARTESIAN_POSITIONS, NUMBER_OF_ATOMS, TIME)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.diffusion_mace_score_network import (
+    DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
+    EGNNScoreNetwork, EGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.equivariant_analytical_score_network import (
+    EquivariantAnalyticalScoreNetwork,
+    EquivariantAnalyticalScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.mace_score_network import (
+    MACEScoreNetwork, MACEScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.score_prediction_head import \
+    MaceEquivariantScorePredictionHeadParameters
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates, get_reciprocal_basis_vectors,
     get_relative_coordinates_from_cartesian_positions,

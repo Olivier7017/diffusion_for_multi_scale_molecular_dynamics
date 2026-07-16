@@ -2,9 +2,9 @@ import pytest
 import torch
 from e3nn import o3
 
-from diffusion_for_multi_scale_molecular_dynamics.models.mace_utils import \
+from diffusion_for_multi_scale_molecular_dynamics.score_network.mace_utils import \
     build_mace_output_nodes_irreducible_representation
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_prediction_head import (
+from diffusion_for_multi_scale_molecular_dynamics.score_network.score_prediction_head import (
     MaceEquivariantScorePredictionHead,
     MaceEquivariantScorePredictionHeadParameters)
 

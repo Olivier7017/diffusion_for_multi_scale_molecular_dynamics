@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.transport.distance import \
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.transport.distance import \
     get_squared_geodesic_distance
-from diffusion_for_multi_scale_molecular_dynamics.transport.optimal_translation import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.transport.optimal_translation import (
     TAU_RANGE_MAX, TAU_RANGE_MIN, compute_integer_ells_and_tau_crossing_points,
     find_squared_geodesic_distance_minimizing_translation,
     get_plateau_values_and_boundaries)

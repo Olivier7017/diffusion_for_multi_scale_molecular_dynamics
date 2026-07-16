@@ -5,22 +5,22 @@ import numpy as np
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.diffusion_mace_score_network import (
-    DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mace_score_network import (
-    MACEScoreNetwork, MACEScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.mlp_score_network import (
-    MLPScoreNetwork, MLPScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_network_factory import \
-    create_score_network_parameters
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.score_prediction_head import (
-    MaceEquivariantScorePredictionHeadParameters,
-    MaceMLPScorePredictionHeadParameters)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS,
     PADDED_ATOM_TYPE, TIME, UNIT_CELL)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.diffusion_mace_score_network import (
+    DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
+    EGNNScoreNetwork, EGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.mace_score_network import (
+    MACEScoreNetwork, MACEScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import (
+    MLPScoreNetwork, MLPScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.score_network_factory import \
+    create_score_network_parameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.score_prediction_head import (
+    MaceEquivariantScorePredictionHeadParameters,
+    MaceMLPScorePredictionHeadParameters)
 from tests.fake_data_utils import generate_random_string
 from tests.models.score_network.base_test_score_network import \
     BaseTestScoreNetwork

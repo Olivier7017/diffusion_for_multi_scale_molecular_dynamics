@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.score.wrapped_gaussian_score import (
+from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.wrapped_gaussian_score import (
     SIGMA_THRESHOLD, _get_large_sigma_mask, _get_s1a_exponential,
     _get_s1b_exponential, _get_sigma_normalized_s2,
     _get_sigma_square_times_score_1_from_exponential,

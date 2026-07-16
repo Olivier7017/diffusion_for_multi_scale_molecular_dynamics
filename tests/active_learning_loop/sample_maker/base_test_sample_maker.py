@@ -2,13 +2,13 @@ import numpy as np
 import pytest
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.atom_selector.threshold_atom_selector import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.threshold_atom_selector import (
     ThresholdAtomSelector, ThresholdAtomSelectorParameters)
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.atom_selector.top_k_atom_selector import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.top_k_atom_selector import (
     TopKAtomSelector, TopKAtomSelectorParameters)
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.excisor.excisor_factory import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excisor.excisor_factory import (
     create_excisor, create_excisor_parameters)
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.structure_converter import \
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.structure_converter import \
     StructureConverter
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_numpy_unit_cell_to_lattice_parameters

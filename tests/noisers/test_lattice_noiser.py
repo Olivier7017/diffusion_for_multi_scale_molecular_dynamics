@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.noisers.lattice_noiser import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noisers.lattice_noiser import (
     LatticeDataParameters, LatticeNoiser)
 
 

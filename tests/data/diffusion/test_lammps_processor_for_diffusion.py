@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.lammps_processor_for_diffusion import \
-    LammpsProcessorForDiffusion
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.lammps_processor_for_diffusion import \
+    LammpsProcessorForDiffusion  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     CARTESIAN_FORCES, CARTESIAN_POSITIONS, LATTICE_PARAMETERS,
     RELATIVE_COORDINATES)

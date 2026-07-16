@@ -1,12 +1,12 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.data.diffusion.gaussian_data_module import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.gaussian_data_module import (
     GaussianDataModule, GaussianDataModuleParameters)
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
+    NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import \
     RELATIVE_COORDINATES
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
-    NoiseParameters
 
 
 class TestGaussianDataModule:

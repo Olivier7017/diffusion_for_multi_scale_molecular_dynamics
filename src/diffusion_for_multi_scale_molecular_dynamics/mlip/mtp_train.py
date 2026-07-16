@@ -9,10 +9,9 @@ from typing import Dict, Tuple
 import pandas as pd
 from sklearn.metrics import mean_absolute_error
 
+from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp import MTPWithMLIP3
 from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp_utils import (
     MTPInputs, crawl_lammps_directory, prepare_mtp_inputs_from_lammps)
-from diffusion_for_multi_scale_molecular_dynamics.models.mlip.mtp import \
-    MTPWithMLIP3
 
 atom_dict = {1: "Si"}
 

@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.excise_and_random_sample_maker import (  # noqa
-    ExciseAndRandomSampleMaker, ExciseAndRandomSampleMakerArguments)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excise_and_random_sample_maker import (  # noqa
+    ExciseAndRandomSampleMaker, ExciseAndRandomSampleMakerArguments)
 from tests.active_learning_loop.sample_maker.base_test_sample_maker import \
     BaseTestExciseSampleMaker
 from tests.fake_data_utils import find_aligning_permutation
@@ -150,19 +150,19 @@ class TestExciseAndRandomSampleMaker(BaseTestExciseSampleMaker):
         )
         if random_coordinates_algorithm == "true_random":
             relative_coordinates_mock_target = (
-                "diffusion_for_multi_scale_molecular_dynamics."
-                "active_learning_loop.sample_maker.excise_and_random_sample_maker."
+                "diffusion_for_multi_scale_molecular_dynamics.sample_maker."
+                "excise_and_random_sample_maker."
                 "ExciseAndRandomSampleMaker.generate_relative_coordinates_true_random"
             )
         else:
             relative_coordinates_mock_target = (
-                "diffusion_for_multi_scale_molecular_dynamics.active_learning_loop."
-                "sample_maker.excise_and_random_sample_maker."
+                "diffusion_for_multi_scale_molecular_dynamics.sample_maker."
+                "excise_and_random_sample_maker."
                 "ExciseAndRandomSampleMaker.generate_relative_coordinates_voxel_random"
             )
 
         with patch(
-            "diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker."
+            "diffusion_for_multi_scale_molecular_dynamics.sample_maker."
             "excise_and_random_sample_maker.ExciseAndRandomSampleMaker.generate_atom_types",
             new=mock_generate_atom_types,
         ):
@@ -337,17 +337,17 @@ class TestExciseAndRandomSampleMaker(BaseTestExciseSampleMaker):
         )
         mock_select_voxels = MagicMock(return_value=mocked_voxel_occupation)
         with patch(
-            "diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker."
+            "diffusion_for_multi_scale_molecular_dynamics.sample_maker."
             "excise_and_random_sample_maker.ExciseAndRandomSampleMaker.generate_random_relative_coordinates",
             new=mock_generate_relative_coordinates,
         ):
             with patch(
-                "diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker."
+                "diffusion_for_multi_scale_molecular_dynamics.sample_maker."
                 "excise_and_random_sample_maker.partition_relative_coordinates_for_voxels",
                 new=mock_partition_relative_coordinates,
             ):
                 with patch(
-                    "diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker."
+                    "diffusion_for_multi_scale_molecular_dynamics.sample_maker."
                     "excise_and_random_sample_maker.select_occupied_voxels",
                     new=mock_select_voxels,
                 ):

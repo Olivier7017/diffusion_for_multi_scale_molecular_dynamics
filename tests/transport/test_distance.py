@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.transport.distance import (
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.transport.distance import (
     get_geodesic_displacements, get_squared_geodesic_distance,
     get_squared_geodesic_distance_cost_matrix)
 

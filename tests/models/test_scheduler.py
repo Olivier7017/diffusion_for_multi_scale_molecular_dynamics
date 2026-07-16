@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.optimizer import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.optimizer import (
     OptimizerParameters, load_optimizer)
-from diffusion_for_multi_scale_molecular_dynamics.models.scheduler import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.scheduler import (
     CosineAnnealingLRSchedulerParameters, ReduceLROnPlateauSchedulerParameters,
     load_scheduler_dictionary)
 

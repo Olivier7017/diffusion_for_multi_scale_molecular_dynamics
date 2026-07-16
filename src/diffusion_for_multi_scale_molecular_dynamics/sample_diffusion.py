@@ -13,36 +13,36 @@ from typing import Any, AnyStr, Dict, Optional, Union
 import orion.client
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.data.element_types import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
     ElementTypes
-from diffusion_for_multi_scale_molecular_dynamics.generators.axl_generator import \
-    SamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.generators.instantiate_generator import \
-    instantiate_generator
-from diffusion_for_multi_scale_molecular_dynamics.generators.langevin_generator import \
-    LangevinGenerator
-from diffusion_for_multi_scale_molecular_dynamics.generators.load_sampling_parameters import \
-    load_sampling_parameters
-from diffusion_for_multi_scale_molecular_dynamics.generators.sampling_constraint import \
-    read_sampling_constraint
-from diffusion_for_multi_scale_molecular_dynamics.generators.trajectory_initializer import \
-    instantiate_trajectory_initializer
-from diffusion_for_multi_scale_molecular_dynamics.models.axl_diffusion_lightning_model import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.axl_diffusion_lightning_model import \
     AXLDiffusionLightningModel
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks import \
-    ScoreNetwork
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.force_field_augmented_score_network import (
-    ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks.repulsive_force.repulsive_force_factory import \
-    create_repulsive_force_parameters
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.noise_parameters import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle import \
     OracleParameters
 from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle_factory import (
     create_energy_oracle, create_energy_oracle_parameters)
-from diffusion_for_multi_scale_molecular_dynamics.sampling.diffusion_sampling import \
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.axl_generator import \
+    SamplingParameters
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.instantiate_generator import \
+    instantiate_generator
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.langevin_generator import \
+    LangevinGenerator
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.load_sampling_parameters import \
+    load_sampling_parameters
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.sampling_constraint import \
+    read_sampling_constraint
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.trajectory_initializer import \
+    instantiate_trajectory_initializer
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.sampling.diffusion_sampling import \
     create_batch_of_samples
+from diffusion_for_multi_scale_molecular_dynamics.score_network import \
+    ScoreNetwork
+from diffusion_for_multi_scale_molecular_dynamics.score_network.force_field_augmented_score_network import (
+    ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.repulsive_force.repulsive_force_factory import \
+    create_repulsive_force_parameters
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import (
     configure_logging, get_git_hash)
 from diffusion_for_multi_scale_molecular_dynamics.utils.main_utils import \

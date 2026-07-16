@@ -5,12 +5,12 @@ import einops
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.models.score_networks import (
-    ScoreNetwork, ScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.sigma_calculator import \
+    ExponentialSigmaCalculator
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, TIME, UNIT_CELL)
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.sigma_calculator import \
-    ExponentialSigmaCalculator
+from diffusion_for_multi_scale_molecular_dynamics.score_network import (
+    ScoreNetwork, ScoreNetworkParameters)
 
 
 @dataclass(kw_only=True)

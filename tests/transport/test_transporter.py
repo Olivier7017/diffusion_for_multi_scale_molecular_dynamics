@@ -3,9 +3,9 @@ import pytest
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from diffusion_for_multi_scale_molecular_dynamics.transport.distance import \
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.transport.distance import \
     get_squared_geodesic_distance_cost_matrix
-from diffusion_for_multi_scale_molecular_dynamics.transport.transporter import \
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.transport.transporter import \
     Transporter
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_relative_coordinates_to_unit_cell

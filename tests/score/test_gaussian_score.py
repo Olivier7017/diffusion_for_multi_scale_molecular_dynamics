@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.score.gaussian_score import \
+from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.gaussian_score import \
     get_lattice_sigma_normalized_score
 
 

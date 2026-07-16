@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.excise_and_noop_sample_maker import (  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excise_and_noop_sample_maker import (  # noqa
     ExciseAndNoOpSampleMaker, ExciseAndNoOpSampleMakerArguments)
 from tests.active_learning_loop.sample_maker.base_test_sample_maker import \
     BaseTestExciseSampleMaker

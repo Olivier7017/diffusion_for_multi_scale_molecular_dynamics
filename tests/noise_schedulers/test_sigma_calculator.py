@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.noise_schedulers.sigma_calculator import (
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.sigma_calculator import (
     ExponentialSigmaCalculator, LinearSigmaCalculator)
 
 

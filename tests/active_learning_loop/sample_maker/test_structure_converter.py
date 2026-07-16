@@ -2,11 +2,11 @@ import numpy as np
 import pytest
 from pymatgen.core import Lattice, Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.sample_maker.structure_converter import \
-    StructureConverter
-from diffusion_for_multi_scale_molecular_dynamics.data.element_types import \
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
     ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.structure_converter import \
+    StructureConverter
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_unit_cell_to_lattice_parameters
 

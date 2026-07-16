@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.excisor.spherical_excisor import (
-    SphericalExcision, SphericalExcisionArguments)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excisor.spherical_excisor import (
+    SphericalExcision, SphericalExcisionArguments)
 from tests.active_learning_loop.excisor.base_test_excision import \
     BaseTestExcision
 

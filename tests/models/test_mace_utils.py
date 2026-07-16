@@ -9,11 +9,11 @@ from mace.data import AtomicData, Configuration
 from mace.tools import get_atomic_number_table_from_zs
 from mace.tools.torch_geometric.dataloader import Collater
 
-from diffusion_for_multi_scale_molecular_dynamics.models.mace_utils import (
-    get_normalized_irreps_permutation_indices, get_pretrained_mace,
-    input_to_mace, reshape_from_e3nn_to_mace, reshape_from_mace_to_e3nn)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, NOISY_AXL_COMPOSITION, NOISY_CARTESIAN_POSITIONS)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.mace_utils import (
+    get_normalized_irreps_permutation_indices, get_pretrained_mace,
+    input_to_mace, reshape_from_e3nn_to_mace, reshape_from_mace_to_e3nn)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates, map_unit_cell_to_lattice_parameters)
 from tests.fake_data_utils import find_aligning_permutation
