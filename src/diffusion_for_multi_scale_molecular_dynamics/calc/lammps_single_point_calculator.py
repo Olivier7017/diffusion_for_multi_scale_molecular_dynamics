@@ -10,7 +10,7 @@ from pymatgen.io.lammps.data import LammpsData
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, LammpsRunner)
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.input_builder import (
     LammpsInputBuilder, write_lammps_input)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
@@ -30,7 +30,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
     def __init__(
         self,
         lammps_potential: LammpsPotential,
-        lammps_runner: Union[LammpsRunner, InProcessLammpsRunner],
+        lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
     ):
         """Init method.
 

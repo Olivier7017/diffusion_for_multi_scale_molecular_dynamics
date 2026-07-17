@@ -9,7 +9,7 @@ import numpy as np
 from pymatgen.core import Lattice, Structure
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, LammpsRunner)
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
@@ -37,7 +37,7 @@ class LammpsEnergyOracle(EnergyOracle):
     def __init__(
         self,
         lammps_oracle_parameters: LammpsOracleParameters,
-        lammps_runner: Union[LammpsRunner, InProcessLammpsRunner],
+        lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
         sw_coefficients_dir: Path = SW_COEFFICIENTS_DIR,
     ):
         """Init method.

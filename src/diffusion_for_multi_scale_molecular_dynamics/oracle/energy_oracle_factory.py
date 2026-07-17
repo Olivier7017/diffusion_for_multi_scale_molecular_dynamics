@@ -1,7 +1,7 @@
 from typing import Any, AnyStr, Dict, List, Optional, Union
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, LammpsRunner)
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle import (
     EnergyOracle, OracleParameters)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_energy_oracle import (
@@ -37,7 +37,7 @@ def create_energy_oracle_parameters(
 
 def create_energy_oracle(
     oracle_parameters: OracleParameters,
-    lammps_runner: Optional[Union[LammpsRunner, InProcessLammpsRunner]] = None,
+    lammps_runner: Optional[Union[SubprocessLammpsRunner, InProcessLammpsRunner]] = None,
 ) -> EnergyOracle:
     """Create an energy oracle.
 

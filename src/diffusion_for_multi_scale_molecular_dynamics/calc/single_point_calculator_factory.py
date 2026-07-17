@@ -3,7 +3,7 @@ from typing import Any, AnyStr, Dict, Union
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
     BaseSinglePointCalculator  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, LammpsRunner)
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
@@ -14,7 +14,7 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle import \
 
 def instantiate_single_point_calculator(
         single_point_calculator_configuration: Dict[AnyStr, Any],
-        lammps_runner: Union[LammpsRunner, InProcessLammpsRunner],
+        lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
 ) -> BaseSinglePointCalculator:
     """Create a single point calculator.
 

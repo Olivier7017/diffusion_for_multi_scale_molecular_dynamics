@@ -1,11 +1,14 @@
+import shutil
+from pathlib import Path
+
 import einops
 import numpy as np
 import pytest
 import torch
 from pymatgen.core import Lattice, Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
-    InProcessLammpsRunner
+from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, AXL_COMPOSITION, CARTESIAN_POSITIONS)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_energy_oracle import (
@@ -16,8 +19,11 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
     ElementTypes
 
 
-@pytest.mark.not_on_github
-class TestLammpsEnergyOracle:
+class BaseTestLammpsEnergyOracle:
+    """Shared fixtures and tests for the LAMMPS energy oracle. Not collected directly.
+
+    Concrete subclasses provide the lammps_runner fixture and the availability marker.
+    """
 
     @pytest.fixture(scope="class", autouse=True)
     def set_seed(self):
@@ -28,9 +34,9 @@ class TestLammpsEnergyOracle:
     def spatial_dimension(self):
         return 3
 
-    @pytest.fixture(params=[8, 12, 16])
-    def num_atoms(self, request):
-        return request.param
+    @pytest.fixture()
+    def num_atoms(self):
+        return 8
 
     @pytest.fixture()
     def acell(self):
@@ -52,9 +58,9 @@ class TestLammpsEnergyOracle:
         x = np.random.rand(num_atoms, spatial_dimension)
         return einops.einsum(box, x, "d1 d2, natoms d2 -> natoms d1")
 
-    @pytest.fixture(params=[1, 2])
-    def number_of_unique_elements(self, request):
-        return request.param
+    @pytest.fixture()
+    def number_of_unique_elements(self):
+        return 2
 
     @pytest.fixture()
     def unique_elements(self, number_of_unique_elements):
@@ -124,11 +130,10 @@ class TestLammpsEnergyOracle:
         }
 
     @pytest.fixture()
-    def oracle(self, element_types, lammps_oracle_parameters):
+    def oracle(self, element_types, lammps_oracle_parameters, lammps_runner):
         return LammpsEnergyOracle(lammps_oracle_parameters=lammps_oracle_parameters,
-                                  lammps_runner=InProcessLammpsRunner())
+                                  lammps_runner=lammps_runner)
 
-    @pytest.mark.requires_lammps
     def test_compute_energy_and_forces(
         self, oracle, element_types, cartesian_positions, box, atom_types
     ):
@@ -148,7 +153,45 @@ class TestLammpsEnergyOracle:
         computed_atoms = [specie.symbol for specie in result.structure.species]
         assert computed_atoms == expected_atoms
 
-    @pytest.mark.requires_lammps
     def test_compute_oracle_energies(self, oracle, samples, batch_size):
         energies, _ = oracle.compute_oracle_energies_and_forces(samples)
         assert len(energies) == batch_size
+
+
+@pytest.mark.not_on_github
+@pytest.mark.requires_inprocess_lammps
+class TestLammpsEnergyOracle(BaseTestLammpsEnergyOracle):
+    """In-process (python binding) oracle tests over the atom/element grid."""
+
+    @pytest.fixture(params=[8, 12, 16])
+    def num_atoms(self, request):
+        return request.param
+
+    @pytest.fixture(params=[1, 2])
+    def number_of_unique_elements(self, request):
+        return request.param
+
+    @pytest.fixture()
+    def lammps_runner(self):
+        return InProcessLammpsRunner()
+
+
+@pytest.mark.not_on_github
+@pytest.mark.requires_lammps_bin
+class TestSubprocessLammpsEnergyOracle(BaseTestLammpsEnergyOracle):
+    """Subprocess oracle tests, serial and with mpirun, at a single small configuration."""
+
+    @pytest.fixture(params=["serial", "mpirun"])
+    def lammps_runner(self, request):
+        lammps_executable = shutil.which("lmp") or shutil.which("lammps")
+
+        if request.param == "serial":
+            return SubprocessLammpsRunner(
+                lammps_executable_path=Path(lammps_executable), mpi_processors=1
+            )
+
+        if shutil.which("mpirun") is None:
+            pytest.skip("No mpirun found for the SubprocessLammpsRunner.")
+        return SubprocessLammpsRunner(
+            lammps_executable_path=Path(lammps_executable), mpi_processors=2
+        )

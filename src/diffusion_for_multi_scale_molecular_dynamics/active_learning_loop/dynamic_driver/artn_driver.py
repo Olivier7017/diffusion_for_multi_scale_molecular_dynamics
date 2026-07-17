@@ -10,7 +10,7 @@ from pymatgen.io.lammps.data import LammpsData
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
     PATH_TO_LAMMPS_ARTN_TEMPLATE
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
-    LammpsRunner
+    SubprocessLammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.io.artn import (
     CalculationState, get_calculation_state_from_artn_output)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
@@ -25,7 +25,7 @@ class ArtnDriver:
     This class is responsible for driving the execution of a ARTn simulation with LAMMPS.
     """
 
-    def __init__(self, lammps_runner: LammpsRunner, artn_library_plugin_path: Path, reference_directory: Path):
+    def __init__(self, lammps_runner: SubprocessLammpsRunner, artn_library_plugin_path: Path, reference_directory: Path):
         """Init method.
 
         Args:

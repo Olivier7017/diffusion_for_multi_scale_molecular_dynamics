@@ -20,7 +20,7 @@ def instantiate_lammps_runner(lammps_executable_path: Path, configuration_dict: 
         lammps_runner: a Lammps runner.
     """
     lammps_config = configuration_dict.get("lammps", _DEFAULT_LAMMPS_CONFIG)
-    lammps_runner = LammpsRunner(
+    lammps_runner = SubprocessLammpsRunner(
         lammps_executable_path=lammps_executable_path,
         mpi_processors=lammps_config["mpi_processors"],
         openmp_threads=lammps_config["openmp_threads"],
@@ -29,7 +29,7 @@ def instantiate_lammps_runner(lammps_executable_path: Path, configuration_dict: 
     return lammps_runner
 
 
-class LammpsRunner:
+class SubprocessLammpsRunner:
     """LAMMPS Runner from an external executable.
 
     Invoke LAMMPS through an external executable (subprocess), supporting mpirun and OpenMP.
@@ -46,9 +46,9 @@ class LammpsRunner:
 
         Args:
             lammps_executable_path: path to the LAMMPS executable.
-            mpi_processors: number of processors to use. Defaults to 1, mpirun is not used.
+            mpi_processors: number of processors to use. When 1, LAMMPS runs directly without the MPI launcher.
             openmp_threads: number of OpenMP threads to use per processor. Defaults to 1.
-            mpi_executable: the MPI launcher to use. Defaults to mpirun.
+            mpi_executable: the MPI launcher to use when running on more than one processor. Defaults to mpirun.
         """
         assert (
             lammps_executable_path.is_file()
@@ -61,19 +61,13 @@ class LammpsRunner:
 
     def _build_commands(self, input_file_name: str) -> List[str]:
         """Build the actual command to run."""
-        commands = [
-            self._mpi_executable,
-            "-n",
-            f"{self._mpi_processors}",
+        lammps_call = [
             str(self._lammps_executable_path),
-            "-echo",
-            "none",
-            "-screen",
-            "none",
-            "-i",
-            input_file_name,
+            "-echo", "none", "-screen", "none", "-i", input_file_name,
         ]
-        return commands
+        if self._mpi_processors == 1:
+            return lammps_call
+        return [self._mpi_executable, "-n", f"{self._mpi_processors}"] + lammps_call
 
     def run_lammps(self, working_directory: Path, lammps_input_file_name: str):
         """Run lammps.
@@ -101,7 +95,7 @@ class LammpsRunner:
 class InProcessLammpsRunner:
     """In-process LAMMPS Runner.
 
-    Run lammps from the lammps python package, reducing process overhead compared to LammpsRunner.
+    Run lammps from the lammps python package, reducing process overhead compared to SubprocessLammpsRunner.
     """
 
     def run_lammps(
@@ -134,7 +128,7 @@ def create_lammps_runner(
     mpi_processors: int = 1,
     openmp_threads: int = 1,
     mpi_executable: str = "mpirun",
-) -> Union[LammpsRunner, InProcessLammpsRunner]:
+) -> Union[SubprocessLammpsRunner, InProcessLammpsRunner]:
     """Create a LAMMPS runner: in-process if lammps_bin is None, else a subprocess against lammps_bin.
 
     Args:
@@ -148,7 +142,7 @@ def create_lammps_runner(
     """
     if lammps_bin is None:
         return InProcessLammpsRunner()
-    return LammpsRunner(
+    return SubprocessLammpsRunner(
         lammps_executable_path=lammps_bin,
         mpi_processors=mpi_processors,
         openmp_threads=openmp_threads,
