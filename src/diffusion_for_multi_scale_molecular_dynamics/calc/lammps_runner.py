@@ -1,0 +1,156 @@
+import os
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+
+_DEFAULT_LAMMPS_CONFIG = dict(
+    mpi_processors=1, openmp_threads=1, mpi_executable="mpirun"
+)
+
+
+def instantiate_lammps_runner(lammps_executable_path: Path, configuration_dict: Dict):
+    """Instantiate lammps runner.
+
+    Args:
+        lammps_executable_path: Path to lammps executable.
+        configuration_dict: Global configuration dictionary, which can optionally contain LAMMPS instantiation
+            parameters.
+
+    Returns:
+        lammps_runner: a Lammps runner.
+    """
+    lammps_config = configuration_dict.get("lammps", _DEFAULT_LAMMPS_CONFIG)
+    lammps_runner = LammpsRunner(
+        lammps_executable_path=lammps_executable_path,
+        mpi_processors=lammps_config["mpi_processors"],
+        openmp_threads=lammps_config["openmp_threads"],
+        mpi_executable=lammps_config.get("mpi_executable", "mpirun"),
+    )
+    return lammps_runner
+
+
+class LammpsRunner:
+    """LAMMPS Runner from an external executable.
+
+    Invoke LAMMPS through an external executable (subprocess), supporting mpirun and OpenMP.
+    """
+
+    def __init__(
+        self,
+        lammps_executable_path: Path,
+        mpi_processors: int = 1,
+        openmp_threads: int = 1,
+        mpi_executable: str = "mpirun",
+    ):
+        """Init method.
+
+        Args:
+            lammps_executable_path: path to the LAMMPS executable.
+            mpi_processors: number of processors to use. Defaults to 1, mpirun is not used.
+            openmp_threads: number of OpenMP threads to use per processor. Defaults to 1.
+            mpi_executable: the MPI launcher to use. Defaults to mpirun.
+        """
+        assert (
+            lammps_executable_path.is_file()
+        ), f"The path {lammps_executable_path} does not exist."
+        self._lammps_executable_path = lammps_executable_path
+
+        self._mpi_processors = mpi_processors
+        self._openmp_threads = openmp_threads
+        self._mpi_executable = mpi_executable
+
+    def _build_commands(self, input_file_name: str) -> List[str]:
+        """Build the actual command to run."""
+        commands = [
+            self._mpi_executable,
+            "-n",
+            f"{self._mpi_processors}",
+            str(self._lammps_executable_path),
+            "-echo",
+            "none",
+            "-screen",
+            "none",
+            "-i",
+            input_file_name,
+        ]
+        return commands
+
+    def run_lammps(self, working_directory: Path, lammps_input_file_name: str):
+        """Run lammps.
+
+        Args:
+            working_directory: directory where the LAMMPS job will be executed. It is assumed that all needed files
+                are present.
+            lammps_input_file_name: name of the lammps input script.
+        """
+        commands = self._build_commands(lammps_input_file_name)
+        environment_variables = os.environ.copy()
+        environment_variables["OMP_NUM_THREADS"] = f"{self._openmp_threads}"
+
+        subprocess.run(
+            commands,
+            cwd=working_directory,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+            env=environment_variables,
+        )
+
+
+class InProcessLammpsRunner:
+    """In-process LAMMPS Runner.
+
+    Run lammps from the lammps python package, reducing process overhead compared to LammpsRunner.
+    """
+
+    def run_lammps(
+        self, working_directory: Union[Path, str], lammps_input_file_name: str
+    ):
+        """Run lammps in-process, from within the working directory so relative paths resolve there.
+
+        Args:
+            working_directory: directory where the LAMMPS job runs; all needed files must be present.
+            lammps_input_file_name: name of the lammps input script.
+        """
+        import lammps  # Lazy import: the Python binding is an optional dependency.
+
+        original_directory = Path.cwd()
+        try:
+            os.chdir(working_directory)
+            lmp = lammps.lammps(
+                cmdargs=["-log", "none", "-echo", "none", "-screen", "none"]
+            )
+            try:
+                lmp.file(lammps_input_file_name)
+            finally:
+                lmp.close()
+        finally:
+            os.chdir(original_directory)
+
+
+def create_lammps_runner(
+    lammps_bin: Optional[Path] = None,
+    mpi_processors: int = 1,
+    openmp_threads: int = 1,
+    mpi_executable: str = "mpirun",
+) -> Union[LammpsRunner, InProcessLammpsRunner]:
+    """Create a LAMMPS runner: in-process if lammps_bin is None, else a subprocess against lammps_bin.
+
+    Args:
+        lammps_bin: path to a LAMMPS executable, or None to use the in-process Python binding.
+        mpi_processors: number of MPI processors (subprocess runner only).
+        openmp_threads: number of OpenMP threads per processor (subprocess runner only).
+        mpi_executable: the MPI launcher to use (subprocess runner only). Defaults to mpirun.
+
+    Returns:
+        lammps_runner: a runner exposing run_lammps(working_directory, lammps_input_file_name).
+    """
+    if lammps_bin is None:
+        return InProcessLammpsRunner()
+    return LammpsRunner(
+        lammps_executable_path=lammps_bin,
+        mpi_processors=mpi_processors,
+        openmp_threads=openmp_threads,
+        mpi_executable=mpi_executable,
+    )

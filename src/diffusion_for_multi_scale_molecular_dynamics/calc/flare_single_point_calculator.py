@@ -28,9 +28,13 @@ class FlareSinglePointCalculator(BaseSinglePointCalculator):
             case "DTC":
                 self._uncertainty_is_energy = False
             case _:
-                raise NotImplementedError("Only local and DTC variance types are implemented. Review input.")
+                raise NotImplementedError(
+                    "Only local and DTC variance types are implemented. Review input."
+                )
 
-    def calculate(self, structure: Structure, results_path: Optional[Path] = None) -> SinglePointCalculation:
+    def calculate(
+        self, structure: Structure, results_path: Optional[Path] = None
+    ) -> SinglePointCalculation:
         """Calculate.
 
         Drive the sparse Gaussian Process calculation.
@@ -44,7 +48,9 @@ class FlareSinglePointCalculator(BaseSinglePointCalculator):
         """
         assert results_path is None, "The FLARE model has no file results artifact."
         atoms = structure.to_ase_atoms()
-        self._flare_calculator.calculate(atoms=atoms, properties=self._calculation_properties)
+        self._flare_calculator.calculate(
+            atoms=atoms, properties=self._calculation_properties
+        )
 
         energy = self._flare_calculator.results["energy"]
         forces = self._flare_calculator.results["forces"]
@@ -63,8 +69,10 @@ class FlareSinglePointCalculator(BaseSinglePointCalculator):
             # Let's compute the norm of the 'force uncertainties' to get a scalar uncertainty.
             uncertainties = np.linalg.norm(flare_stds, axis=1)
 
-        return SinglePointCalculation(calculation_type=self._calculation_type,
-                                      structure=structure,
-                                      energy=energy,
-                                      forces=forces,
-                                      uncertainties=uncertainties)
+        return SinglePointCalculation(
+            calculation_type=self._calculation_type,
+            structure=structure,
+            energy=energy,
+            forces=forces,
+            uncertainties=uncertainties,
+        )

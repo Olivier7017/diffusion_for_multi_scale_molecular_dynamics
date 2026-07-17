@@ -4,12 +4,12 @@ import numpy as np
 import torch
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     map_lattice_parameters_to_unit_cell_vectors,
     map_unit_cell_to_lattice_parameters)
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
     create_structure
 

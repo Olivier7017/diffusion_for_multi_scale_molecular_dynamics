@@ -13,8 +13,6 @@ from typing import Any, AnyStr, Dict, Optional, Union
 import orion.client
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.axl_diffusion_lightning_model import \
     AXLDiffusionLightningModel
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
@@ -43,6 +41,8 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network.force_field_augm
     ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.repulsive_force.repulsive_force_factory import \
     create_repulsive_force_parameters
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import (
     configure_logging, get_git_hash)
 from diffusion_for_multi_scale_molecular_dynamics.utils.main_utils import \

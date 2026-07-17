@@ -7,8 +7,6 @@ import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.lammps_for_diffusion_data_module import (  # noqa
     LammpsDataModuleParameters, LammpsForDiffusionDataModule)
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
@@ -16,6 +14,8 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     RELATIVE_COORDINATES)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     get_number_of_lattice_parameters
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 from tests.conftest import TestDiffusionDataBase
 from tests.fake_data_utils import Configuration, generate_fake_configuration
 

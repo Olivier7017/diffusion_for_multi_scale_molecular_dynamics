@@ -14,16 +14,16 @@ from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.configura
     get_sample_maker_from_configuration
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver.artn_driver import \
     ArtnDriver
+from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
+    instantiate_lammps_runner
 from diffusion_for_multi_scale_molecular_dynamics.calc.single_point_calculator_factory import \
     instantiate_single_point_calculator  # noqa
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
-from diffusion_for_multi_scale_molecular_dynamics.io.lammps.lammps_runner import \
-    instantiate_lammps_runner
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import (
     FlareHyperparametersOptimizer, FlareOptimizerConfiguration)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
     FlareTrainer
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
     configure_logging
 from diffusion_for_multi_scale_molecular_dynamics.utils.main_utils import \

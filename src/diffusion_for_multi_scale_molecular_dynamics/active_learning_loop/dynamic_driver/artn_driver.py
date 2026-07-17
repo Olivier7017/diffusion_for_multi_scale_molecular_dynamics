@@ -9,12 +9,12 @@ from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
     PATH_TO_LAMMPS_ARTN_TEMPLATE
+from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
+    LammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.io.artn import (
     CalculationState, get_calculation_state_from_artn_output)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
     generate_named_elements_blocks
-from diffusion_for_multi_scale_molecular_dynamics.io.lammps.lammps_runner import \
-    LammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
     configure_logging
 

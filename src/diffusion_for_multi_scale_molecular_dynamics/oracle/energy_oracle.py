@@ -6,13 +6,13 @@ from typing import AnyStr, Dict, List, Tuple, Union
 import numpy as np
 import torch
 
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, AXL_COMPOSITION, LATTICE_PARAMETERS, RELATIVE_COORDINATES)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates,
     map_lattice_parameters_to_unit_cell_vectors)
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 
 logger = logging.getLogger(__name__)
 

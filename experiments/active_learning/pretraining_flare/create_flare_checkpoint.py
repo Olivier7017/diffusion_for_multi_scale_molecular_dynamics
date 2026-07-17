@@ -7,12 +7,12 @@ import numpy as np
 from diffusion_for_multi_scale_molecular_dynamics import TOP_DIR
 from diffusion_for_multi_scale_molecular_dynamics.calc.flare_single_point_calculator import \
     FlareSinglePointCalculator  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
+    LammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.calc.mapped_flare_single_point_calculator import \
     MappedFlareSinglePointCalculator  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.calc.utils import \
     compute_errors_and_uncertainties
-from diffusion_for_multi_scale_molecular_dynamics.io.lammps.lammps_runner import \
-    LammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
     FlareTrainer
 
