@@ -2,15 +2,18 @@ import einops
 import numpy as np
 import pytest
 import torch
+from pymatgen.core import Lattice, Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
+from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
+    InProcessLammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, AXL_COMPOSITION, CARTESIAN_POSITIONS)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_energy_oracle import (
     LammpsEnergyOracle, LammpsOracleParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_number_of_lattice_parameters, map_unit_cell_to_lattice_parameters)
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 
 
 @pytest.mark.not_on_github
@@ -122,25 +125,28 @@ class TestLammpsEnergyOracle:
 
     @pytest.fixture()
     def oracle(self, element_types, lammps_oracle_parameters):
-        return LammpsEnergyOracle(lammps_oracle_parameters=lammps_oracle_parameters)
+        return LammpsEnergyOracle(lammps_oracle_parameters=lammps_oracle_parameters,
+                                  lammps_runner=InProcessLammpsRunner())
 
     @pytest.mark.requires_lammps
     def test_compute_energy_and_forces(
-        self, oracle, element_types, cartesian_positions, box, atom_types, tmp_path
+        self, oracle, element_types, cartesian_positions, box, atom_types
     ):
-
-        dump_file_path = tmp_path / "dump.yaml"
-        energy, forces = oracle._compute_energy_and_forces(
-            cartesian_positions, box, atom_types, dump_file_path
-        )
-
-        np.testing.assert_allclose(
-            cartesian_positions, forces[["x", "y", "z"]].values, rtol=1e-5
-        )
-
         expected_atoms = [element_types.get_element(id) for id in atom_types]
-        computed_atoms = forces["element"].to_list()
-        assert expected_atoms == computed_atoms
+        structure = Structure(
+            lattice=Lattice(matrix=box, pbc=(True, True, True)),
+            species=expected_atoms,
+            coords=cartesian_positions,
+            coords_are_cartesian=True,
+        )
+        result = oracle._calculator.calculate(structure)
+
+        # positions and elements survive the LAMMPS round-trip
+        np.testing.assert_allclose(
+            cartesian_positions, result.structure.cart_coords, atol=1e-5
+        )
+        computed_atoms = [specie.symbol for specie in result.structure.species]
+        assert computed_atoms == expected_atoms
 
     @pytest.mark.requires_lammps
     def test_compute_oracle_energies(self, oracle, samples, batch_size):

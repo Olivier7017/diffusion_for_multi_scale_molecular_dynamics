@@ -25,7 +25,7 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.base_sample_maker
     BaseSampleMaker
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.namespace import (
     AXL_STRUCTURE_IN_NEW_BOX, AXL_STRUCTURE_IN_ORIGINAL_BOX)
-from diffusion_for_multi_scale_molecular_dynamics.sample_maker.structure_converter import \
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter import \
     StructureConverter
 
 

@@ -31,6 +31,8 @@ class BaseSinglePointCalculator:
         pass
 
     @abstractmethod
-    def calculate(self, structure: Structure, results_path: Optional[Path] = None) -> SinglePointCalculation:
+    def calculate(
+        self, structure: Structure, results_path: Optional[Path] = None
+    ) -> SinglePointCalculation:
         """This method just defines the API."""
         raise NotImplementedError("This method must be implemented in a child class.")

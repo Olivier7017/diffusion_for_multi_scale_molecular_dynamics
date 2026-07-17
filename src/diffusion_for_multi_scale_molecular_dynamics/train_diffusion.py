@@ -13,12 +13,12 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.callbacks.call
     create_all_callbacks
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.instantiate_data_module import \
     load_data_module
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loggers.logger_loader import \
     create_all_loggers
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.instantiate_diffusion_model import \
     load_diffusion_model
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.utils.hp_utils import \
     check_and_log_hp
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import (

@@ -8,10 +8,10 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.top
     TopKAtomSelector, TopKAtomSelectorParameters)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excisor.excisor_factory import (
     create_excisor, create_excisor_parameters)
-from diffusion_for_multi_scale_molecular_dynamics.sample_maker.structure_converter import \
-    StructureConverter
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_numpy_unit_cell_to_lattice_parameters
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter import \
+    StructureConverter
 from tests.conftest import BaseTestAxlStructure
 
 

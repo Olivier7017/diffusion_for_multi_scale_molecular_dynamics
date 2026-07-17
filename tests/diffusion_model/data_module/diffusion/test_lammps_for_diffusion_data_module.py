@@ -4,14 +4,14 @@ import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.lammps_for_diffusion_data_module import (  # noqa
     LammpsDataModuleParameters, LammpsForDiffusionDataModule)
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    NULL_ELEMENT
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, CARTESIAN_FORCES, CARTESIAN_POSITIONS, LATTICE_PARAMETERS,
     NOISY_ATOM_TYPES, NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS,
     PADDED_ATOM_TYPE, RELATIVE_COORDINATES)
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    NULL_ELEMENT
 from tests.diffusion_model.data_module.diffusion.conftest import \
     TestLammpsForDiffusionDataModuleBase
 from tests.fake_data_utils import (create_dump_yaml_documents,

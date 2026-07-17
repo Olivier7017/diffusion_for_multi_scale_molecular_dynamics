@@ -17,7 +17,7 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.di
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
-from diffusion_for_multi_scale_molecular_dynamics.sample_maker.structure_converter import \
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter import \
     StructureConverter
 
 

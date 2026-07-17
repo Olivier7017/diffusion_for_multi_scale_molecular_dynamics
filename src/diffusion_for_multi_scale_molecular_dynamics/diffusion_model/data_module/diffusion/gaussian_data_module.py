@@ -11,14 +11,14 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.di
     DataModuleParameters
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.noising_transform import \
     NoisingTransform
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.element_types import \
-    ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, CARTESIAN_FORCES, LATTICE_PARAMETERS, RELATIVE_COORDINATES)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     map_relative_coordinates_to_unit_cell, map_unit_cell_to_lattice_parameters)
+from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
+    ElementTypes
 
 logger = logging.getLogger(__name__)
 
