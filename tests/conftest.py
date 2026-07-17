@@ -1,4 +1,5 @@
 import os
+import shutil
 from functools import lru_cache
 
 import numpy as np
@@ -17,7 +18,7 @@ os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "true")
 
 
 @lru_cache(maxsize=1)
-def has_lmp():
+def has_inprocess_lammps():
     # lru_cache allows to run this function once during pytest and keep the results in memory
     try:
         from lammps import lammps
@@ -33,9 +34,16 @@ def has_lmp():
     return True
 
 
+@lru_cache(maxsize=1)
+def has_lammps_bin():
+    return shutil.which("lmp") is not None or shutil.which("lammps") is not None
+
+
 def pytest_runtest_setup(item):
-    if "requires_lammps" in item.keywords and not has_lmp():
-        pytest.skip("LAMMPS not available/usable")
+    if "requires_inprocess_lammps" in item.keywords and not has_inprocess_lammps():
+        pytest.skip("In-process LAMMPS (python binding) not available/usable")
+    if "requires_lammps_bin" in item.keywords and not has_lammps_bin():
+        pytest.skip("No LAMMPS executable (lmp/lammps) found on PATH")
 
 
 def pytest_addoption(parser):
