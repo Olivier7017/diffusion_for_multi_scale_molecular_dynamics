@@ -1,6 +1,7 @@
 """Stillinger-Weber potential."""
 
 from pathlib import Path
+from typing import List
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
@@ -19,10 +20,11 @@ class StillingerWeberPotential(LammpsPotential):
         """
         self._sw_coefficients_file_path = sw_coefficients_file_path
 
-    def pair_style_command(self) -> str:
-        """Return the LAMMPS pair_style command."""
-        return "pair_style sw"
-
-    def pair_coeff_command(self, elements_string: str) -> str:
-        """Return the LAMMPS pair_coeff command."""
-        return f"pair_coeff * * {self._sw_coefficients_file_path} {elements_string}"
+    def interaction_commands(self, elements_string: str, with_uncertainty: bool = False) -> List[str]:
+        """Return the pair_style and pair_coeff commands."""
+        if with_uncertainty:
+            raise ValueError("The Stillinger-Weber potential does not provide uncertainty.")
+        return [
+            "pair_style sw",
+            f"pair_coeff * * {self._sw_coefficients_file_path} {elements_string}",
+        ]
