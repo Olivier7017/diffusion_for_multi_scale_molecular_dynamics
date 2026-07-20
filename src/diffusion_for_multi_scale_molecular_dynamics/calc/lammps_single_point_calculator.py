@@ -13,10 +13,8 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.input_builder import (
     LammpsInputBuilder, write_lammps_input)
-from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
-    generate_named_elements_blocks
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
-    extract_all_fields_from_dump
+    extract_all_fields
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
 
@@ -31,16 +29,19 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         self,
         lammps_potential: LammpsPotential,
         lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
+        with_uncertainty: bool = False,
     ):
         """Init method.
 
         Args:
             lammps_potential: the potential to evaluate (emits the pair commands).
             lammps_runner: a runner that executes LAMMPS (subprocess or in-process).
+            with_uncertainty: whether to compute the per-atom uncertainty.
         """
         super().__init__(self)
         self._potential = lammps_potential
         self._lammps_runner = lammps_runner
+        self._with_uncertainty = with_uncertainty
         self._input_builder = LammpsInputBuilder()
 
         self._calculation_type = lammps_potential.calculation_type
@@ -51,7 +52,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         lammps_dump_path = Path(working_directory) / "dump.yaml"
 
         list_structures, list_forces, list_energies, list_uncertainties = (
-            extract_all_fields_from_dump(lammps_dump_path)
+            extract_all_fields(lammps_dump_path)
         )
         assert (
             len(list_structures) == 1
@@ -69,13 +70,10 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
 
     def _build_input(self, structure: Structure) -> str:
         """Build the LAMMPS input script for a single-point calculation."""
-        _, _, elements_string = generate_named_elements_blocks(structure)
-        return self._input_builder.build(
-            structure=structure,
-            pair_style_command=self._potential.pair_style_command(),
-            pair_coeff_command=self._potential.pair_coeff_command(elements_string),
-            uncertainty_compute_command=self._potential.uncertainty_compute_command(),
-            run_block="run 0",
+        return self._input_builder.build_single_point(
+            structure,
+            self._potential,
+            with_uncertainty=self._with_uncertainty,
             configuration_filename=self._data_filename,
         )
 

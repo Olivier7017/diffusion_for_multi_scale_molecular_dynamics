@@ -145,3 +145,22 @@ def extract_all_fields_from_dump(
             list_uncertainties.append(_get_uncertainties_from_atoms_dataframe(atoms_df))
 
     return list_structures, list_forces, list_energies, list_uncertainties
+
+
+def extract_all_fields_from_cfg(
+    configuration_output_path: Path,
+) -> Tuple[List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]]:
+    """Extract structures, forces, energies and uncertainties from a MTP '.cfg' output."""
+    raise NotImplementedError("Reading a '.cfg' configuration output is not implemented yet.")
+
+
+def extract_all_fields(
+    configuration_output_path: Path,
+) -> Tuple[List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]]:
+    """Extract all fields from a configuration output, dispatching on the file extension."""
+    suffix = Path(configuration_output_path).suffix
+    if suffix in (".dump", ".yaml"):
+        return extract_all_fields_from_dump(configuration_output_path)
+    if suffix == ".cfg":
+        return extract_all_fields_from_cfg(configuration_output_path)
+    raise ValueError(f"Unknown configuration output extension: '{suffix}'.")
