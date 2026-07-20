@@ -42,3 +42,7 @@ class FlarePotential(LammpsPotential):
         if with_uncertainty:
             fields = fields + ["c_unc_at"]
         return fields
+
+    def uncertainty_field(self) -> str:
+        """Return the per-atom uncertainty column name."""
+        return "c_unc_at"

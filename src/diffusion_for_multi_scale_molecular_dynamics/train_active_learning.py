@@ -20,8 +20,8 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.single_point_calculator_f
     instantiate_single_point_calculator  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import (
     FlareHyperparametersOptimizer, FlareOptimizerConfiguration)
-from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
-    FlareTrainer
+from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_mlip import \
+    FlareMLIP
 from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
     ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
@@ -183,27 +183,29 @@ def run(args: argparse.Namespace, configuration: typing.Dict):
                 oracle_single_point_calculator=oracle_calculator,
                 sample_maker=sample_maker,
                 artn_driver=artn_driver,
-                flare_hyperparameters_optimizer=flare_optimizer,
             )
 
             checkpoint_path = list_flare_checkpoint_paths[-1]
             logger.info(f"  - Loading checkpoint from {checkpoint_path}")
-            flare_trainer = FlareTrainer.from_checkpoint(checkpoint_path)
+            mlip = FlareMLIP.load_checkpoint(checkpoint_path, hyperparameter_optimizer=flare_optimizer)
 
             working_directory = Path(args.output_directory).absolute() / f"campaign_{campaign_id}"
             working_directory.mkdir(parents=True, exist_ok=False)
             time1 = time.time()
             active_learning.run_campaign(
                 uncertainty_threshold=uncertainty_threshold,
-                flare_trainer=flare_trainer,
+                mlip=mlip,
                 working_directory=working_directory,
             )
             time2 = time.time()
             logger.info(f"Campaign {campaign_id} completed in {time2-time1: 6.2f} seconds.")
 
-            new_checkpoint_path = working_directory / "trained_flare.json"
-            assert new_checkpoint_path.is_file(), \
-                f"The checkpoint file at the end of campaign {campaign_id} is missing! Something went wrong."
+            latest_mlip_directory = working_directory / "latest_mlip"
+            if latest_mlip_directory.exists():
+                new_checkpoint_path = (latest_mlip_directory / "checkpoint.json").resolve()
+            else:
+                # No training happened this campaign (an immediate SUCCESS); carry the input checkpoint forward.
+                new_checkpoint_path = checkpoint_path
             list_flare_checkpoint_paths.append(new_checkpoint_path)
 
     except RuntimeError as err:

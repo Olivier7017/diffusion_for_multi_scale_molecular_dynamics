@@ -15,6 +15,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.artn import (
     CalculationState, get_calculation_state_from_artn_output)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
     generate_named_elements_blocks
+from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
+    BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
     configure_logging
 
@@ -25,7 +27,8 @@ class ArtnDriver:
     This class is responsible for driving the execution of a ARTn simulation with LAMMPS.
     """
 
-    def __init__(self, lammps_runner: SubprocessLammpsRunner, artn_library_plugin_path: Path, reference_directory: Path):
+    def __init__(self, lammps_runner: SubprocessLammpsRunner, artn_library_plugin_path: Path,
+                 reference_directory: Path):
         """Init method.
 
         Args:
@@ -72,21 +75,23 @@ class ArtnDriver:
 
         return structure
 
-    def run(self, working_directory: Path, uncertainty_threshold: float,
-            pair_coeff_file_path: Path, mapped_uncertainty_file_path: Path) -> CalculationState:
+    def run(self, mlip: BaseMLIP, working_directory: Path, uncertainty_threshold: float) -> CalculationState:
         """Run the ARTn simulation.
 
         Args:
+            mlip: the machine-learning interatomic potential to drive the run. Its deployed LAMMPS
+                potential provides the interaction commands and the per-atom uncertainty field.
             working_directory: Path to the working directory when the run will be performed.
             uncertainty_threshold: uncertainty threshold for stopping simulation.
-            pair_coeff_file_path: path to the mapped FLARE coefficients.
-            mapped_uncertainty_file_path: path to the mapped uncertainty FLARE coefficients.
 
         Returns:
             calculation_state: status of the ARTn calculation.
         """
-        assert not working_directory.is_dir(), \
-            f"The working directory {working_directory} already exists! Exiting to avoid writing over existing data."
+        if working_directory.is_dir():
+            raise ValueError(
+                f"The working directory {working_directory} already exists! "
+                "Exiting to avoid writing over existing data."
+            )
 
         working_directory.mkdir(parents=True, exist_ok=True)
 
@@ -102,16 +107,23 @@ class ArtnDriver:
         lammps_data = LammpsData.from_structure(self.initial_structure, atom_style="atomic")
         lammps_data.write_file(str(working_directory / "initial_configuration.dat"))
 
+        potential = mlip.lammps_potential
+
         logger.info("Write the LAMMPS input script, with parameters:")
         logger.info(f"   - uncertainty_threshold = {uncertainty_threshold}")
-        logger.info(f"   - pair_coeff_file_path = {pair_coeff_file_path}")
-        logger.info(f"   - mapped_uncertainty_file_path = {mapped_uncertainty_file_path}")
+        logger.info(f"   - potential = {potential.calculation_type}")
 
         group_block, mass_block, elements_string = generate_named_elements_blocks(self.initial_structure)
 
+        interaction_commands = "\n".join(
+            potential.interaction_commands(elements_string, with_uncertainty=True)
+        )
+        dump_fields = " ".join(potential.dump_fields(with_uncertainty=True))
+
         parameters = dict(configuration_file_path="initial_configuration.dat",
-                          pair_coeff_file_path=str(pair_coeff_file_path.resolve()),
-                          mapped_uncertainty_file_path=str(mapped_uncertainty_file_path.resolve()),
+                          interaction_commands=interaction_commands,
+                          uncertainty_field=potential.uncertainty_field(),
+                          dump_fields=dump_fields,
                           artn_library_plugin_path=str(self._artn_library_plugin_path),
                           uncertainty_threshold=f"{uncertainty_threshold:.12f}",
                           group_block=group_block,
@@ -131,7 +143,8 @@ class ArtnDriver:
         logger.info(f"LAMMPS execution has finished. Execution Time: {time2-time1: 6.3e} sec.")
 
         artn_output_file_path = working_directory / "artn.out"
-        assert artn_output_file_path.is_file(), "The artn output file, 'artn.out', is missing. Something went wrong."
+        if not artn_output_file_path.is_file():
+            raise RuntimeError("The artn output file, 'artn.out', is missing. Something went wrong.")
 
         with open(artn_output_file_path, "r") as fd:
             artn_output = fd.read()

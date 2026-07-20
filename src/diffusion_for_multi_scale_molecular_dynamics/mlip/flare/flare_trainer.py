@@ -127,6 +127,10 @@ class FlareTrainer:
                                  custom_range=list(active_environment_indices)
                                  )
 
+    def fit(self):
+        """Fit the sparse GP (recompute its predictive coefficients) for the current data and hyperparameters."""
+        self.sgp_model.sparse_gp.update_matrices_QR()
+
     def _get_species_numbers_map(self, list_element_symbols: List[str]) -> Dict[int, int]:
         """Get a map where the key is the atomic number and the value is the integer label."""
         species_numbers_map = dict()
