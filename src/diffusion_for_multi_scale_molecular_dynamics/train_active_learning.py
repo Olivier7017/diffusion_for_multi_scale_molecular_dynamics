@@ -187,7 +187,9 @@ def run(args: argparse.Namespace, configuration: typing.Dict):
 
             checkpoint_path = list_flare_checkpoint_paths[-1]
             logger.info(f"  - Loading checkpoint from {checkpoint_path}")
-            mlip = FlareMLIP.load_checkpoint(checkpoint_path, hyperparameter_optimizer=flare_optimizer)
+            mlip = FlareMLIP.load_checkpoint(
+                checkpoint_path, hyperparameter_optimizer=flare_optimizer, lammps_runner=lammps_runner
+            )
 
             working_directory = Path(args.output_directory).absolute() / f"campaign_{campaign_id}"
             working_directory.mkdir(parents=True, exist_ok=False)

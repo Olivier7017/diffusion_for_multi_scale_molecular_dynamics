@@ -1,5 +1,7 @@
+import importlib.util
 import os
 import shutil
+import subprocess
 from functools import lru_cache
 
 import numpy as np
@@ -39,11 +41,52 @@ def has_lammps_bin():
     return shutil.which("lmp") is not None or shutil.which("lammps") is not None
 
 
+@lru_cache(maxsize=1)
+def has_flare():
+    return importlib.util.find_spec("flare") is not None
+
+
+@lru_cache(maxsize=None)
+def inprocess_pair_style_available(pair_style):
+    """Whether the given pair_style is available in the in-process LAMMPS binding."""
+    from lammps import lammps
+
+    lmp = lammps(cmdargs=["-log", "none", "-screen", "none", "-echo", "none"])
+    try:
+        return bool(lmp.has_style("pair", pair_style))
+    finally:
+        lmp.close()
+
+
+@lru_cache(maxsize=None)
+def lammps_bin_pair_style_available(pair_style):
+    """Whether the given pair_style is available in the LAMMPS executable on PATH."""
+    lammps_executable = shutil.which("lmp") or shutil.which("lammps")
+    if lammps_executable is None:
+        return False
+    output = subprocess.run([lammps_executable, "-h"], capture_output=True, text=True).stdout
+    return pair_style in output.split()
+
+
 def pytest_runtest_setup(item):
     if "requires_inprocess_lammps" in item.keywords and not has_inprocess_lammps():
         pytest.skip("In-process LAMMPS (python binding) not available/usable")
     if "requires_lammps_bin" in item.keywords and not has_lammps_bin():
         pytest.skip("No LAMMPS executable (lmp/lammps) found on PATH")
+    if "requires_mpirun" in item.keywords and shutil.which("mpirun") is None:
+        pytest.skip("No mpirun found on PATH")
+    if "requires_flare" in item.keywords and not has_flare():
+        pytest.skip("The flare package is not installed")
+    for marker in item.iter_markers(name="requires_pair_style"):
+        pair_style = marker.args[0]
+        if "requires_inprocess_lammps" in item.keywords:
+            available = inprocess_pair_style_available(pair_style)
+        elif "requires_lammps_bin" in item.keywords:
+            available = lammps_bin_pair_style_available(pair_style)
+        else:
+            available = True
+        if not available:
+            pytest.skip(f"pair_style '{pair_style}' is not available in this LAMMPS")
 
 
 def pytest_addoption(parser):
