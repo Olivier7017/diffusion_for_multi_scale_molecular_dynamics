@@ -3,12 +3,11 @@
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 from ase import Atoms
 from pymatgen.core import Structure
-from pymatgen.io.ase import AseAtomsAdaptor
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
     SinglePointCalculation
@@ -20,6 +19,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential 
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
     BaseMLIPTrainer
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
 
 
 class BaseMLIP(ABC):
@@ -65,44 +66,56 @@ class BaseMLIP(ABC):
         """Export the current model to LAMMPS files and cache the resulting potential."""
         self._lammps_potential = self._trainer.write_lammps_potential(output_directory)
 
+    def calculate(
+        self, configurations: Union[Structure, Atoms, List[Union[Structure, Atoms]]]
+    ) -> List[SinglePointCalculation]:
+        """Evaluate configurations with the deployed potential.
+
+        Args:
+            configurations: a single configuration (pymatgen Structure or ase.Atoms), or a list of them.
+
+        Returns:
+            a list of SinglePointCalculation.
+        """
+        if not isinstance(configurations, list):
+            configurations = [configurations]
+
+        calculator = LammpsSinglePointCalculator(
+            lammps_potential=self.lammps_potential, lammps_runner=self._lammps_runner
+        )
+        return [calculator.calculate(to_pymatgen_structure(configuration)) for configuration in configurations]
+
     def training_metrics(self, reference_atoms: Optional[List[Atoms]] = None) -> Dict:
         """Return accuracy metrics (configuration count, energy RMSE, forces RMSE) of the deployed potential.
 
         The metrics are computed over the training set by default; pass reference_atoms to evaluate the
         potential against a given set of labelled ase.Atoms instead.
         """
-        configurations = self._configurations_to_evaluate(reference_atoms)
-        number_of_configurations = len(configurations)
-        if number_of_configurations == 0:
+        if reference_atoms is None:
+            calculations = self._trainer.labelled_calculations
+        else:
+            calculations = [
+                SinglePointCalculation(calculation_type="reference",
+                                       structure=to_pymatgen_structure(atoms),
+                                       forces=atoms.get_forces(),
+                                       energy=atoms.get_potential_energy())
+                for atoms in reference_atoms
+            ]
+
+        if not calculations:  # e.g. round 0 of active learning
             return dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
 
-        calculator = LammpsSinglePointCalculator(
-            lammps_potential=self.lammps_potential, lammps_runner=self._lammps_runner
-        )
+        predictions = self.calculate([calculation.structure for calculation in calculations])
+
         energy_errors = []
         force_errors = []
-        for structure, reference_energy, reference_forces in configurations:
-            prediction = calculator.calculate(structure)
-            energy_errors.append(prediction.energy - reference_energy)
-            force_errors.append((np.asarray(prediction.forces) - np.asarray(reference_forces)).ravel())
+        for prediction, calculation in zip(predictions, calculations):
+            energy_errors.append(prediction.energy - calculation.energy)
+            force_errors.append((np.asarray(prediction.forces) - np.asarray(calculation.forces)).ravel())
 
         rmse_energy = float(np.sqrt(np.mean(np.square(energy_errors))))
         rmse_forces = float(np.sqrt(np.mean(np.square(np.concatenate(force_errors)))))
-        return dict(n_training_conf=number_of_configurations, rmse_energy=rmse_energy, rmse_forces=rmse_forces)
-
-    def _configurations_to_evaluate(
-        self, reference_atoms: Optional[List[Atoms]]
-    ) -> List[Tuple[Structure, float, np.ndarray]]:
-        """Return the (structure, energy, forces) triples to evaluate, defaulting to the training set."""
-        if reference_atoms is None:
-            return [
-                (calculation.structure, calculation.energy, calculation.forces)
-                for calculation in self._trainer.labelled_calculations
-            ]
-        return [
-            (AseAtomsAdaptor.get_structure(atoms), atoms.get_potential_energy(), atoms.get_forces())
-            for atoms in reference_atoms
-        ]
+        return dict(n_training_conf=len(calculations), rmse_energy=rmse_energy, rmse_forces=rmse_forces)
 
     @abstractmethod
     def train(self, output_directory: Path) -> None:
