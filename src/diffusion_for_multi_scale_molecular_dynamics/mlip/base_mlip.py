@@ -3,34 +3,106 @@
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
+from ase import Atoms
+from pymatgen.core import Structure
+from pymatgen.io.ase import AseAtomsAdaptor
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
     SinglePointCalculation
+from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
+from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
+    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
+from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
+    BaseMLIPTrainer
 
 
 class BaseMLIP(ABC):
-    """A trainable interatomic potential for the active learning loop."""
+    """A trainable interatomic potential for the active learning loop.
+
+    A MLIP is built from a trainer (the trainable core) and it caches the LAMMPS potential
+    that the trainer exports whenever the model is deployed.
+    """
+
+    def __init__(
+        self,
+        trainer: BaseMLIPTrainer,
+        lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
+    ):
+        """Init method.
+
+        Args:
+            trainer: the trainable core that learns and exports a LAMMPS potential.
+            lammps_runner: runner used to evaluate the deployed potential (e.g. for training metrics).
+        """
+        self._trainer = trainer
+        self._lammps_runner = lammps_runner
+        self._lammps_potential: Optional[LammpsPotential] = None
 
     @property
-    @abstractmethod
     def lammps_potential(self) -> LammpsPotential:
         """The currently deployed LAMMPS potential."""
-        raise NotImplementedError("must be implemented in a child class.")
+        if self._lammps_potential is None:
+            raise RuntimeError("The MLIP has not been deployed yet; call prepare_mlip_first_round or train first.")
+        return self._lammps_potential
 
-    @abstractmethod
     def add_labelled_structure(
         self, single_point_calculation: SinglePointCalculation, active_environment_indices: List[int]
     ) -> None:
         """Add a labelled structure to the training set."""
-        raise NotImplementedError("must be implemented in a child class.")
+        self._trainer.add_labelled_structure(single_point_calculation, active_environment_indices)
 
-    @abstractmethod
     def prepare_mlip_first_round(self, output_directory: Path) -> None:
         """Deploy the pretrained model so it can be run before any training happens this campaign."""
-        raise NotImplementedError("must be implemented in a child class.")
+        self._deploy(output_directory)
+
+    def _deploy(self, output_directory: Path) -> None:
+        """Export the current model to LAMMPS files and cache the resulting potential."""
+        self._lammps_potential = self._trainer.write_lammps_potential(output_directory)
+
+    def training_metrics(self, reference_atoms: Optional[List[Atoms]] = None) -> Dict:
+        """Return accuracy metrics (configuration count, energy RMSE, forces RMSE) of the deployed potential.
+
+        The metrics are computed over the training set by default; pass reference_atoms to evaluate the
+        potential against a given set of labelled ase.Atoms instead.
+        """
+        configurations = self._configurations_to_evaluate(reference_atoms)
+        number_of_configurations = len(configurations)
+        if number_of_configurations == 0:
+            return dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
+
+        calculator = LammpsSinglePointCalculator(
+            lammps_potential=self.lammps_potential, lammps_runner=self._lammps_runner
+        )
+        energy_errors = []
+        force_errors = []
+        for structure, reference_energy, reference_forces in configurations:
+            prediction = calculator.calculate(structure)
+            energy_errors.append(prediction.energy - reference_energy)
+            force_errors.append((np.asarray(prediction.forces) - np.asarray(reference_forces)).ravel())
+
+        rmse_energy = float(np.sqrt(np.mean(np.square(energy_errors))))
+        rmse_forces = float(np.sqrt(np.mean(np.square(np.concatenate(force_errors)))))
+        return dict(n_training_conf=number_of_configurations, rmse_energy=rmse_energy, rmse_forces=rmse_forces)
+
+    def _configurations_to_evaluate(
+        self, reference_atoms: Optional[List[Atoms]]
+    ) -> List[Tuple[Structure, float, np.ndarray]]:
+        """Return the (structure, energy, forces) triples to evaluate, defaulting to the training set."""
+        if reference_atoms is None:
+            return [
+                (calculation.structure, calculation.energy, calculation.forces)
+                for calculation in self._trainer.labelled_calculations
+            ]
+        return [
+            (AseAtomsAdaptor.get_structure(atoms), atoms.get_potential_energy(), atoms.get_forces())
+            for atoms in reference_atoms
+        ]
 
     @abstractmethod
     def train(self, output_directory: Path) -> None:
@@ -40,11 +112,6 @@ class BaseMLIP(ABC):
     @abstractmethod
     def write_state_yaml(self, output_path: Path) -> None:
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
-        raise NotImplementedError("must be implemented in a child class.")
-
-    @abstractmethod
-    def training_metrics(self) -> Dict:
-        """Return training-set metrics: number of configurations, energy RMSE and forces RMSE."""
         raise NotImplementedError("must be implemented in a child class.")
 
     @abstractmethod

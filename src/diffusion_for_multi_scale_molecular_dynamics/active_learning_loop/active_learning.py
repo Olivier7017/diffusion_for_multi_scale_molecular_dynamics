@@ -227,11 +227,21 @@ class ActiveLearning:
         working_directory: Path,
         logger,
     ) -> bool:
-        """Run a single active learning round; return True when the campaign is complete."""
+        """Run a single active learning round; return True when the campaign is complete.
+
+        The round is made of the following steps:
+            1. Run ARTn with the MLIP.
+            2. Extract the uncertainty per atom.
+            3. Excise environments and repaint samples.
+            4. Evaluate the repainted samples with the Oracle.
+            5. Add the labelled structures to the training database.
+            6. Retrain the MLIP.
+        """
         current_sub_directory = working_directory / f"round_{round_number}"
+
+        # 1. Run ARTn with the MLIP.
         # The artn_driver will create this directory.
         artn_working_directory = current_sub_directory / "lammps_artn"
-
         logger.info("  Launching ARTn simulation...")
         calculation_state = self.artn_driver.run(
             mlip=mlip,
@@ -244,6 +254,7 @@ class ActiveLearning:
             logger.info("Active Learning Campaign is Complete. Exiting.")
             return True
 
+        # 2. Extract the uncertainty per atom.
         logger.info("  Extracting uncertain structure from ARTn work directory...")
         uncertain_structure, uncertainty_per_atom = (
             self._get_uncertain_structure_and_uncertainties(artn_working_directory)
@@ -254,10 +265,12 @@ class ActiveLearning:
             f" -> There are {number_of_uncertain_envs} environments with uncertainty above the threshold."
         )
 
+        # 3. Excise environments and repaint samples.
         logger.info("  Making new samples based on uncertainties.")
         list_sample_structures, list_active_indices, list_sample_information = (
             self._make_samples(uncertain_structure, uncertainty_per_atom))
 
+        # 4. Evaluate the repainted samples with the Oracle.
         logger.info("  Labelling samples with oracle...")
         oracle_directory = current_sub_directory / "oracle"
         oracle_directory.mkdir(parents=True, exist_ok=True)
@@ -280,6 +293,7 @@ class ActiveLearning:
         output_file = oracle_directory / "oracle_single_point_calculations.pkl"
         oracle_df.to_pickle(output_file)
 
+        # 5. Add the labelled structures to the training database.
         logger.info("  Adding labelled samples to the MLIP training database.")
         for single_point_calculation, active_environment_indices \
                 in zip(list_single_point_calculations, list_active_indices):
@@ -288,8 +302,10 @@ class ActiveLearning:
                 active_environment_indices=active_environment_indices,
             )
 
+        # 6. Retrain the MLIP.
         logger.info("  Retraining the MLIP...")
         mlip_training_directory = current_sub_directory / "mlip_training"
+
         mlip.train(mlip_training_directory)
         self._update_latest_mlip_symlink(working_directory, mlip_training_directory)
 

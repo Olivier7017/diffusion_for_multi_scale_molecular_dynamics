@@ -26,6 +26,16 @@ class FlarePotential(LammpsPotential):
         self._pair_coeff_path = pair_coeff_file_path.resolve()
         self._mapped_uncertainty_path = mapped_uncertainty_file_path.resolve()
 
+    @property
+    def pair_coeff_file_path(self) -> Path:
+        """Path to the mapped FLARE coefficients."""
+        return self._pair_coeff_path
+
+    @property
+    def mapped_uncertainty_file_path(self) -> Path:
+        """Path to the mapped FLARE uncertainty coefficients."""
+        return self._mapped_uncertainty_path
+
     def interaction_commands(self, elements_string: str, with_uncertainty: bool = False) -> List[str]:
         """Return the FLARE interaction commands."""
         commands = [
