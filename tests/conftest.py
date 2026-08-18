@@ -46,6 +46,11 @@ def has_flare():
     return importlib.util.find_spec("flare") is not None
 
 
+@lru_cache(maxsize=1)
+def has_mlp():
+    return shutil.which("mlp") is not None
+
+
 @lru_cache(maxsize=None)
 def inprocess_pair_style_available(pair_style):
     """Whether the given pair_style is available in the in-process LAMMPS binding."""
@@ -77,6 +82,8 @@ def pytest_runtest_setup(item):
         pytest.skip("No mpirun found on PATH")
     if "requires_flare" in item.keywords and not has_flare():
         pytest.skip("The flare package is not installed")
+    if "requires_mlp" in item.keywords and not has_mlp():
+        pytest.skip("No mlp (MLIP-3) executable found on PATH")
     for marker in item.iter_markers(name="requires_pair_style"):
         pair_style = marker.args[0]
         if "requires_inprocess_lammps" in item.keywords:
