@@ -63,8 +63,8 @@ class BaseMLIP(ABC):
         self._deploy(output_directory)
 
     def _deploy(self, output_directory: Path) -> None:
-        """Export the current model to LAMMPS files and cache the resulting potential."""
-        self._lammps_potential = self._trainer.write_lammps_potential(output_directory)
+        """Write the model into output_directory and cache the resulting LAMMPS potential."""
+        self._lammps_potential = self._trainer.write_checkpoint(output_directory)
 
     def calculate(
         self, configurations: Union[Structure, Atoms, List[Union[Structure, Atoms]]]

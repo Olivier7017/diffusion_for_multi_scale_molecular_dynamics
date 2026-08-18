@@ -11,6 +11,8 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calcu
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
     FlarePotential
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.mtp import \
+    MtpPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
 
@@ -20,6 +22,7 @@ MLIP_DIR = REFERENCE_FILES_DIR / "mlip"
 FLARE_SGP_FILE = MLIP_DIR / "flare_sgp.json"
 FLARE_PAIR_COEFF_FILE = MLIP_DIR / "lammps_flare.flare"
 FLARE_MAPPED_UNCERTAINTY_FILE = MLIP_DIR / "mapped_unc_flare.flare"
+MTP_FILE = MLIP_DIR / "mtp10_model.mtp"
 
 
 def _stillinger_weber_potential():
@@ -33,16 +36,26 @@ def _flare_potential():
     )
 
 
+def _mtp_potential():
+    return MtpPotential(mtp_file_path=MTP_FILE)
+
+
 def _lammps_executable_path():
     return Path(shutil.which("lmp") or shutil.which("lammps"))
 
 
-# (potential_id, potential_factory, supports_uncertainty); each case requires its pair_style in LAMMPS.
-POTENTIALS = [
+# (potential_id, potential_factory, with_uncertainty); each case requires its pair_style in LAMMPS.
+POTENTIAL_CASES = [
     pytest.param("stillinger_weber", _stillinger_weber_potential, False,
                  marks=pytest.mark.requires_pair_style("sw"), id="stillinger_weber"),
+    pytest.param("flare", _flare_potential, False,
+                 marks=pytest.mark.requires_pair_style("flare"), id="flare-no-uncertainty"),
     pytest.param("flare", _flare_potential, True,
-                 marks=pytest.mark.requires_pair_style("flare"), id="flare"),
+                 marks=pytest.mark.requires_pair_style("flare"), id="flare-with-uncertainty"),
+    pytest.param("mtp", _mtp_potential, False,
+                 marks=pytest.mark.requires_pair_style("mtp"), id="mtp-no-uncertainty"),
+    pytest.param("mtp", _mtp_potential, True,
+                 marks=pytest.mark.requires_pair_style("mtp/extrapolation"), id="mtp-with-uncertainty"),
 ]
 
 
@@ -52,11 +65,11 @@ class BaseTestLammpsSinglePointCalculator:
     def structure(self):
         return LammpsData.from_file(str(STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure
 
-    @pytest.mark.parametrize("potential_id, potential_factory, supports_uncertainty", POTENTIALS)
-    def test_single_point(self, lammps_runner, structure, potential_id, potential_factory, supports_uncertainty):
-        """A single-point calculation returns finite energy and forces (and uncertainty when supported)."""
+    @pytest.mark.parametrize("potential_id, potential_factory, with_uncertainty", POTENTIAL_CASES)
+    def test_single_point(self, lammps_runner, structure, potential_id, potential_factory, with_uncertainty):
+        """A single-point calculation returns finite energy and forces (and uncertainty when requested)."""
         calculator = LammpsSinglePointCalculator(
-            potential_factory(), lammps_runner, with_uncertainty=supports_uncertainty
+            potential_factory(), lammps_runner, with_uncertainty=with_uncertainty
         )
         result = calculator.calculate(structure)
 
@@ -65,7 +78,7 @@ class BaseTestLammpsSinglePointCalculator:
         assert result.forces.shape == (number_of_atoms, 3)
         assert np.all(np.isfinite(result.forces))
 
-        if supports_uncertainty:
+        if with_uncertainty:
             assert result.uncertainties.shape == (number_of_atoms,)
             assert np.all(np.isfinite(result.uncertainties))
 

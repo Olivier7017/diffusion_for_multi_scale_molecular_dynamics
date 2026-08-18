@@ -100,17 +100,17 @@ def _get_forces_from_atoms_dataframe(atoms_df: pd.DataFrame) -> np.ndarray:
 
 
 def _get_uncertainties_from_atoms_dataframe(
-    atoms_df: pd.DataFrame,
+    atoms_df: pd.DataFrame, uncertainty_field: Union[str, None],
 ) -> Union[np.ndarray, None]:
     """Get uncertainties from atoms dataframe."""
-    if UNCERTAINTY_FIELD in atoms_df.columns:
-        return atoms_df[UNCERTAINTY_FIELD].astype(float).values
-    else:
-        return None
+    if uncertainty_field is not None and uncertainty_field in atoms_df.columns:
+        return atoms_df[uncertainty_field].astype(float).values
+    return None
 
 
 def extract_all_fields_from_dump(
     lammps_dump_path: Path,
+    uncertainty_field: Union[str, None] = UNCERTAINTY_FIELD,
 ) -> (Tuple)[
     List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]
 ]:
@@ -118,6 +118,7 @@ def extract_all_fields_from_dump(
 
     Args:
         lammps_dump_path: path to a lammps dump file, in yaml format, assumed to also contain the thermo data.
+        uncertainty_field: name of the per-atom uncertainty column to read, or None if there is none.
 
     Returns:
         list_structures: the structures in the dump file.
@@ -142,13 +143,14 @@ def extract_all_fields_from_dump(
             list_forces.append(forces)
 
             list_energies.append(global_data_dict[ENERGY_FIELD])
-            list_uncertainties.append(_get_uncertainties_from_atoms_dataframe(atoms_df))
+            list_uncertainties.append(_get_uncertainties_from_atoms_dataframe(atoms_df, uncertainty_field))
 
     return list_structures, list_forces, list_energies, list_uncertainties
 
 
 def extract_all_fields_from_cfg(
     configuration_output_path: Path,
+    uncertainty_field: Union[str, None] = UNCERTAINTY_FIELD,
 ) -> Tuple[List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]]:
     """Extract structures, forces, energies and uncertainties from a MTP '.cfg' output."""
     raise NotImplementedError("Reading a '.cfg' configuration output is not implemented yet.")
@@ -156,11 +158,12 @@ def extract_all_fields_from_cfg(
 
 def extract_all_fields(
     configuration_output_path: Path,
+    uncertainty_field: Union[str, None] = UNCERTAINTY_FIELD,
 ) -> Tuple[List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]]:
     """Extract all fields from a configuration output, dispatching on the file extension."""
     suffix = Path(configuration_output_path).suffix
     if suffix in (".dump", ".yaml"):
-        return extract_all_fields_from_dump(configuration_output_path)
+        return extract_all_fields_from_dump(configuration_output_path, uncertainty_field)
     if suffix == ".cfg":
-        return extract_all_fields_from_cfg(configuration_output_path)
+        return extract_all_fields_from_cfg(configuration_output_path, uncertainty_field)
     raise ValueError(f"Unknown configuration output extension: '{suffix}'.")

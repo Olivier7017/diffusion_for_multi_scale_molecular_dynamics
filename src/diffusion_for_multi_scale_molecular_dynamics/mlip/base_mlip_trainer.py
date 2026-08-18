@@ -42,13 +42,8 @@ class BaseMLIPTrainer(ABC):
         raise NotImplementedError("must be implemented in a child class.")
 
     @abstractmethod
-    def write_lammps_potential(self, output_directory: Path) -> LammpsPotential:
-        """Write the deployable LAMMPS files into output_directory and return the matching potential."""
-        raise NotImplementedError("must be implemented in a child class.")
-
-    @abstractmethod
-    def write_checkpoint(self, checkpoint_path: Path) -> None:
-        """Write a checkpoint from which the trainer can be reconstructed."""
+    def write_checkpoint(self, output_directory: Path) -> LammpsPotential:
+        """Write the model into output_directory (checkpoint + LAMMPS files) and return the deployed potential."""
         raise NotImplementedError("must be implemented in a child class.")
 
     @classmethod
