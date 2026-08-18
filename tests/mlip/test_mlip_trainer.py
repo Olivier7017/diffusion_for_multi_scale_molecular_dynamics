@@ -72,18 +72,14 @@ class TestMLIPTrainer:
         predicted_energy = predict_energy(trainer_type, trainer, labelled_structure.structure)
         np.testing.assert_allclose(predicted_energy, labelled_structure.energy, atol=1e-1)
 
-    def test_checkpoint_and_write_lammps_potential(self, trained_trainer, tmp_path):
-        """A trained trainer's checkpoint round-trips to an identical checkpoint, and it deploys a LAMMPS potential."""
-        # Checkpoint the trained model before deploying: build_map (in write_lammps_potential) mutates the
-        # SGP by attaching a variance kernel, which makes a post-deploy checkpoint non-idempotent on reload.
-        checkpoint_path = tmp_path / "checkpoint.json"
-        trained_trainer.write_checkpoint(checkpoint_path)
+    def test_write_checkpoint(self, trained_trainer, tmp_path):
+        """write_checkpoint deploys a LAMMPS potential and round-trips to an identical checkpoint."""
+        potential = trained_trainer.write_checkpoint(tmp_path / "first")
+        assert isinstance(potential, LammpsPotential)
+
+        checkpoint_path = tmp_path / "first" / "checkpoint.json"
         assert checkpoint_path.is_file()
 
-        reloaded_checkpoint_path = tmp_path / "reloaded_checkpoint.json"
-        type(trained_trainer).load_checkpoint(checkpoint_path).write_checkpoint(reloaded_checkpoint_path)
-        assert reloaded_checkpoint_path.read_text() == checkpoint_path.read_text()
-
-        potential = trained_trainer.write_lammps_potential(tmp_path / "deploy")
-        assert isinstance(potential, LammpsPotential)
-        assert len(list((tmp_path / "deploy").iterdir())) > 0
+        # The checkpoint is written before the (model-mutating) mapping, so reloading and re-writing it is identical.
+        type(trained_trainer).load_checkpoint(checkpoint_path).write_checkpoint(tmp_path / "second")
+        assert (tmp_path / "second" / "checkpoint.json").read_text() == checkpoint_path.read_text()

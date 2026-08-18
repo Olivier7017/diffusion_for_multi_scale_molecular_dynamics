@@ -61,9 +61,11 @@ class SubprocessLammpsRunner:
 
     def _build_commands(self, input_file_name: str) -> List[str]:
         """Build the actual command to run."""
+        # We do not pass '-screen none': the screen output carries LAMMPS' own error messages, and we capture
+        # it so it can be surfaced when the run fails.
         lammps_call = [
             str(self._lammps_executable_path),
-            "-echo", "none", "-screen", "none", "-i", input_file_name,
+            "-echo", "none", "-i", input_file_name,
         ]
         if self._mpi_processors == 1:
             return lammps_call
@@ -81,15 +83,20 @@ class SubprocessLammpsRunner:
         environment_variables = os.environ.copy()
         environment_variables["OMP_NUM_THREADS"] = f"{self._openmp_threads}"
 
-        subprocess.run(
+        result = subprocess.run(
             commands,
             cwd=working_directory,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            check=True,
             env=environment_variables,
         )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"LAMMPS failed (exit code {result.returncode}). Command: {' '.join(commands)}\n"
+                f"--- stdout ---\n{result.stdout}\n"
+                f"--- stderr ---\n{result.stderr}"
+            )
 
 
 class InProcessLammpsRunner:

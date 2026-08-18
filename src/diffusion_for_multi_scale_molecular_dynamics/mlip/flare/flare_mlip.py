@@ -66,10 +66,9 @@ class FlareMLIP(BaseMLIP):
             history_df.to_pickle(output_directory / "hyperparameter_optimization_log.pkl")
 
         self._trainer.fit()
-        self._deploy(output_directory)
+        self._deploy(output_directory)  # writes checkpoint.json + mapped files, caches the potential
 
         self._model_file = output_directory / "checkpoint.json"
-        self._trainer.write_checkpoint(self._model_file)
         self.write_state_yaml(output_directory / "state.yaml")
 
     def write_state_yaml(self, output_path: Path) -> None:

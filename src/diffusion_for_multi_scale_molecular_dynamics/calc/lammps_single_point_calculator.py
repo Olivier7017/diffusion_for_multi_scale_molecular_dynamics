@@ -52,7 +52,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         lammps_dump_path = Path(working_directory) / "dump.yaml"
 
         list_structures, list_forces, list_energies, list_uncertainties = (
-            extract_all_fields(lammps_dump_path)
+            extract_all_fields(lammps_dump_path, uncertainty_field=self._potential.uncertainty_field())
         )
         assert (
             len(list_structures) == 1
