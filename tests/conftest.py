@@ -123,6 +123,23 @@ def pytest_collection_modifyitems(config, items):
             if "slow" not in item.keywords:
                 item.add_marker(skip)
 
+    # Prepare pytest parallelization by adding a marker on tests that run on a device different than cpu such
+    # that they are not launched in parallel.
+    for item in items:
+        callspec = getattr(item, "callspec", None)
+        if callspec is None:
+            continue
+        device = callspec.params.get("device")
+        accelerator = callspec.params.get("accelerator")
+        device_key = None
+        if device is not None and str(device) != "cpu":
+            device_key = str(device)
+        elif isinstance(accelerator, str) and accelerator != "cpu":
+            # Normalize the accelerator to its torch device so 'gpu' and 'cuda' share a single group.
+            device_key = {"gpu": "cuda"}.get(accelerator, accelerator)
+        if device_key is not None:
+            item.add_marker(pytest.mark.xdist_group(f"device::{device_key}"))
+
 
 _available_devices = [torch.device("cpu")]
 

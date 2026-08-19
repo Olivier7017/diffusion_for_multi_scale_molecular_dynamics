@@ -63,7 +63,13 @@ class BaseTestSampleMaker(BaseTestAxlStructure):
 
     @pytest.fixture
     def uncertainty_per_atom(self, number_of_atoms, uncertainty_threshold):
-        return 2 * np.random.rand(number_of_atoms) * uncertainty_threshold
+        # Pick a random (relatively low, for test speed) number of atoms and put them above the threshold with
+        # a random uncertainty; the rest stay below it.
+        uncertainty_per_atom = 0.5 * uncertainty_threshold * np.random.rand(number_of_atoms)
+        number_above_threshold = np.random.randint(3, 6)
+        selected_indices = np.random.choice(number_of_atoms, size=number_above_threshold, replace=False)
+        uncertainty_per_atom[selected_indices] = uncertainty_threshold + 5.0 * np.random.rand(number_above_threshold)
+        return uncertainty_per_atom
 
 
 class BaseTestExciseSampleMaker(BaseTestSampleMaker):

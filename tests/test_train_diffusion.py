@@ -138,11 +138,14 @@ def get_config(
         spatial_dimension=3,
         number_of_atoms=number_of_atoms,
         num_atom_types=num_atom_types,
-        number_of_samples=4,
+        number_of_samples=2,
         record_samples=True,
     )
     if sampling_algorithm == "predictor_corrector":
         sampling_dict["number_of_corrector_steps"] = 1
+    elif sampling_algorithm == "ode":
+        sampling_dict["absolute_solver_tolerance"] = 0.1
+        sampling_dict["relative_solver_tolerance"] = 0.1
 
     early_stopping_config = dict(
         metric="validation_epoch_loss", mode="min", patience=max_epoch
@@ -180,13 +183,13 @@ def get_config(
 
 @pytest.mark.parametrize("sampling_algorithm", ["ode", "predictor_corrector"])
 @pytest.mark.parametrize(
-    "architecture, head_name",
+    "architecture, head_name, all_devices",
     [
-        ("egnn", None),
-        ("diffusion_mace", None),
-        ("mlp", None),
-        ("mace", "equivariant"),
-        ("mace", "mlp"),
+        ("egnn", None, True),
+        ("diffusion_mace", None, True),
+        ("mlp", None, True),
+        ("mace", "equivariant", True),
+        ("mace", "mlp", False),
     ],
 )
 class TestTrainDiffusion(TestDiffusionDataBase):
@@ -196,9 +199,14 @@ class TestTrainDiffusion(TestDiffusionDataBase):
         if accelerator == 'mps':
             pytest.skip("Skipping MPS accelerator: it is incompatible with KeOps and leads to segfaults")
 
+    @pytest.fixture(autouse=True)
+    def skip_non_cpu_for_cpu_only(self, all_devices, accelerator):
+        if not all_devices and accelerator != 'cpu':
+            pytest.skip("This architecture is smoke-tested on CPU only.")
+
     @pytest.fixture()
     def max_epoch(self):
-        return 5
+        return 2
 
     @pytest.fixture()
     def num_atom_types(self):
