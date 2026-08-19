@@ -34,7 +34,6 @@ class FlareMLIP(BaseMLIP):
         """
         super().__init__(trainer=flare_trainer, lammps_runner=lammps_runner)
         self._hyperparameter_optimizer = hyperparameter_optimizer
-        self._model_file: Optional[Path] = None
 
     @classmethod
     def load_checkpoint(

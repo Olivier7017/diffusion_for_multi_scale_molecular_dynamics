@@ -1,8 +1,10 @@
 from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
     SinglePointCalculation
@@ -10,6 +12,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential 
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
+
+SI8_STRUCTURE_FILE = Path(__file__).parent.parent / "reference_files" / "structure" / "Si8.in"
 
 
 def make_calculation(energy, forces):
@@ -68,7 +72,12 @@ class TestBaseMLIP:
 
 class TestDerivedMLIP:
 
-    @pytest.fixture(params=[pytest.param("flare", marks=pytest.mark.requires_flare)])
+    @pytest.fixture(
+        params=[
+            pytest.param("flare", marks=pytest.mark.requires_flare),
+            pytest.param("mtp", marks=pytest.mark.requires_mlp),
+        ]
+    )
     def mlip_type(self, request):
         return request.param
 
@@ -77,16 +86,36 @@ class TestDerivedMLIP:
         if mlip_type == "flare":
             from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import (
                 FlareConfiguration, FlareTrainer)
-            trainer = FlareTrainer(FlareConfiguration(cutoff=5.0,
+            trainer = FlareTrainer(FlareConfiguration(cutoff=4.0,
                                                       elements=list_element_symbols,
-                                                      n_radial=8,
-                                                      lmax=3,
+                                                      n_radial=4,
+                                                      lmax=2,
                                                       variance_type='local'))
             labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
                                                         structure=structure,
                                                         forces=np.random.rand(len(structure), 3),
                                                         energy=-1.0)
             trainer.add_labelled_structure(labelled_structure, active_environment_indices=list(range(len(structure))))
+            trainer.fit()  # a pretrained model, ready to deploy
+            return trainer
+        if mlip_type == "mtp":
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import (
+                MtpConfiguration, MtpTrainer)
+
+            # MTP needs a fixed single-species structure (the level-6 template is single-species).
+            mtp_structure = LammpsData.from_file(str(SI8_STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure
+            trainer = MtpTrainer(MtpConfiguration(
+                elements=["Si"],
+                level=6,
+                max_dist=4.0,
+                training_params=dict(max_iter=100, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
+            ))
+            labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
+                                                        structure=mtp_structure,
+                                                        forces=np.zeros((len(mtp_structure), 3)),
+                                                        energy=-26.43783)
+            trainer.add_labelled_structure(labelled_structure,
+                                           active_environment_indices=list(range(len(mtp_structure))))
             trainer.fit()  # a pretrained model, ready to deploy
             return trainer
         raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
@@ -106,6 +135,10 @@ class TestDerivedMLIP:
                                             optimize_sigma_s=False)
             )
             return FlareMLIP(flare_trainer=trainer, hyperparameter_optimizer=optimizer, lammps_runner=MagicMock())
+        if mlip_type == "mtp":
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_mlip import \
+                MtpMlip
+            return MtpMlip(mtp_trainer=trainer, lammps_runner=MagicMock())
         raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
 
     def test_prepare_mlip_first_round(self, mlip, tmp_path):
@@ -129,4 +162,4 @@ class TestDerivedMLIP:
         if fit_hyperparameters is not None:
             fit_hyperparameters.assert_called_once()
         assert isinstance(mlip.lammps_potential, LammpsPotential)
-        assert (tmp_path / "checkpoint.json").is_file()
+        assert mlip.model_file.is_file()

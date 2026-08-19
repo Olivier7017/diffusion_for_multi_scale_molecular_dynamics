@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +17,7 @@ SI8_STRUCTURE_FILE = Path(__file__).parent.parent / "reference_files" / "structu
 # Parameters read back from a level-6 MTP fitted on the fixed Si8 structure. The radial basis size, alpha scalar
 # moments and species count are fixed by the level; min_dist is the (deterministic) minimum interatomic distance.
 MTP_LEVEL = 6
-MTP_MAX_DIST = 4.0
+MTP_MAX_DIST = 3.5
 MTP_EXPECTED_RADIAL_BASIS_SIZE = 8
 MTP_EXPECTED_ALPHA_SCALAR_MOMENTS = 5
 MTP_EXPECTED_SPECIES_COUNT = 1
@@ -56,9 +55,7 @@ def reload_trainer(trainer_type, trainer, checkpoint_path, elements):
         from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
             MtpConfiguration
         configuration = MtpConfiguration(elements=elements, level=MTP_LEVEL, max_dist=MTP_MAX_DIST)
-        return type(trainer).load_checkpoint(
-            checkpoint_path, mtp_configuration=configuration, mlp_executable_path=Path(shutil.which("mlp"))
-        )
+        return type(trainer).load_checkpoint(checkpoint_path, mtp_configuration=configuration)
     raise ValueError(f"Unknown trainer type '{trainer_type}'.")
 
 
@@ -90,10 +87,10 @@ class TestMLIPTrainer:
         if trainer_type == "flare":
             from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import (
                 FlareConfiguration, FlareTrainer)
-            return FlareTrainer(FlareConfiguration(cutoff=5.0,
+            return FlareTrainer(FlareConfiguration(cutoff=4.0,
                                                    elements=elements,
-                                                   n_radial=8,
-                                                   lmax=3,
+                                                   n_radial=4,
+                                                   lmax=2,
                                                    variance_type='local',
                                                    initial_sigma_e=1e-8))
         if trainer_type == "mtp":
@@ -105,7 +102,7 @@ class TestMLIPTrainer:
                 max_dist=MTP_MAX_DIST,
                 training_params=dict(max_iter=100, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
             )
-            return MtpTrainer(configuration, mlp_executable_path=Path(shutil.which("mlp")))
+            return MtpTrainer(configuration)
         raise ValueError(f"Unknown trainer type '{trainer_type}'.")
 
     @pytest.fixture

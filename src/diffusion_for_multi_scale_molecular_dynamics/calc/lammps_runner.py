@@ -8,6 +8,22 @@ _DEFAULT_LAMMPS_CONFIG = dict(
 )
 
 
+def _styles_in_help_section(help_text: str, section: str) -> List[str]:
+    """Return the style names listed under a '* <section>:' header in a LAMMPS '-h' output.
+
+    Sections start with a line like '* Pair styles:' and run until the next '* ' header.
+    """
+    styles: List[str] = []
+    inside_section = False
+    for line in help_text.splitlines():
+        if line.startswith("* "):
+            inside_section = line[2:].rstrip(":").strip() == section
+            continue
+        if inside_section:
+            styles.extend(line.split())
+    return styles
+
+
 def instantiate_lammps_runner(lammps_executable_path: Path, configuration_dict: Dict):
     """Instantiate lammps runner.
 
@@ -98,6 +114,18 @@ class SubprocessLammpsRunner:
                 f"--- stderr ---\n{result.stderr}"
             )
 
+    def check_dependency(self, section: str, to_find: str) -> None:
+        """Raise if `to_find` is not listed under `section` (e.g. 'Pair styles') in the executable's help output."""
+        help_text = subprocess.run(
+            [str(self._lammps_executable_path), "-h"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        ).stdout
+        if to_find not in _styles_in_help_section(help_text, section):
+            raise RuntimeError(
+                f"'{to_find}' is not available in the '{section}' of the LAMMPS executable "
+                f"'{self._lammps_executable_path}'."
+            )
+
 
 class InProcessLammpsRunner:
     """In-process LAMMPS Runner.
@@ -128,6 +156,21 @@ class InProcessLammpsRunner:
                 lmp.close()
         finally:
             os.chdir(original_directory)
+
+    def check_dependency(self, section: str, to_find: str) -> None:
+        """Raise if `to_find` is not among the binding's styles for `section` (e.g. 'Pair styles' -> 'pair')."""
+        import lammps  # Lazy import: the Python binding is an optional dependency.
+
+        style_category = section.split()[0].lower()
+        lmp = lammps.lammps(cmdargs=["-log", "none", "-echo", "none", "-screen", "none"])
+        try:
+            available_styles = lmp.available_styles(style_category)
+        finally:
+            lmp.close()
+        if to_find not in available_styles:
+            raise RuntimeError(
+                f"'{to_find}' is not available in the '{section}' of the in-process LAMMPS binding."
+            )
 
 
 def create_lammps_runner(

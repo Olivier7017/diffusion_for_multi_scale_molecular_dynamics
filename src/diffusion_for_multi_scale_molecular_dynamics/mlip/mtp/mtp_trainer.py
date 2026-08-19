@@ -135,19 +135,21 @@ class MtpConfiguration:
 class MtpTrainer(BaseMLIPTrainer):
     """Fit a Moment Tensor Potential with the MLIP-3 'mlp train' command and deploy it as a LAMMPS potential."""
 
-    def __init__(self, mtp_configuration: MtpConfiguration, mlp_executable_path: Path):
+    def __init__(self, mtp_configuration: MtpConfiguration, mlp_executable_path: Optional[Path] = None):
         """Init method.
 
         Args:
             mtp_configuration: the MTP model definition (level, cutoff, weights, training parameters).
-            mlp_executable_path: path to the MLIP-3 'mlp' executable.
+            mlp_executable_path: path to the MLIP-3 'mlp' executable; if None, it is looked up on PATH.
         """
         super().__init__()
+        if mlp_executable_path is None:
+            mlp_executable_path = shutil.which("mlp")
+        if mlp_executable_path is None:
+            raise ValueError("No mlp executable was provided and none was found on PATH ('which mlp' failed).")
         mlp_executable_path = Path(mlp_executable_path)
         if not mlp_executable_path.is_file():
-            raise ValueError(
-                f"The mlp executable '{mlp_executable_path}' does not exist. Review input."
-            )
+            raise ValueError(f"The mlp executable '{mlp_executable_path}' does not exist. Review input.")
 
         self._configuration = mtp_configuration
         self._mlp_executable_path = mlp_executable_path
@@ -226,7 +228,7 @@ class MtpTrainer(BaseMLIPTrainer):
         cls,
         checkpoint_path: Path,
         mtp_configuration: MtpConfiguration,
-        mlp_executable_path: Path,
+        mlp_executable_path: Optional[Path] = None,
     ) -> "MtpTrainer":
         """Rebuild a trainer from a fitted MTP file.
 
