@@ -84,8 +84,10 @@ class TestDerivedMLIP:
     @pytest.fixture
     def trainer(self, mlip_type, structure, list_element_symbols):
         if mlip_type == "flare":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import (
-                FlareConfiguration, FlareTrainer)
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
+                FlareConfiguration
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
+                FlareTrainer
             trainer = FlareTrainer(FlareConfiguration(cutoff=4.0,
                                                       elements=list_element_symbols,
                                                       n_radial=4,
@@ -99,8 +101,10 @@ class TestDerivedMLIP:
             trainer.fit()  # a pretrained model, ready to deploy
             return trainer
         if mlip_type == "mtp":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import (
-                MtpConfiguration, MtpTrainer)
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
+                MtpConfiguration
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
+                MtpTrainer
 
             # MTP needs a fixed single-species structure (the level-6 template is single-species).
             mtp_structure = LammpsData.from_file(str(SI8_STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure

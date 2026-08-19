@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 import diffusion_for_multi_scale_molecular_dynamics.mlip.mtp as mtp_package
-from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
+from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
     MtpConfiguration
 
 # The level-6 template shipped with the package (a readable text header followed by binary data).
