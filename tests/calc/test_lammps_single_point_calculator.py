@@ -11,6 +11,8 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calcu
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
     FlarePotential
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.grace import \
+    GracePotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.mtp import \
     MtpPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
@@ -23,6 +25,8 @@ FLARE_SGP_FILE = MLIP_DIR / "flare_sgp.json"
 FLARE_PAIR_COEFF_FILE = MLIP_DIR / "lammps_flare.flare"
 FLARE_MAPPED_UNCERTAINTY_FILE = MLIP_DIR / "mapped_unc_flare.flare"
 MTP_FILE = MLIP_DIR / "mtp10_model.mtp"
+GRACE_MODEL_FILE = MLIP_DIR / "grace_model.yaml"
+GRACE_ASI_FILE = MLIP_DIR / "grace_unc.asi"
 
 
 def _stillinger_weber_potential():
@@ -38,6 +42,10 @@ def _flare_potential():
 
 def _mtp_potential():
     return MtpPotential(mtp_file_path=MTP_FILE)
+
+
+def _grace_potential():
+    return GracePotential(model_file_path=GRACE_MODEL_FILE, active_set_file_path=GRACE_ASI_FILE)
 
 
 def _lammps_executable_path():
@@ -56,6 +64,10 @@ POTENTIAL_CASES = [
                  marks=pytest.mark.requires_pair_style("mtp"), id="mtp-no-uncertainty"),
     pytest.param("mtp", _mtp_potential, True,
                  marks=pytest.mark.requires_pair_style("mtp/extrapolation"), id="mtp-with-uncertainty"),
+    pytest.param("grace", _grace_potential, False,
+                 marks=pytest.mark.requires_pair_style("grace/fs"), id="grace-no-uncertainty"),
+    pytest.param("grace", _grace_potential, True,
+                 marks=pytest.mark.requires_pair_style("grace/fs"), id="grace-with-uncertainty"),
 ]
 
 
