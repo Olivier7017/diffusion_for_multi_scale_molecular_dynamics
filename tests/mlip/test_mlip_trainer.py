@@ -52,7 +52,7 @@ def reload_trainer(trainer_type, trainer, checkpoint_path, elements):
     if trainer_type == "flare":
         return type(trainer).load_checkpoint(checkpoint_path)
     elif trainer_type == "mtp":
-        from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
             MtpConfiguration
         configuration = MtpConfiguration(elements=elements, level=MTP_LEVEL, max_dist=MTP_MAX_DIST)
         return type(trainer).load_checkpoint(checkpoint_path, mtp_configuration=configuration)
@@ -85,8 +85,10 @@ class TestMLIPTrainer:
     @pytest.fixture
     def trainer(self, trainer_type, elements):
         if trainer_type == "flare":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import (
-                FlareConfiguration, FlareTrainer)
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
+                FlareConfiguration
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
+                FlareTrainer
             return FlareTrainer(FlareConfiguration(cutoff=4.0,
                                                    elements=elements,
                                                    n_radial=4,
@@ -94,8 +96,10 @@ class TestMLIPTrainer:
                                                    variance_type='local',
                                                    initial_sigma_e=1e-8))
         if trainer_type == "mtp":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import (
-                MtpConfiguration, MtpTrainer)
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
+                MtpConfiguration
+            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
+                MtpTrainer
             configuration = MtpConfiguration(
                 elements=elements,
                 level=MTP_LEVEL,

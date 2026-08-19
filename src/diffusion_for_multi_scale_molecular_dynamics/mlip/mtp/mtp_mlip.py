@@ -10,8 +10,10 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
-from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import (
-    MtpConfiguration, MtpTrainer)
+from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
+    MtpConfiguration
+from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
+    MtpTrainer
 
 LAMMPS_MTP_KOKKOS_URL = "https://github.com/RichardZJM/lammps-mtp-kokkos"
 
