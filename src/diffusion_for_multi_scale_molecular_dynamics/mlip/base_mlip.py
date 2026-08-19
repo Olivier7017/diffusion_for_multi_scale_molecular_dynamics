@@ -44,6 +44,7 @@ class BaseMLIP(ABC):
         self._trainer = trainer
         self._lammps_runner = lammps_runner
         self._lammps_potential: Optional[LammpsPotential] = None
+        self._model_file: Optional[Path] = None
 
     @property
     def lammps_potential(self) -> LammpsPotential:
@@ -51,6 +52,11 @@ class BaseMLIP(ABC):
         if self._lammps_potential is None:
             raise RuntimeError("The MLIP has not been deployed yet; call prepare_mlip_first_round or train first.")
         return self._lammps_potential
+
+    @property
+    def model_file(self) -> Optional[Path]:
+        """Path to the current reloadable model checkpoint (None until the model has been trained)."""
+        return self._model_file
 
     def add_labelled_structure(
         self, single_point_calculation: SinglePointCalculation, active_environment_indices: List[int]
