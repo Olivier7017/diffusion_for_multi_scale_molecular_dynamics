@@ -3,14 +3,20 @@
 import logging
 import shutil
 from pathlib import Path
-from typing import Union
+from typing import Dict, Optional, Union
 
+import yaml
+
+from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
+    SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
-from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
-    BaseMLIPTrainer
+from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_configuration import \
+    GraceConfiguration
+from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_trainer import \
+    GraceTrainer
 
 GRACE_LAMMPS_CLONE = "git clone -b grace --depth=1 https://github.com/yury-lysogorskiy/lammps.git"
 GRACEMAKER_CLONE = "git clone https://github.com/ICAMS/grace-tensorpotential.git"
@@ -22,7 +28,7 @@ class GraceMlip(BaseMLIP):
 
     def __init__(
         self,
-        grace_trainer: BaseMLIPTrainer,
+        grace_trainer: GraceTrainer,
         lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
     ):
         """Init method.
@@ -56,17 +62,66 @@ class GraceMlip(BaseMLIP):
 
     def train(self, output_directory: Path) -> None:
         """Train the model, deploy it and write a checkpoint into output_directory."""
-        raise NotImplementedError("must be implemented in a future commit.")
+        output_directory.mkdir(parents=True, exist_ok=True)
+
+        self._trainer.fit()
+        self._deploy(output_directory)  # write_checkpoint: builds the active set and caches the GracePotential
+
+        self._model_file = self.lammps_potential.model_file_path
+        self.write_state_yaml(output_directory / "state.yaml")
 
     def write_state_yaml(self, output_path: Path) -> None:
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
-        raise NotImplementedError("must be implemented in a future commit.")
+        with open(str(output_path), "w") as file_descriptor:
+            yaml.dump(self._state(), file_descriptor)
 
     def write_logger_info(self, logger: logging.Logger) -> None:
-        """Log a summary of the current model state."""
-        raise NotImplementedError("must be implemented in a future commit.")
+        """Log the current GRACE-FS parameters."""
+        logger.info("  The GRACE-FS parameters are now:")
+        for name, value in self._grace_parameters().items():
+            logger.info(f"       {name} = {value}")
 
     @classmethod
-    def load_checkpoint(cls, checkpoint_path: Path) -> "GraceMlip":
-        """Reconstruct the MLIP from a checkpoint."""
-        raise NotImplementedError("must be implemented in a future commit.")
+    def load_checkpoint(
+        cls,
+        checkpoint_path: Path,
+        grace_configuration: GraceConfiguration,
+        initial_configuration: SinglePointCalculation,
+        lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner] = None,
+        gracemaker_executable_path: Optional[Path] = None,
+        pace_activeset_executable_path: Optional[Path] = None,
+    ) -> "GraceMlip":
+        """Reconstruct a GRACE-FS MLIP from a checkpoint (the configuration and initial config must be provided)."""
+        grace_trainer = GraceTrainer.load_checkpoint(
+            checkpoint_path,
+            grace_configuration=grace_configuration,
+            initial_configuration=initial_configuration,
+            gracemaker_executable_path=gracemaker_executable_path,
+            pace_activeset_executable_path=pace_activeset_executable_path,
+        )
+        return cls(grace_trainer=grace_trainer, lammps_runner=lammps_runner)
+
+    def _grace_parameters(self) -> Dict:
+        """The parameters describing the current GRACE-FS model."""
+        configuration = self._trainer.configuration
+        return dict(
+            elements=configuration.elements,
+            cutoff=configuration.cutoff,
+            preset=configuration.preset,
+            size=configuration.size,
+            seed=configuration.seed,
+            target_total_updates=configuration.target_total_updates,
+        )
+
+    def _state(self) -> Dict:
+        potential = self._lammps_potential
+        model_file = None if self._model_file is None else str(self._model_file)
+        # The FS model (.yaml) is the LAMMPS pair-coeff; the active set (.asi) provides the extrapolation grade.
+        lammps_potential_file = None if potential is None else str(potential.model_file_path)
+        unc_file = None if potential is None else str(potential.active_set_file_path)
+        return dict(
+            model_file=model_file,
+            unc_file=unc_file,
+            lammps_potential_file=lammps_potential_file,
+            hyperparameters=self._grace_parameters(),
+        )
