@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -24,8 +25,42 @@ MTP_EXPECTED_SPECIES_COUNT = 1
 MTP_EXPECTED_MIN_DIST = 2.3336
 
 
+def predict_mtp_energy(trainer, structure):
+    """Predict a structure's energy with the fitted MTP through 'mlp calculate_efs'."""
+    import glob
+    import os
+    import subprocess
+
+    from maml.utils import check_structures_forces_stresses, pool_from
+
+    from diffusion_for_multi_scale_molecular_dynamics.io.mlip import \
+        write_mtp_cfg
+
+    work_directory = Path(tempfile.mkdtemp())
+    potential = trainer.write_checkpoint(work_directory)
+    checked_structures, checked_forces, _ = check_structures_forces_stresses(
+        [structure], [np.zeros((len(structure), 3))], None
+    )
+    training_pool = pool_from(checked_structures, [0.0], checked_forces)
+
+    original_directory = Path.cwd()
+    os.chdir(work_directory)
+    try:
+        write_mtp_cfg(training_pool, trainer.configuration.elements, Path("input.cfg"))
+        subprocess.run(
+            ["mlp", "calculate_efs", str(potential.mtp_file_path), "input.cfg", "--output_filename=output.cfg"],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        # calculate_efs writes a rank-suffixed file (e.g. output.cfg.0); read the energy from its header.
+        lines = Path(sorted(glob.glob("output.cfg*"))[0]).read_text().splitlines()
+        energy_index = next(index for index, line in enumerate(lines) if line.strip() == "Energy")
+        return float(lines[energy_index + 1].strip())
+    finally:
+        os.chdir(original_directory)
+
+
 def verify_fitted_model(trainer_type, trainer, labelled_structure):
-    """Assert the fitted model matches its label (flare: predicted energy; mtp: golden fitted parameters)."""
+    """Assert the fitted model reproduces its energy label within tolerance (per-backend predictor)."""
     if trainer_type == "flare":
         from diffusion_for_multi_scale_molecular_dynamics.calc.flare_single_point_calculator import \
             FlareSinglePointCalculator
@@ -38,6 +73,8 @@ def verify_fitted_model(trainer_type, trainer, labelled_structure):
         assert configuration.species_count == MTP_EXPECTED_SPECIES_COUNT
         assert configuration.number_of_adjustable_parameters == 14
         np.testing.assert_allclose(configuration.min_dist, MTP_EXPECTED_MIN_DIST, atol=1e-3)
+        predicted_energy = predict_mtp_energy(trainer, labelled_structure.structure)
+        np.testing.assert_allclose(predicted_energy, labelled_structure.energy, atol=1e-1)
     else:
         raise ValueError(f"Unknown trainer type '{trainer_type}'.")
 
