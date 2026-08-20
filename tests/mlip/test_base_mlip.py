@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import yaml
 from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
@@ -167,3 +168,41 @@ class TestDerivedMLIP:
             fit_hyperparameters.assert_called_once()
         assert isinstance(mlip.lammps_potential, LammpsPotential)
         assert mlip.model_file.is_file()
+
+
+class TestGraceMlip:
+    """GraceMlip's own logic (train orchestration + state), with a mocked trainer — no gracemaker fit."""
+
+    def test_train_deploys_and_writes_state(self, tmp_path):
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_mlip import \
+            GraceMlip
+
+        model_file_path = tmp_path / "model.yaml"
+        model_file_path.write_text("model")
+        active_set_file_path = tmp_path / "model.asi"
+        active_set_file_path.write_text("asi")
+
+        potential = MagicMock()
+        potential.model_file_path = model_file_path
+        potential.active_set_file_path = active_set_file_path
+
+        trainer = MagicMock()
+        trainer.write_checkpoint.return_value = potential
+        trainer.configuration = MagicMock(elements=["Si"], cutoff=3.5, preset="FS",
+                                          size="small", seed=1, target_total_updates=500)
+
+        # Mock 'which' so __init__'s dependency check passes without the GRACE toolchain installed.
+        with patch("diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_mlip.shutil.which",
+                   return_value="/usr/bin/dummy"):
+            mlip = GraceMlip(grace_trainer=trainer, lammps_runner=MagicMock())
+            mlip.train(tmp_path)
+
+        trainer.fit.assert_called_once()
+        assert mlip.model_file == model_file_path
+        assert mlip.lammps_potential is potential
+
+        state = yaml.safe_load((tmp_path / "state.yaml").read_text())
+        assert state["model_file"] == str(model_file_path)
+        assert state["lammps_potential_file"] == str(model_file_path)
+        assert state["unc_file"] == str(active_set_file_path)
+        assert state["hyperparameters"]["elements"] == ["Si"]
