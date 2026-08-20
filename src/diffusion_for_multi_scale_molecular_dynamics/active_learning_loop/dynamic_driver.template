@@ -1,20 +1,19 @@
-# LAMMPS input script generated from a template.
-# Modified from pARTn with FIRE minimization, MAMMASMIAS, 2022
+# LAMMPS input script generated from a template (shared by the ARTn and MD dynamic drivers).
 
 variable threshold equal $uncertainty_threshold
 
-# ---------- Initialize Simulation --------------------- 
-clear 
-units       metal 
-dimension   3 
-boundary    p p p 
+# ---------- Initialize Simulation ---------------------
+clear
+units       metal
+dimension   3
+boundary    p p p
 atom_style  atomic
 
-# Prevent LAMMPS from sorting atoms, which might confuse ARTn.
+# Prevent LAMMPS from sorting atoms, which might confuse the dynamics driver.
 atom_modify sort 0 1
 
 
-# ---------- Read in the starting configuration --------------------- 
+# ---------- Read in the starting configuration ---------------------
 read_data $configuration_file_path
 
 $group_block
@@ -31,8 +30,8 @@ compute max_unc_all all reduce max $uncertainty_field
 variable max_unc equal c_max_unc_all
 
 
-neighbor     2.0 bin 
-neigh_modify delay 10 check yes 
+neighbor     2.0 bin
+neigh_modify delay 10 check yes
 
 # balance atoms per cpu
 comm_style tiled
@@ -59,22 +58,8 @@ dump uncertain_dump_id all yaml 1 uncertain_dump.yaml $dump_fields
 dump_modify uncertain_dump_id thermo yes
 dump_modify uncertain_dump_id element $elements_string
 
-dump_modify uncertain_dump_id skip v_continue_run 
+dump_modify uncertain_dump_id skip v_continue_run
 
 
-# ----------- ARTn
-plugin load $artn_library_plugin_path
-
-fix artn_fix_id all artn dmax 5.0
-
-timestep 0.001
-
-
-# ---------- Run Minimization --------------------- 
-reset_timestep 0 
-
-min_style fire 
-
-
-## ------ launch
-minimize 1e-4 1e-5 5000 10000
+# ---------- Dynamics (driver-specific) ---------------------
+$dynamics_block

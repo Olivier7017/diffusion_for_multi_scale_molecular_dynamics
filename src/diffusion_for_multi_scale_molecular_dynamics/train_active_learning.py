@@ -10,10 +10,10 @@ import lightning as pl
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
+from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.artn_driver.artn_driver import \
+    ArtnDriver
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.configuration_parsing import \
     get_sample_maker_from_configuration
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver.artn_driver import \
-    ArtnDriver
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
     instantiate_lammps_runner
 from diffusion_for_multi_scale_molecular_dynamics.calc.single_point_calculator_factory import \
@@ -182,7 +182,7 @@ def run(args: argparse.Namespace, configuration: typing.Dict):
             active_learning = ActiveLearning(
                 oracle_single_point_calculator=oracle_calculator,
                 sample_maker=sample_maker,
-                artn_driver=artn_driver,
+                dynamic_driver=artn_driver,
             )
 
             checkpoint_path = list_flare_checkpoint_paths[-1]

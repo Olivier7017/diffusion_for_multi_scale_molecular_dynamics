@@ -1,12 +1,13 @@
 import re
-from enum import Enum
+from enum import Enum, auto
 
 
 class CalculationState(Enum):
-    """State of an ARTn calculation."""
+    """State of a dynamic-driver (ARTn or MD) calculation."""
 
-    SUCCESS = True
-    INTERRUPTION = False
+    SUCCESS = auto()       # the run finished without the uncertainty exceeding the threshold.
+    INTERRUPTION = auto()  # the run halted early: an uncertain structure was found.
+    ERROR = auto()         # the run failed or produced unusable output.
 
 
 INTERRUPTION_MESSAGE = "Failure message: ARTn RESEARCH STOP BEFORE THE END"
@@ -35,8 +36,8 @@ def get_calculation_state_from_artn_output(artn_output: str) -> CalculationState
                          "Something is wrong; review code!")
 
     if not match_success and not match_interruption:
-        raise ValueError("Neither the success nor the interruption messages are present in the artn.out file. "
-                         "Something is wrong; review code!")
+        # The run produced an artn.out that reports neither outcome: treat it as a failed run.
+        return CalculationState.ERROR
 
     if match_interruption:
         return CalculationState.INTERRUPTION

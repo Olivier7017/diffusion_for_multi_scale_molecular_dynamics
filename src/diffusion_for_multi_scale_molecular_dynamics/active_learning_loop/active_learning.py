@@ -7,8 +7,8 @@ import pandas as pd
 import yaml
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver.artn_driver import \
-    ArtnDriver
+from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
+    DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.logging import (
     clean_up_campaign_logger, set_up_campaign_logger)
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
@@ -36,7 +36,7 @@ class ActiveLearning:
         - start with a MLIP that has been pretrained (ie, is not completely empty)
         - Iterate until SUCCESS:
             * deploy the MLIP
-            * run artn with the MLIP:
+            * run the dynamic driver (ARTn or MD) with the MLIP:
                 - SUCCESS if no encountered structure has an uncertainty above the threshold; exit.
                 - INTERRUPTION otherwise (an uncertain structure was found).
             * collect the uncertain structure
@@ -49,33 +49,37 @@ class ActiveLearning:
         self,
         oracle_single_point_calculator: BaseSinglePointCalculator,
         sample_maker: BaseSampleMaker,
-        artn_driver: ArtnDriver,
+        dynamic_driver: DynamicDriver,
     ):
         """Init method.
 
         Args:
             oracle_single_point_calculator: class responsible for generating of ground truth labels.
             sample_maker: class responsible for generating samples for active learning.
-            artn_driver: class responsible for running LAMMPS + ARTn.
+            dynamic_driver: class responsible for running LAMMPS to search for uncertain structures (ARTn or MD).
         """
         self.oracle_calculator = oracle_single_point_calculator
         self.sample_maker = sample_maker
-        self.artn_driver = artn_driver
+        self.dynamic_driver = dynamic_driver
         self._structure_converter = StructureConverter(list_of_element_symbols=sample_maker.arguments.element_list)
 
     def _get_uncertain_structure_and_uncertainties(
-        self, artn_working_directory: Path
+        self, dynamics_working_directory: Path, uncertainty_field: str
     ) -> Tuple[Structure, np.ndarray]:
         """Get uncertain structure.
 
-        This method assumes the CONVENTION that the ARTn + LAMMPS run will produce a file
+        This method assumes the CONVENTION that the dynamic driver's LAMMPS run produces a file
         named 'uncertain_dump.yaml' that contains the uncertain structure.
+
+        Args:
+            dynamics_working_directory: directory holding the dynamic driver's 'uncertain_dump.yaml'.
+            uncertainty_field: the per-atom uncertainty column to read (depends on the MLIP backend).
         """
-        lammps_dump_path = artn_working_directory / "uncertain_dump.yaml"
+        lammps_dump_path = dynamics_working_directory / "uncertain_dump.yaml"
         assert lammps_dump_path.is_file(), f"The file {lammps_dump_path} is missing."
 
         list_structures, _, _, list_uncertainties = extract_all_fields_from_dump(
-            lammps_dump_path
+            lammps_dump_path, uncertainty_field=uncertainty_field
         )
         uncertain_structure = list_structures[0]
         uncertainties = list_uncertainties[0]
@@ -183,7 +187,7 @@ class ActiveLearning:
         Perform a full campaign of active learning.
 
         Args:
-            uncertainty_threshold: the uncertainty threshold to interrupt an ARTn run.
+            uncertainty_threshold: the uncertainty threshold to interrupt a dynamic driver run.
             mlip: the machine-learning interatomic potential to drive and refine. It is assumed to be
                 already pretrained, so that it can be deployed and run from the first round.
             working_directory: top directory where all the various artifacts from this campaign will be written.
@@ -230,7 +234,7 @@ class ActiveLearning:
         """Run a single active learning round; return True when the campaign is complete.
 
         The round is made of the following steps:
-            1. Run ARTn with the MLIP.
+            1. Run the dynamic driver (ARTn or MD) with the MLIP.
             2. Extract the uncertainty per atom.
             3. Excise environments and repaint samples.
             4. Evaluate the repainted samples with the Oracle.
@@ -239,25 +243,32 @@ class ActiveLearning:
         """
         current_sub_directory = working_directory / f"round_{round_number}"
 
-        # 1. Run ARTn with the MLIP.
-        # The artn_driver will create this directory.
-        artn_working_directory = current_sub_directory / "lammps_artn"
-        logger.info("  Launching ARTn simulation...")
-        calculation_state = self.artn_driver.run(
+        # 1. Run the dynamic driver (ARTn or MD) with the MLIP.
+        # The dynamic driver will create this directory.
+        dynamics_working_directory = current_sub_directory / "lammps_dynamics"
+        logger.info("  Launching the dynamic driver simulation...")
+        calculation_state = self.dynamic_driver.run(
             mlip=mlip,
-            working_directory=artn_working_directory,
+            working_directory=dynamics_working_directory,
             uncertainty_threshold=uncertainty_threshold,
         )
-        logger.info(f"  ARTn state is {calculation_state}")
+        logger.info(f"  Dynamic driver state is {calculation_state}")
+
+        if calculation_state == CalculationState.ERROR:
+            raise RuntimeError(
+                f"The dynamic driver run failed (state ERROR). Review the logs in {dynamics_working_directory}."
+            )
 
         if calculation_state == CalculationState.SUCCESS:
             logger.info("Active Learning Campaign is Complete. Exiting.")
             return True
 
         # 2. Extract the uncertainty per atom.
-        logger.info("  Extracting uncertain structure from ARTn work directory...")
+        logger.info("  Extracting uncertain structure from the dynamic driver work directory...")
         uncertain_structure, uncertainty_per_atom = (
-            self._get_uncertain_structure_and_uncertainties(artn_working_directory)
+            self._get_uncertain_structure_and_uncertainties(
+                dynamics_working_directory, mlip.lammps_potential.uncertainty_field()
+            )
         )
 
         number_of_uncertain_envs = np.sum(uncertainty_per_atom > uncertainty_threshold)
