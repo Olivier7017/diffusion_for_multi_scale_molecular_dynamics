@@ -41,6 +41,7 @@ class GraceConfiguration:
     target_total_updates: int = 500
     batch_size: int = 16
     test_batch_size: int = 64
+    jit_compile: bool = True  # JIT speeds up production (long) fits; its one-off compilation dominates short ones.
 
     def __post_init__(self):
         """Validate the configuration and, if needed, derive the model architecture from the size."""

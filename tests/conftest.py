@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import pymatgen
@@ -51,6 +52,21 @@ def has_mlp():
     return shutil.which("mlp") is not None
 
 
+@lru_cache(maxsize=1)
+def has_grace():
+    return (shutil.which("gracemaker") is not None
+            and shutil.which("pace_activeset") is not None
+            and importlib.util.find_spec("tensorpotential") is not None
+            and importlib.util.find_spec("pyace") is not None
+            and importlib.util.find_spec("maxvolpy") is not None)
+
+
+@pytest.fixture
+def reference_files_directory():
+    """Absolute path to tests/reference_files, independent of the directory pytest is invoked from."""
+    return Path(__file__).parent / "reference_files"
+
+
 @lru_cache(maxsize=None)
 def inprocess_pair_style_available(pair_style):
     """Whether the given pair_style is available in the in-process LAMMPS binding."""
@@ -84,6 +100,8 @@ def pytest_runtest_setup(item):
         pytest.skip("The flare package is not installed")
     if "requires_mlp" in item.keywords and not has_mlp():
         pytest.skip("No mlp (MLIP-3) executable found on PATH")
+    if "requires_grace" in item.keywords and not has_grace():
+        pytest.skip("The GRACE stack (gracemaker, pace_activeset, tensorpotential, pyace, maxvolpy) is not available")
     for marker in item.iter_markers(name="requires_pair_style"):
         pair_style = marker.args[0]
         if "requires_inprocess_lammps" in item.keywords:

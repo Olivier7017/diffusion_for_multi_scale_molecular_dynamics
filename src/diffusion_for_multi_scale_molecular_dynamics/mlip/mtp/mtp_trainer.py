@@ -13,6 +13,7 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calcula
     SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.mtp import \
     MtpPotential
+from diffusion_for_multi_scale_molecular_dynamics.io.mlip import write_mtp_cfg
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
     BaseMLIPTrainer
 from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
@@ -60,7 +61,6 @@ class MtpTrainer(BaseMLIPTrainer):
 
     def fit(self) -> None:
         """Fit the MTP with MLIP-3 and read the level-determined parameters back into the configuration."""
-        from maml.apps.pes import MTPotential
         from maml.utils import check_structures_forces_stresses, pool_from
 
         if not self._labelled_calculations:
@@ -83,9 +83,7 @@ class MtpTrainer(BaseMLIPTrainer):
         with tempfile.TemporaryDirectory() as work_directory:
             os.chdir(work_directory)
             try:
-                configuration_writer = MTPotential()
-                configuration_writer.elements = self._configuration.elements
-                configuration_writer.write_cfg("train.cfg", cfg_pool=training_pool)
+                write_mtp_cfg(training_pool, self._configuration.elements, Path("train.cfg"))
 
                 template = Path(f"{self._configuration.level:02d}.almtp")
                 shutil.copy(self._template_path(), template)
