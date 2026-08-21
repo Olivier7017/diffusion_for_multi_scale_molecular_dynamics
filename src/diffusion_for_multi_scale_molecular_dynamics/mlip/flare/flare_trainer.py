@@ -32,9 +32,9 @@ class FlareTrainer(BaseMLIPTrainer):
     This class wraps around the  sparse GP in order to only expose the needed methods.
     """
 
-    def __init__(self, flare_configuration: FlareConfiguration):
+    def __init__(self, flare_configuration: FlareConfiguration, training_database=None):
         """Init method."""
-        super().__init__()
+        super().__init__(training_database)
         # We will be very opinionated about certain options.
         self.flare_configuration = flare_configuration
         n_species = len(flare_configuration.elements)
@@ -163,7 +163,7 @@ class FlareTrainer(BaseMLIPTrainer):
                               mapped_uncertainty_file_path=mapped_uncertainty_file_path)
 
     @classmethod
-    def load_checkpoint(cls, checkpoint_path: Path):
+    def load_checkpoint(cls, checkpoint_path: Path, training_database=None):
         """Instantiate a flare trainer from a checkpoint file."""
         with open(str(checkpoint_path), "r") as fd:
             checkpoint_dict = json.loads(fd.readline())
@@ -174,7 +174,7 @@ class FlareTrainer(BaseMLIPTrainer):
 
         sgp_model, kernels = SGP_Wrapper.from_dict(sgp_dict)
 
-        flare_trainer = cls(flare_configuration=flare_configuration)
+        flare_trainer = cls(flare_configuration=flare_configuration, training_database=training_database)
 
         # Overload internals with what was read from disk.
         flare_trainer.sgp_model = sgp_model

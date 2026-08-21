@@ -6,9 +6,6 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-import numpy as np
-from ase.calculators.singlepoint import SinglePointCalculator
-
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
     SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.grace import \
@@ -33,6 +30,7 @@ class GraceTrainer(BaseMLIPTrainer):
         initial_configuration: SinglePointCalculation,
         gracemaker_executable_path: Optional[Path] = None,
         pace_activeset_executable_path: Optional[Path] = None,
+        training_database=None,
     ):
         """Init method.
 
@@ -41,8 +39,9 @@ class GraceTrainer(BaseMLIPTrainer):
             initial_configuration: the labelled configuration used as the (separate) gracemaker test set.
             gracemaker_executable_path: path to 'gracemaker'; looked up on PATH if None.
             pace_activeset_executable_path: path to 'pace_activeset'; looked up on PATH if None.
+            training_database: the training set (single source of truth); may be attached later.
         """
-        super().__init__()
+        super().__init__(training_database)
         self._gracemaker_executable_path = self._resolve_executable(gracemaker_executable_path, "gracemaker")
         self._pace_activeset_executable_path = self._resolve_executable(
             pace_activeset_executable_path, "pace_activeset"
@@ -72,16 +71,17 @@ class GraceTrainer(BaseMLIPTrainer):
 
     def create_test_set(self, test_set_path: Path) -> None:
         """Write the initial configuration as the gracemaker test set."""
-        write_grace_pkl(self._to_labelled_atoms([self._initial_configuration]), test_set_path)
+        write_grace_pkl([self._initial_configuration.to_atoms()], test_set_path)
 
     def fit(self) -> None:
         """Fit the GRACE-FS model with gracemaker and export it (the active set is built at deploy time)."""
-        if not self._labelled_calculations:
+        training_atoms = self._training_database.labelled_atoms if self._training_database else []
+        if not training_atoms:
             raise RuntimeError("Cannot fit a GRACE-FS model with no labelled structures.")
 
         training_set_path = self._fit_directory / "train.pkl.gz"
         test_set_path = self._fit_directory / "test.pkl.gz"
-        write_grace_pkl(self._to_labelled_atoms(self._labelled_calculations), training_set_path)
+        write_grace_pkl(training_atoms, training_set_path)
         if not test_set_path.exists():
             self.create_test_set(test_set_path)
 
@@ -140,6 +140,7 @@ class GraceTrainer(BaseMLIPTrainer):
         initial_configuration: SinglePointCalculation,
         gracemaker_executable_path: Optional[Path] = None,
         pace_activeset_executable_path: Optional[Path] = None,
+        training_database=None,
     ) -> "GraceTrainer":
         """Rebuild a trainer from a checkpoint, restoring the seed folder so gracemaker can resume from it."""
         trainer = cls(
@@ -147,6 +148,7 @@ class GraceTrainer(BaseMLIPTrainer):
             initial_configuration=initial_configuration,
             gracemaker_executable_path=gracemaker_executable_path,
             pace_activeset_executable_path=pace_activeset_executable_path,
+            training_database=training_database,
         )
         checkpoint_seed_directory = Path(checkpoint_path) / "seed"
         if checkpoint_seed_directory.is_dir():
@@ -174,18 +176,6 @@ class GraceTrainer(BaseMLIPTrainer):
                 return candidate
         expected = " or ".join(f"{stem}{suffix}" for stem in _EXPORT_STEMS)
         raise FileNotFoundError(f"gracemaker export not found in {self._seed_directory} (expected {expected}).")
-
-    @staticmethod
-    def _to_labelled_atoms(calculations: List[SinglePointCalculation]) -> List:
-        """Convert single-point calculations to ase.Atoms carrying their energy and forces."""
-        labelled_atoms = []
-        for calculation in calculations:
-            atoms = calculation.structure.to_ase_atoms()
-            atoms.calc = SinglePointCalculator(
-                atoms, energy=float(calculation.energy), forces=np.asarray(calculation.forces, dtype=float)
-            )
-            labelled_atoms.append(atoms)
-        return labelled_atoms
 
     def _write_input_yaml(self, path: Path, training_set_path: Path, test_set_path: Path) -> None:
         """Emit the gracemaker input.yaml from the configuration, pointing at the training and test datasets."""

@@ -23,14 +23,16 @@ from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration imp
 class MtpTrainer(BaseMLIPTrainer):
     """Fit a Moment Tensor Potential with the MLIP-3 'mlp train' command and deploy it as a LAMMPS potential."""
 
-    def __init__(self, mtp_configuration: MtpConfiguration, mlp_executable_path: Optional[Path] = None):
+    def __init__(self, mtp_configuration: MtpConfiguration, mlp_executable_path: Optional[Path] = None,
+                 training_database=None):
         """Init method.
 
         Args:
             mtp_configuration: the MTP model definition (level, cutoff, weights, training parameters).
             mlp_executable_path: path to the MLIP-3 'mlp' executable; if None, it is looked up on PATH.
+            training_database: the training set (single source of truth); may be attached later.
         """
-        super().__init__()
+        super().__init__(training_database)
         if mlp_executable_path is None:
             mlp_executable_path = shutil.which("mlp")
         if mlp_executable_path is None:
@@ -63,17 +65,13 @@ class MtpTrainer(BaseMLIPTrainer):
         """Fit the MTP with MLIP-3 and read the level-determined parameters back into the configuration."""
         from maml.utils import check_structures_forces_stresses, pool_from
 
-        if not self._labelled_calculations:
+        labelled_calculations = self.labelled_calculations
+        if not labelled_calculations:
             raise RuntimeError("Cannot fit an MTP with no labelled structures.")
 
-        structures = [
-            calculation.structure for calculation in self._labelled_calculations
-        ]
-        forces = [
-            np.asarray(calculation.forces)
-            for calculation in self._labelled_calculations
-        ]
-        energies = [calculation.energy for calculation in self._labelled_calculations]
+        structures = [calculation.structure for calculation in labelled_calculations]
+        forces = [np.asarray(calculation.forces) for calculation in labelled_calculations]
+        energies = [calculation.energy for calculation in labelled_calculations]
         checked_structures, checked_forces, _ = check_structures_forces_stresses(
             structures, forces, None
         )
@@ -114,13 +112,15 @@ class MtpTrainer(BaseMLIPTrainer):
         checkpoint_path: Path,
         mtp_configuration: MtpConfiguration,
         mlp_executable_path: Optional[Path] = None,
+        training_database=None,
     ) -> "MtpTrainer":
         """Rebuild a trainer from a fitted MTP file.
 
         The MTP file does not record the level or the element symbols, so the configuration must be provided.
         """
         trainer = cls(
-            mtp_configuration=mtp_configuration, mlp_executable_path=mlp_executable_path
+            mtp_configuration=mtp_configuration, mlp_executable_path=mlp_executable_path,
+            training_database=training_database,
         )
         trainer._fitted_potential = Path(checkpoint_path).read_bytes()
         trainer._configuration.read_from_file(Path(checkpoint_path))

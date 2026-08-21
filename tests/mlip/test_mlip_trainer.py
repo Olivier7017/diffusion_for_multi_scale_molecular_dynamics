@@ -9,6 +9,15 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calcula
     SinglePointCalculation  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
+from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
+    TrainingDatabase
+
+
+def stage_labelled_structure(training_database, trainer, labelled_structure, active_environment_indices):
+    """Mirror the loop: persist the label to the database (stage 2) and fold it into the model (stage 3)."""
+    training_database.write_oracle(1, [labelled_structure.to_atoms(active_environment_indices)])
+    trainer.add_labelled_structure(labelled_structure, active_environment_indices)
+
 
 # A fictitious energy label (eV); its actual value is irrelevant, we only check the fit reproduces it.
 MOCK_ENERGY = -26.43783
@@ -120,7 +129,11 @@ class TestMLIPTrainer:
         return structure
 
     @pytest.fixture
-    def trainer(self, trainer_type, elements):
+    def training_database(self, tmp_path):
+        return TrainingDatabase(tmp_path / "database")
+
+    @pytest.fixture
+    def trainer(self, trainer_type, elements, training_database):
         if trainer_type == "flare":
             from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
                 FlareConfiguration
@@ -131,7 +144,8 @@ class TestMLIPTrainer:
                                                    n_radial=4,
                                                    lmax=2,
                                                    variance_type='local',
-                                                   initial_sigma_e=1e-8))
+                                                   initial_sigma_e=1e-8),
+                                training_database=training_database)
         if trainer_type == "mtp":
             from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
                 MtpConfiguration
@@ -143,7 +157,7 @@ class TestMLIPTrainer:
                 max_dist=MTP_MAX_DIST,
                 training_params=dict(max_iter=100, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
             )
-            return MtpTrainer(configuration)
+            return MtpTrainer(configuration, training_database=training_database)
         raise ValueError(f"Unknown trainer type '{trainer_type}'.")
 
     @pytest.fixture
@@ -160,21 +174,23 @@ class TestMLIPTrainer:
         return list(np.arange(len(training_structure)))
 
     @pytest.fixture
-    def trained_trainer(self, trainer, labelled_structure, active_environment_indices):
-        trainer.add_labelled_structure(labelled_structure, active_environment_indices)
+    def trained_trainer(self, trainer, training_database, labelled_structure, active_environment_indices):
+        stage_labelled_structure(training_database, trainer, labelled_structure, active_environment_indices)
         trainer.fit()
         return trainer
 
-    def test_add_labelled_structure(self, trainer, labelled_structure, active_environment_indices):
-        """Adding a labelled structure appends it to the trainer's training database."""
+    def test_labelled_calculations_reflect_database(
+        self, trainer, training_database, labelled_structure, active_environment_indices
+    ):
+        """The trainer reads its training set from the database rather than remembering what it was fed."""
         assert len(trainer.labelled_calculations) == 0
-        trainer.add_labelled_structure(labelled_structure, active_environment_indices)
+        stage_labelled_structure(training_database, trainer, labelled_structure, active_environment_indices)
         assert len(trainer.labelled_calculations) == 1
-        assert trainer.labelled_calculations[0] is labelled_structure
+        np.testing.assert_allclose(trainer.labelled_calculations[0].energy, labelled_structure.energy)
 
-    def test_fit(self, trainer_type, trainer, labelled_structure, active_environment_indices):
+    def test_fit(self, trainer_type, trainer, training_database, labelled_structure, active_environment_indices):
         """After fitting on a single structure, the fitted model matches its label."""
-        trainer.add_labelled_structure(labelled_structure, active_environment_indices)
+        stage_labelled_structure(training_database, trainer, labelled_structure, active_environment_indices)
         trainer.fit()
         verify_fitted_model(trainer_type, trainer, labelled_structure)
 

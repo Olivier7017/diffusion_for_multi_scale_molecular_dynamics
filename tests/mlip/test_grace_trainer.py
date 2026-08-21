@@ -1,5 +1,7 @@
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -7,6 +9,8 @@ from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
     SinglePointCalculation
+from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
+    TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_configuration import \
     GraceConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_trainer import \
@@ -47,11 +51,19 @@ def build_configuration(target_total_updates):
                               target_total_updates=target_total_updates, batch_size=4, test_batch_size=1)
 
 
+def build_training_database(database):
+    """Write the labelled configurations into a fresh TrainingDatabase (in a temp directory)."""
+    training_database = TrainingDatabase(Path(tempfile.mkdtemp()) / "database")
+    training_database.write_oracle(
+        1, [calculation.to_atoms(list(range(len(calculation.structure)))) for calculation in database]
+    )
+    return training_database
+
+
 def build_fitted_trainer(database, target_total_updates):
     """Construct a GraceTrainer over the database and fit it for target_total_updates steps (cold start)."""
-    trainer = GraceTrainer(build_configuration(target_total_updates), initial_configuration=database[0])
-    for calculation in database:
-        trainer.add_labelled_structure(calculation, list(range(len(calculation.structure))))
+    trainer = GraceTrainer(build_configuration(target_total_updates), initial_configuration=database[0],
+                           training_database=build_training_database(database))
     trainer.fit()
     return trainer
 
@@ -115,9 +127,8 @@ class TestGraceTrainer:
 
         trainer = GraceTrainer.load_checkpoint(pretrained_directory,
                                                grace_configuration=build_configuration(RESTART_UPDATES),
-                                               initial_configuration=database[0])
-        for calculation in database:
-            trainer.add_labelled_structure(calculation, list(range(len(calculation.structure))))
+                                               initial_configuration=database[0],
+                                               training_database=build_training_database(database))
         trainer.fit()  # resumes from the restored seed folder (-rl)
 
         rmse_after = train_set_energy_rmse(trainer.exported_model_path, database)

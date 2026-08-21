@@ -11,6 +11,8 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calcula
     SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
+from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
+    TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 
@@ -83,7 +85,11 @@ class TestDerivedMLIP:
         return request.param
 
     @pytest.fixture
-    def trainer(self, mlip_type, structure, list_element_symbols):
+    def training_database(self, tmp_path_factory):
+        return TrainingDatabase(tmp_path_factory.mktemp("database"))
+
+    @pytest.fixture
+    def trainer(self, mlip_type, structure, list_element_symbols, training_database):
         if mlip_type == "flare":
             from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
                 FlareConfiguration
@@ -93,15 +99,13 @@ class TestDerivedMLIP:
                                                       elements=list_element_symbols,
                                                       n_radial=4,
                                                       lmax=2,
-                                                      variance_type='local'))
+                                                      variance_type='local'),
+                                   training_database=training_database)
             labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
                                                         structure=structure,
                                                         forces=np.random.rand(len(structure), 3),
                                                         energy=-1.0)
-            trainer.add_labelled_structure(labelled_structure, active_environment_indices=list(range(len(structure))))
-            trainer.fit()  # a pretrained model, ready to deploy
-            return trainer
-        if mlip_type == "mtp":
+        elif mlip_type == "mtp":
             from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
                 MtpConfiguration
             from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
@@ -114,16 +118,20 @@ class TestDerivedMLIP:
                 level=6,
                 max_dist=4.0,
                 training_params=dict(max_iter=100, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
-            ))
+            ), training_database=training_database)
             labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
                                                         structure=mtp_structure,
                                                         forces=np.zeros((len(mtp_structure), 3)),
                                                         energy=-26.43783)
-            trainer.add_labelled_structure(labelled_structure,
-                                           active_environment_indices=list(range(len(mtp_structure))))
-            trainer.fit()  # a pretrained model, ready to deploy
-            return trainer
-        raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
+        else:
+            raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
+
+        # Mirror the loop: persist the label to the database (stage 2) and fold it into the model (stage 3).
+        active_environment_indices = list(range(len(labelled_structure.structure)))
+        training_database.write_oracle(1, [labelled_structure.to_atoms(active_environment_indices)])
+        trainer.add_labelled_structure(labelled_structure, active_environment_indices)
+        trainer.fit()  # a pretrained model, ready to deploy
+        return trainer
 
     @pytest.fixture
     def mlip(self, mlip_type, trainer):
