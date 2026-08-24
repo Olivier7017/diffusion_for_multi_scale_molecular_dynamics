@@ -87,10 +87,10 @@ class DynamicDriver(ABC):
         return self._get_calculation_state(working_directory)
 
     def _setup_working_directory(self, working_directory: Path) -> logging.Logger:
-        """Create the (fresh) working directory, set up logging, and write the starting configuration."""
-        if working_directory.is_dir():
+        """Create the (empty) working directory, set up logging, and write the starting configuration."""
+        if working_directory.is_dir() and any(working_directory.iterdir()):
             raise ValueError(
-                f"The working directory {working_directory} already exists! "
+                f"The working directory {working_directory} already exists and is not empty! "
                 "Exiting to avoid writing over existing data."
             )
         working_directory.mkdir(parents=True, exist_ok=True)
