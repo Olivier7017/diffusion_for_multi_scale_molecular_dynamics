@@ -1,10 +1,11 @@
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import yaml
+from ase import Atoms
 from pymatgen.core import Structure
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
@@ -12,19 +13,26 @@ from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_d
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.logging import (
     clean_up_campaign_logger, set_up_campaign_logger)
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
-    BaseSinglePointCalculator, SinglePointCalculation)
+    BaseSinglePointCalculator, SinglePointCalculation,
+    get_active_environment_indices)
 from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
     extract_all_fields_from_dump
+from diffusion_for_multi_scale_molecular_dynamics.io.training_database import (
+    Stage, TrainingDatabase)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.base_sample_maker import \
     BaseSampleMaker
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.namespace import (
     AXL_STRUCTURE_IN_NEW_BOX, AXL_STRUCTURE_IN_ORIGINAL_BOX)
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter import \
     StructureConverter
+
+UNCERTAINTY_INFO_KEY = "uncertainty"
 
 
 class ActiveLearning:
@@ -181,147 +189,173 @@ class ActiveLearning:
         mlip: BaseMLIP,
         working_directory: Path,
         maximum_number_of_rounds: int = 100,
+        restart_from_stage: str = "auto",
     ):
         """Run campaign.
 
-        Perform a full campaign of active learning.
+        Perform a full campaign of active learning, resuming a crashed run when a database is already present.
 
         Args:
             uncertainty_threshold: the uncertainty threshold to interrupt a dynamic driver run.
             mlip: the machine-learning interatomic potential to drive and refine. It is assumed to be
-                already pretrained, so that it can be deployed and run from the first round.
-            working_directory: top directory where all the various artifacts from this campaign will be written.
-            maximum_number_of_rounds: maximum number of active learning rounds. This is useful to avoid
-                infinite loops...
+                already pretrained (or, on restart, reloaded from the last epoch), so it can be deployed and
+                run from the first round.
+            working_directory: top directory where all the campaign artifacts (including 'database/') are written.
+            maximum_number_of_rounds: maximum number of active learning rounds (guards against infinite loops).
+            restart_from_stage: 'auto' resumes from what is on disk (or starts clean); 'driver'/'oracle'/'train'
+                force the resume stage of the latest epoch.
         """
         working_directory.mkdir(parents=True, exist_ok=True)
         logger = set_up_campaign_logger(working_directory)
         logger.info("Starting Active Learning Simulation")
 
-        mlip.prepare_mlip_first_round(working_directory / "initial_mlip")
+        training_database = TrainingDatabase(working_directory / "database")
+        mlip.attach_training_database(training_database)
+        self._training_database = training_database
+        self._logger = logger
+        self._working_directory = working_directory
+        self._uncertainty_threshold = uncertainty_threshold
 
-        round_number = 0
-        while round_number <= maximum_number_of_rounds:
-            round_number += 1
-            logger.info(f"Starting Round {round_number}")
+        start_epoch, start_stage = training_database.resume_point(restart_from_stage)
+        if training_database.epoch > 0:
+            logger.info(f"Resuming from epoch {start_epoch} at stage {start_stage.name}.")
+            training_database.check_labelled_atoms_have_energy_and_forces()
+            if restart_from_stage != "auto":
+                training_database.reset_epoch_to_stage(start_epoch, start_stage)
 
-            campaign_is_complete = self._run_one_campaign_iteration(
-                round_number=round_number,
-                uncertainty_threshold=uncertainty_threshold,
-                mlip=mlip,
-                working_directory=working_directory,
-                logger=logger,
-            )
+        # Deploy the (pretrained or reloaded) model so a fresh dynamic driver run can proceed.
+        if start_stage == Stage.DRIVER:
+            mlip.prepare_mlip_first_round(working_directory / "initial_mlip")
+
+        epoch, stage = start_epoch, start_stage
+        for _ in range(maximum_number_of_rounds):
+            logger.info(f"Starting epoch {epoch} at stage {stage.name}")
+            campaign_is_complete = self._run_round(epoch, stage, mlip)
             if campaign_is_complete:
+                logger.info("Active Learning Campaign is Complete. Exiting.")
                 break
+            epoch += 1
+            stage = Stage.DRIVER
 
         campaign_details = dict(uncertainty_threshold=float(uncertainty_threshold),
-                                final_round=int(round_number),
+                                final_epoch=int(epoch),
                                 **mlip.training_metrics())
         self._log_campaign_details(campaign_working_directory_path=working_directory,
                                    campaign_details=campaign_details)
         # Delete the logger to avoid overlogging across campaigns.
         clean_up_campaign_logger(logger)
 
-    def _run_one_campaign_iteration(
-        self,
-        round_number: int,
-        uncertainty_threshold: float,
-        mlip: BaseMLIP,
-        working_directory: Path,
-        logger,
-    ) -> bool:
-        """Run a single active learning round; return True when the campaign is complete.
+    def _run_round(self, epoch: int, entry_stage: Stage, mlip: BaseMLIP) -> bool:
+        """Run one round from entry_stage (skipping already-committed stages); return True when complete.
 
-        The round is made of the following steps:
-            1. Run the dynamic driver (ARTn or MD) with the MLIP.
-            2. Extract the uncertainty per atom.
-            3. Excise environments and repaint samples.
-            4. Evaluate the repainted samples with the Oracle.
-            5. Add the labelled structures to the training database.
-            6. Retrain the MLIP.
+        A round is made of the following 6 steps, grouped into the 3 stages that also act as the restart
+        indicators (a resume re-enters at a stage and reads the earlier stages' artifacts back from the
+        database instead of recomputing them):
+            Stage.DRIVER (run_dynamic_driver):
+                1. Run the dynamic driver (ARTn or MD) with the MLIP.
+                2. Extract the uncertainty per atom.
+            Stage.ORACLE (oracle_evaluation):
+                3. Excise environments and repaint samples.
+                4. Evaluate the repainted samples with the Oracle.
+                5. Commit the labelled structures to the training database.
+            Stage.TRAIN (_retrain):
+                6. Fold the labelled structures into the model and retrain the MLIP.
         """
-        current_sub_directory = working_directory / f"round_{round_number}"
+        current_stage = entry_stage
+        if current_stage == Stage.DRIVER:
+            # Start this epoch's driver from a clean slate (clears any partial artifacts of a crashed attempt).
+            self._training_database.reset_epoch_to_stage(epoch, Stage.DRIVER)
+            uncertain_configuration = self.run_dynamic_driver(mlip, epoch)
+            if uncertain_configuration is None:  # SUCCESS: no uncertain structure was found.
+                return True
+            self._training_database.write_dynamic(epoch, uncertain_configuration)
+            current_stage = Stage.ORACLE
 
-        # 1. Run the dynamic driver (ARTn or MD) with the MLIP.
-        # The dynamic driver will create this directory.
-        dynamics_working_directory = current_sub_directory / "lammps_dynamics"
-        logger.info("  Launching the dynamic driver simulation...")
+        if current_stage == Stage.ORACLE:
+            uncertain_configuration = self._training_database.read_dynamic(epoch)
+            training_configurations = self.oracle_evaluation(uncertain_configuration, epoch)
+            self._training_database.write_oracle(epoch, training_configurations)
+            current_stage = Stage.TRAIN
+
+        if current_stage == Stage.TRAIN:
+            training_configurations = self._training_database.read_oracle(epoch)
+            self._retrain(epoch, mlip, training_configurations)
+
+        return False
+
+    def run_dynamic_driver(self, mlip: BaseMLIP, epoch: int) -> Optional[Atoms]:
+        """Stage DRIVER (steps 1-2): run the driver and return the uncertain configuration (None on SUCCESS)."""
+        dynamics_working_directory = self._training_database.dynamic_directory(epoch)
+
+        self._logger.info("  Launching the dynamic driver simulation...")
         calculation_state = self.dynamic_driver.run(
             mlip=mlip,
             working_directory=dynamics_working_directory,
-            uncertainty_threshold=uncertainty_threshold,
+            uncertainty_threshold=self._uncertainty_threshold,
         )
-        logger.info(f"  Dynamic driver state is {calculation_state}")
+        self._logger.info(f"  Dynamic driver state is {calculation_state}")
 
         if calculation_state == CalculationState.ERROR:
             raise RuntimeError(
                 f"The dynamic driver run failed (state ERROR). Review the logs in {dynamics_working_directory}."
             )
-
         if calculation_state == CalculationState.SUCCESS:
-            logger.info("Active Learning Campaign is Complete. Exiting.")
-            return True
+            return None
 
-        # 2. Extract the uncertainty per atom.
-        logger.info("  Extracting uncertain structure from the dynamic driver work directory...")
-        uncertain_structure, uncertainty_per_atom = (
-            self._get_uncertain_structure_and_uncertainties(
-                dynamics_working_directory, mlip.lammps_potential.uncertainty_field()
-            )
+        uncertain_structure, uncertainty_per_atom = self._get_uncertain_structure_and_uncertainties(
+            dynamics_working_directory, mlip.lammps_potential.uncertainty_field()
         )
-
-        number_of_uncertain_envs = np.sum(uncertainty_per_atom > uncertainty_threshold)
-        logger.info(
+        number_of_uncertain_envs = np.sum(uncertainty_per_atom > self._uncertainty_threshold)
+        self._logger.info(
             f" -> There are {number_of_uncertain_envs} environments with uncertainty above the threshold."
         )
 
-        # 3. Excise environments and repaint samples.
-        logger.info("  Making new samples based on uncertainties.")
-        list_sample_structures, list_active_indices, list_sample_information = (
-            self._make_samples(uncertain_structure, uncertainty_per_atom))
+        uncertain_configuration = uncertain_structure.to_ase_atoms()
+        uncertain_configuration.info[UNCERTAINTY_INFO_KEY] = np.asarray(uncertainty_per_atom, dtype=float)
+        return uncertain_configuration
 
-        # 4. Evaluate the repainted samples with the Oracle.
-        logger.info("  Labelling samples with oracle...")
-        oracle_directory = current_sub_directory / "oracle"
-        oracle_directory.mkdir(parents=True, exist_ok=True)
+    def oracle_evaluation(self, uncertain_configuration: Atoms, epoch: int) -> List[Atoms]:
+        """Stage ORACLE (steps 3-5): excise/repaint around the uncertain configuration and label it."""
+        uncertain_structure = to_pymatgen_structure(uncertain_configuration)
+        uncertainty_per_atom = uncertain_configuration.info[UNCERTAINTY_INFO_KEY]
 
-        time1 = time.time()
-        list_single_point_calculations = []
-        for idx, structure in enumerate(list_sample_structures):
-            results_path = oracle_directory / f"dump_{idx}.yaml"
-            result = self.oracle_calculator.calculate(structure, results_path=results_path)
-            list_single_point_calculations.append(result)
-        time2 = time.time()
-        logger.info(
-            f" -> It took {time2 - time1: 6.2e} seconds to compute labels with Oracle."
+        self._logger.info("  Making new samples based on uncertainties.")
+        list_sample_structures, list_active_indices, list_sample_information = self._make_samples(
+            uncertain_structure, uncertainty_per_atom
         )
 
-        logger.info("  Converting labelled samples and writing pickle to disk.")
-        oracle_df = self._convert_single_point_calculations_to_dataframe(
+        self._logger.info("  Labelling samples with oracle...")
+        oracle_directory = self._training_database.oracle_directory(epoch)
+        start_time = time.time()
+        list_single_point_calculations = []
+        for index, structure in enumerate(list_sample_structures):
+            results_path = oracle_directory / f"dump_{index}.yaml"
+            calculation = self.oracle_calculator.calculate(structure, results_path=results_path)
+            list_single_point_calculations.append(calculation)
+        self._logger.info(f" -> It took {time.time() - start_time: 6.2e} seconds to compute labels with Oracle.")
+
+        self._logger.info("  Writing the oracle single-point calculations to disk.")
+        oracle_dataframe = self._convert_single_point_calculations_to_dataframe(
             list_single_point_calculations, list_sample_information
         )
-        output_file = oracle_directory / "oracle_single_point_calculations.pkl"
-        oracle_df.to_pickle(output_file)
+        oracle_dataframe.to_pickle(oracle_directory / "oracle_single_point_calculations.pkl")
 
-        # 5. Add the labelled structures to the training database.
-        logger.info("  Adding labelled samples to the MLIP training database.")
-        for single_point_calculation, active_environment_indices \
-                in zip(list_single_point_calculations, list_active_indices):
+        return [
+            calculation.to_atoms(active_environment_indices)
+            for calculation, active_environment_indices in zip(list_single_point_calculations, list_active_indices)
+        ]
+
+    def _retrain(self, epoch: int, mlip: BaseMLIP, training_configurations: List[Atoms]) -> None:
+        """Stage TRAIN (step 6): fold this epoch's labelled data into the model, retrain, commit the model."""
+        self._logger.info("  Folding labelled samples into the model and retraining the MLIP...")
+        for atoms in training_configurations:
             mlip.add_labelled_structure(
-                single_point_calculation,
-                active_environment_indices=active_environment_indices,
+                SinglePointCalculation.from_atoms(atoms), get_active_environment_indices(atoms)
             )
-
-        # 6. Retrain the MLIP.
-        logger.info("  Retraining the MLIP...")
-        mlip_training_directory = current_sub_directory / "mlip_training"
-
-        mlip.train(mlip_training_directory)
-        self._update_latest_mlip_symlink(working_directory, mlip_training_directory)
-
-        mlip.write_logger_info(logger)
-        return False
+        model_directory = self._training_database.model_directory(epoch)
+        mlip.train(model_directory)
+        self._update_latest_mlip_symlink(self._working_directory, model_directory)
+        mlip.write_logger_info(self._logger)
 
     @staticmethod
     def _update_latest_mlip_symlink(working_directory: Path, mlip_training_directory: Path):

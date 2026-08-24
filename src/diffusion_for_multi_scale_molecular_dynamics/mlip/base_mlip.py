@@ -17,6 +17,8 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calcu
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
+from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
+    TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
     BaseMLIPTrainer
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
@@ -57,6 +59,15 @@ class BaseMLIP(ABC):
     def model_file(self) -> Optional[Path]:
         """Path to the current reloadable model checkpoint (None until the model has been trained)."""
         return self._model_file
+
+    @property
+    def training_database(self) -> Optional[TrainingDatabase]:
+        """The training database backing this MLIP's trainer (None until one is attached)."""
+        return self._trainer.training_database
+
+    def attach_training_database(self, training_database: TrainingDatabase) -> None:
+        """Attach the training database; the active learning loop calls this at the start of a run."""
+        self._trainer.set_training_database(training_database)
 
     def add_labelled_structure(
         self, single_point_calculation: SinglePointCalculation, active_environment_indices: List[int]

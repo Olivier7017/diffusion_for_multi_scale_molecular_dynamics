@@ -58,6 +58,13 @@ class TestBaseMLIP:
         trainer.labelled_calculations = []
         assert mlip.training_metrics() == dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
 
+    def test_attach_training_database_delegates_to_trainer(self, mlip, trainer):
+        """Attaching a database forwards to the trainer, and the property reads it back from there."""
+        database = MagicMock()
+        mlip.attach_training_database(database)
+        trainer.set_training_database.assert_called_once_with(database)
+        assert mlip.training_database is trainer.training_database
+
     def test_training_metrics(self, mlip, trainer):
         """RMSE energy and forces are computed from the deployed potential's predictions against the labels."""
         trainer.labelled_calculations = [make_calculation(0.0, [[0, 0, 0]]),

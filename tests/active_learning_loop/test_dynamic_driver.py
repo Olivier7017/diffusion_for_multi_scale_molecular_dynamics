@@ -81,12 +81,20 @@ class TestSetupWorkingDirectory:
         assert (working_directory / "initial_configuration.dat").is_file()
         assert driver.prepared_directories == [working_directory]
 
-    def test_existing_working_directory_raises(self, driver, tmp_path):
-        """Refuse to run into a pre-existing working directory so existing data is never overwritten."""
+    def test_existing_nonempty_working_directory_raises(self, driver, tmp_path):
+        """Refuse to run into a non-empty working directory so existing data is never overwritten."""
         working_directory = tmp_path / "work"
         working_directory.mkdir()
+        (working_directory / "leftover.txt").write_text("existing data")
         with pytest.raises(ValueError):
             driver._setup_working_directory(working_directory)
+
+    def test_existing_empty_working_directory_is_allowed(self, driver, tmp_path):
+        """An empty pre-existing directory (e.g. created by the training database) is accepted."""
+        working_directory = tmp_path / "work"
+        working_directory.mkdir()
+        driver._setup_working_directory(working_directory)
+        assert (working_directory / "initial_configuration.dat").is_file()
 
 
 class TestBuildLammpsParameters:
