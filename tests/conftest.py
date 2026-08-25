@@ -61,6 +61,11 @@ def has_grace():
             and importlib.util.find_spec("maxvolpy") is not None)
 
 
+@lru_cache(maxsize=1)
+def has_abinit():
+    return shutil.which("abinit") is not None
+
+
 @pytest.fixture
 def reference_files_directory():
     """Absolute path to tests/reference_files, independent of the directory pytest is invoked from."""
@@ -102,6 +107,8 @@ def pytest_runtest_setup(item):
         pytest.skip("No mlp (MLIP-3) executable found on PATH")
     if "requires_grace" in item.keywords and not has_grace():
         pytest.skip("The GRACE stack (gracemaker, pace_activeset, tensorpotential, pyace, maxvolpy) is not available")
+    if "requires_abinit" in item.keywords and not has_abinit():
+        pytest.skip("No abinit executable found on PATH")
     for marker in item.iter_markers(name="requires_pair_style"):
         pair_style = marker.args[0]
         if "requires_inprocess_lammps" in item.keywords:
