@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 from pymatgen.core import Lattice, Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.abinit_runner import \
+from diffusion_for_multi_scale_molecular_dynamics.oracle.abinit_runner import \
     AbinitRunner
-from diffusion_for_multi_scale_molecular_dynamics.calc.abinit_single_point_calculator import \
+from diffusion_for_multi_scale_molecular_dynamics.oracle.abinit_single_point_calculator import \
     AbinitSinglePointCalculator
 
 

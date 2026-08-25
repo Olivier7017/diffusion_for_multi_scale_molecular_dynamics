@@ -1,15 +1,15 @@
 from typing import Any, AnyStr, Dict, Union
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    BaseSinglePointCalculator  # noqa
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
-    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.oracle import \
     SW_COEFFICIENTS_DIR
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    BaseSinglePointCalculator  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
+    LammpsSinglePointCalculator
 
 
 def instantiate_single_point_calculator(

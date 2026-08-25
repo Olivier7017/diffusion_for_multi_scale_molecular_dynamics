@@ -6,12 +6,12 @@ from typing import Dict, List, Optional, Union
 
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.abinit_runner import \
-    AbinitRunner
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
-    BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.io.abinit import (
     read_abinit_output, write_abinit_input)
+from diffusion_for_multi_scale_molecular_dynamics.oracle.abinit_runner import \
+    AbinitRunner
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
+    BaseSinglePointCalculator, SinglePointCalculation)
 
 
 class AbinitSinglePointCalculator(BaseSinglePointCalculator):

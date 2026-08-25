@@ -9,8 +9,6 @@ from typing import Union
 from pymatgen.core import Structure
 from pymatgen.io.lammps.data import LammpsData
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.dynamic_driver_lammps_input import \
@@ -19,6 +17,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
     generate_named_elements_blocks
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
     configure_logging
 

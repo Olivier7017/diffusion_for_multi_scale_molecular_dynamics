@@ -4,12 +4,12 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation
 
 
 class BaseMLIPTrainer(ABC):

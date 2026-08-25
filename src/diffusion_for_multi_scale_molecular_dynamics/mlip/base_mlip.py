@@ -9,18 +9,18 @@ import numpy as np
 from ase import Atoms
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
-    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
     BaseMLIPTrainer
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
+    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
     to_pymatgen_structure
 

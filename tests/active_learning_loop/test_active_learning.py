@@ -12,18 +12,18 @@ from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    get_active_environment_indices
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
-    SubprocessLammpsRunner
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
-    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    get_active_environment_indices
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
+    SubprocessLammpsRunner
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
+    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.top_k_atom_selector import (
     TopKAtomSelector, TopKAtomSelectorParameters)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.no_op_sample_maker import (

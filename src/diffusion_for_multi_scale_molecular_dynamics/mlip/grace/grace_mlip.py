@@ -7,16 +7,16 @@ from typing import Dict, Optional, Union
 
 import yaml
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_configuration import \
     GraceConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_trainer import \
     GraceTrainer
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 
 GRACE_LAMMPS_CLONE = "git clone -b grace --depth=1 https://github.com/yury-lysogorskiy/lammps.git"
 GRACEMAKER_CLONE = "git clone https://github.com/ICAMS/grace-tensorpotential.git"

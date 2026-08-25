@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 import einops
 import lightning as pl
@@ -23,10 +23,12 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS, PADDED_ATOM_TYPE,
     Q_BAR_MATRICES, Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME,
     TIME_INDICES)
-from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle import \
-    OracleParameters
-from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle_factory import \
-    create_energy_oracle
+from diffusion_for_multi_scale_molecular_dynamics.oracle.axl_adapter import \
+    compute_axl_energies_and_forces
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
+    InProcessLammpsRunner
+from diffusion_for_multi_scale_molecular_dynamics.oracle.single_point_calculator_factory import \
+    instantiate_single_point_calculator
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.instantiate_generator import \
     instantiate_generator
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.trajectory_initializer import \
@@ -71,7 +73,10 @@ class AXLDiffusionParameters:
     kmax_target_score: int = 4
     regularizer_parameters: Optional[RegularizerParameters] = None
     diffusion_sampling_parameters: Optional[DiffusionSamplingParameters] = None
-    oracle_parameters: Optional[OracleParameters] = None
+    # The 'oracle:' YAML block describing the single-point calculator used to label generated samples,
+    # plus the unique elements needed to map atom-type ids back to species.
+    single_point_calculator_configuration: Optional[Dict[str, Any]] = None
+    elements: Optional[List[str]] = None
 
 
 class AXLDiffusionLightningModel(pl.LightningModule):
@@ -118,7 +123,7 @@ class AXLDiffusionLightningModel(pl.LightningModule):
         self.structure_ks_metric = None
         self.lattice_parameters_ks_metrics = [None]
         self.energy_ks_metric = None
-        self.oracle = None
+        self.single_point_calculator = None
         self.regularizer = None
 
         if hyper_params.regularizer_parameters is not None:
@@ -141,9 +146,13 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             if self.metrics_parameters.compute_energies:
                 self.energy_ks_metric = KolmogorovSmirnovMetrics()
                 assert (
-                    self.hyper_params.oracle_parameters is not None
-                ), "Energies cannot be computed without a configured energy oracle."
-                self.oracle = create_energy_oracle(self.hyper_params.oracle_parameters)
+                    self.hyper_params.single_point_calculator_configuration is not None
+                    and self.hyper_params.elements is not None
+                ), "Energies cannot be computed without a configured single-point calculator and its elements."
+                self.single_point_calculator = instantiate_single_point_calculator(
+                    self.hyper_params.single_point_calculator_configuration,
+                    lammps_runner=InProcessLammpsRunner(),
+                )
 
     def use_force_field_augmented_score_network(self, force_field_augmented_score_network, at_eval=True):
         """Replace the underlying score_network for an ForceFieldAugmentedScoreNetwork.
@@ -640,7 +649,11 @@ class AXLDiffusionLightningModel(pl.LightningModule):
 
         if self.draw_samples and self.metrics_parameters.compute_energies:
             logger.info("       * Computing sample energies")
-            sample_energies, _ = self.oracle.compute_oracle_energies_and_forces(samples_batch)
+            sample_energies, _ = compute_axl_energies_and_forces(
+                samples_batch[AXL_COMPOSITION],
+                self.single_point_calculator,
+                self.hyper_params.elements,
+            )
             logger.info("       * Registering sample energies")
             self.energy_ks_metric.register_predicted_samples(sample_energies.cpu())
 

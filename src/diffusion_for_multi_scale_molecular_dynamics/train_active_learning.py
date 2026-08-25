@@ -10,18 +10,18 @@ import lightning as pl
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.artn_driver.artn_driver import \
-    ArtnDriver
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.configuration_parsing import \
     get_sample_maker_from_configuration
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
-    instantiate_lammps_runner
-from diffusion_for_multi_scale_molecular_dynamics.calc.single_point_calculator_factory import \
-    instantiate_single_point_calculator  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.artn_driver.artn_driver import \
+    ArtnDriver
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import (
     FlareHyperparametersOptimizer, FlareOptimizerConfiguration)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_mlip import \
     FlareMLIP
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
+    instantiate_lammps_runner
+from diffusion_for_multi_scale_molecular_dynamics.oracle.single_point_calculator_factory import \
+    instantiate_single_point_calculator  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import \
     ElementTypes
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \

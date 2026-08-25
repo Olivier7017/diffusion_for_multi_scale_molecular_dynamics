@@ -7,14 +7,14 @@ import numpy as np
 import pytest
 from pymatgen.io.lammps.data import LammpsData
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_configuration import \
     GraceConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_trainer import \
     GraceTrainer
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation
 
 MOCK_ENERGY_CENTER = -26.4  # eV; each config gets a random offset so the fit has something to learn.
 

@@ -12,8 +12,6 @@ from flare.bffs.sgp.calculator import SGP_Calculator
 from flare.utils import NumpyEncoder
 from scipy.optimize import OptimizeResult
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
     sort_elements_by_atomic_mass
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
@@ -24,6 +22,8 @@ from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration
     FlareConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import \
     FlareHyperparametersOptimizer
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation  # noqa
 
 
 class FlareTrainer(BaseMLIPTrainer):

@@ -8,13 +8,10 @@ import yaml
 from ase import Atoms
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
-    DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.logging import (
     clean_up_campaign_logger, set_up_campaign_logger)
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
-    BaseSinglePointCalculator, SinglePointCalculation,
-    get_active_environment_indices)
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
+    DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
@@ -23,6 +20,9 @@ from diffusion_for_multi_scale_molecular_dynamics.io.training_database import (
     Stage, TrainingDatabase)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
+    BaseSinglePointCalculator, SinglePointCalculation,
+    get_active_environment_indices)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.base_sample_maker import \
     BaseSampleMaker
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.namespace import (

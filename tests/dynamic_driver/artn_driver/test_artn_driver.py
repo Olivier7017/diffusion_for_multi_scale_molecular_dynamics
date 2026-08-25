@@ -4,14 +4,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.artn_driver.artn_driver import \
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.artn_driver.artn_driver import \
     ArtnDriver
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
-    SubprocessLammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import \
     INTERRUPTION_MESSAGE
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
+    SubprocessLammpsRunner
 
 PUSH_IDS = 1
 PUSH_ADD_CONST = [1.0, -1.0, -1.0, 20]

@@ -19,12 +19,8 @@ from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.md_driver.md_driver import \
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.md_driver.md_driver import \
     MdDriver
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
-    SubprocessLammpsRunner
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
-    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
@@ -35,6 +31,10 @@ from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_mlip import \
     FlareMLIP
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
     FlareTrainer
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
+    SubprocessLammpsRunner
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
+    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.threshold_atom_selector import (
     ThresholdAtomSelector, ThresholdAtomSelectorParameters)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.no_op_sample_maker import (
@@ -142,7 +142,7 @@ def create_oracle():
         lammps_executable_path=LAMMPS_EXECUTABLE_PATH, mpi_processors=1, openmp_threads=1, mpi_executable="mpirun",
     )
     # Or run LAMMPS in-process (lower overhead); requires the LAMMPS python binding ('import lammps'):
-    # from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import InProcessLammpsRunner
+    # from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import InProcessLammpsRunner
     # lammps_runner = InProcessLammpsRunner()
     potential = StillingerWeberPotential(sw_coefficients_file_path=STILLINGER_WEBER_COEFFICIENTS_FILE_PATH)
     return LammpsSinglePointCalculator(lammps_potential=potential, lammps_runner=lammps_runner,

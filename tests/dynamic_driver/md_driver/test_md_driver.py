@@ -4,12 +4,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.md_driver.md_driver import \
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.md_driver.md_driver import \
     MdDriver
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
-    SubprocessLammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
+    SubprocessLammpsRunner
 
 _TEMPERATURE = 300.0
 _TIMESTEP = 0.001
