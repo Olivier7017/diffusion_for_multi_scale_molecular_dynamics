@@ -75,3 +75,11 @@ class BaseSinglePointCalculator:
     ) -> SinglePointCalculation:
         """This method just defines the API."""
         raise NotImplementedError("This method must be implemented in a child class.")
+
+    def calculate_many(self, structures: List[Structure]) -> List[SinglePointCalculation]:
+        """Calculate several structures at once.
+
+        The default loops over ``calculate``; subclasses may override it with a faster batched
+        implementation (e.g. a single looping LAMMPS input).
+        """
+        return [self.calculate(structure) for structure in structures]

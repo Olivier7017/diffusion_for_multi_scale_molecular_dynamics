@@ -5,12 +5,12 @@ import numpy as np
 import pytest
 from pymatgen.io.lammps.data import LammpsData
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation  # noqa
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation  # noqa
 
 
 def stage_labelled_structure(training_database, trainer, labelled_structure, active_environment_indices):
@@ -71,7 +71,7 @@ def predict_mtp_energy(trainer, structure):
 def verify_fitted_model(trainer_type, trainer, labelled_structure):
     """Assert the fitted model reproduces its energy label within tolerance (per-backend predictor)."""
     if trainer_type == "flare":
-        from diffusion_for_multi_scale_molecular_dynamics.calc.flare_single_point_calculator import \
+        from diffusion_for_multi_scale_molecular_dynamics.oracle.flare_single_point_calculator import \
             FlareSinglePointCalculator
         predicted_energy = FlareSinglePointCalculator(trainer.sgp_model).calculate(labelled_structure.structure).energy
         np.testing.assert_allclose(predicted_energy, labelled_structure.energy, atol=1e-1)

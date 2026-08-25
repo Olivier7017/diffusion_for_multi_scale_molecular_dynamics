@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
     DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState

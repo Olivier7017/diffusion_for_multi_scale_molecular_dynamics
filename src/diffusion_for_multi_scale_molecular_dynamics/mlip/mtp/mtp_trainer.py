@@ -9,8 +9,6 @@ from typing import List, Optional
 
 import numpy as np
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.mtp import \
     MtpPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.mlip import write_mtp_cfg
@@ -18,6 +16,8 @@ from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import 
     BaseMLIPTrainer
 from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
     MtpConfiguration
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation
 
 
 class MtpTrainer(BaseMLIPTrainer):

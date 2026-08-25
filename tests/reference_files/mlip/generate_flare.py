@@ -22,12 +22,12 @@ from flare.bffs.sgp.calculator import SGP_Calculator
 from flare.utils import NumpyEncoder
 from pymatgen.core import Lattice, Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
     FlareConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
     FlareTrainer
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation
 
 OUTPUT_DIRECTORY = Path(__file__).parent
 

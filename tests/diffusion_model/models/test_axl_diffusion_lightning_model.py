@@ -1,6 +1,3 @@
-from dataclasses import dataclass
-from typing import Tuple
-
 import numpy as np
 import pytest
 import torch
@@ -28,10 +25,8 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     NOISY_ATOM_TYPES, NOISY_AXL_COMPOSITION, NOISY_LATTICE_PARAMETERS,
     NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE, Q_BAR_MATRICES,
     Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME, TIME_INDICES)
-from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle import (
-    EnergyOracle, OracleParameters)
-from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle_factory import (
-    ENERGY_ORACLE_BY_NAME, ORACLE_PARAMETERS_BY_NAME)
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (
+    BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
     PredictorCorrectorSamplingParameters
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.metrics.sampling_metrics_parameters import \
@@ -47,23 +42,21 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.wr
 from diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import (
     broadcast_batch_matrix_tensor_to_all_dimensions,
     broadcast_batch_tensor_to_all_dimensions)
-from tests.fake_data_utils import generate_random_string
 
 
-@dataclass(kw_only=True)
-class FakeOracleParameters(OracleParameters):
-    name = "test"
+class FakeSinglePointCalculator(BaseSinglePointCalculator):
+    """A single-point calculator that returns random energies and forces (no LAMMPS)."""
 
+    def __init__(self):
+        pass
 
-class FakeEnergyOracle(EnergyOracle):
-
-    def _compute_one_configuration_energy_and_forces(
-        self,
-        cartesian_positions: np.ndarray,
-        basis_vectors: np.ndarray,
-        atom_types: np.ndarray,
-    ) -> Tuple[float, np.ndarray]:
-        return np.random.rand(), torch.rand(*cartesian_positions.shape)
+    def calculate(self, structure, results_path=None) -> SinglePointCalculation:
+        return SinglePointCalculation(
+            calculation_type="fake",
+            structure=structure,
+            forces=np.random.rand(len(structure), 3),
+            energy=float(np.random.rand()),
+        )
 
 
 class FakeAXLDataModule(LightningDataModule):
@@ -215,7 +208,8 @@ class TestPositionDiffusionLightningModel:
 
     @pytest.fixture
     def unique_elements(self, num_atom_types):
-        return [generate_random_string(size=8) for _ in range(num_atom_types)]
+        # Real chemical symbols: the energy path builds pymatgen structures, which reject non-elements.
+        return ["Si", "Ge", "C", "O"][:num_atom_types]
 
     @pytest.fixture()
     def unit_cell_size(self):
@@ -318,15 +312,14 @@ class TestPositionDiffusionLightningModel:
             spatial_dimension=spatial_dimension,
         )
 
-        oracle_parameters = OracleParameters(name="test", elements=unique_elements)
-
         hyper_params = AXLDiffusionParameters(
             score_network_parameters=score_network_parameters,
             optimizer_parameters=optimizer_parameters,
             scheduler_parameters=scheduler_parameters,
             loss_parameters=loss_parameters,
             diffusion_sampling_parameters=diffusion_sampling_parameters,
-            oracle_parameters=oracle_parameters,
+            single_point_calculator_configuration={"name": "stillinger_weber", "sw_coeff_filename": "unused"},
+            elements=unique_elements,
         )
         return hyper_params
 
@@ -373,12 +366,12 @@ class TestPositionDiffusionLightningModel:
 
     @pytest.fixture()
     def lightning_model(self, mocker, hyper_params):
-        fake_oracle_parameters_by_name = dict(test=FakeOracleParameters)
-        fake_energy_oracle_by_name = dict(test=FakeEnergyOracle)
-
-        mocker.patch.dict(ORACLE_PARAMETERS_BY_NAME, fake_oracle_parameters_by_name)
-        mocker.patch.dict(ENERGY_ORACLE_BY_NAME, fake_energy_oracle_by_name)
-
+        # The model builds its single-point calculator through the factory; swap in a fake (no LAMMPS).
+        mocker.patch(
+            "diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models."
+            "axl_diffusion_lightning_model.instantiate_single_point_calculator",
+            return_value=FakeSinglePointCalculator(),
+        )
         lightning_model = AXLDiffusionLightningModel(hyper_params)
         return lightning_model
 

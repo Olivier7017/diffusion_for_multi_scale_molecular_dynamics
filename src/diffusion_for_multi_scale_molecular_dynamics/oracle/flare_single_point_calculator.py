@@ -6,7 +6,7 @@ from flare.bffs.sgp import SGP_Wrapper
 from flare.bffs.sgp.calculator import SGP_Calculator
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation)
 
 

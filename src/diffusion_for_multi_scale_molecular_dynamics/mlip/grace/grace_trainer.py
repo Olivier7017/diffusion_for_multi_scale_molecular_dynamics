@@ -6,8 +6,6 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import \
-    SinglePointCalculation
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.grace import \
     GracePotential
 from diffusion_for_multi_scale_molecular_dynamics.io.mlip import \
@@ -16,6 +14,8 @@ from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import 
     BaseMLIPTrainer
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_configuration import \
     GraceConfiguration
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    SinglePointCalculation
 
 # gracemaker exports under FS_model.* ('-sf'); older builds also drop saved_model.* ('-s').
 _EXPORT_STEMS = ("FS_model", "saved_model")

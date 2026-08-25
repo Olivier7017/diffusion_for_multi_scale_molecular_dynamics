@@ -13,8 +13,6 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.schedul
     create_scheduler_parameters
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.regularizers.regularizer_factory import \
     create_regularizer_parameters
-from diffusion_for_multi_scale_molecular_dynamics.oracle.energy_oracle_factory import \
-    create_energy_oracle_parameters
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.sampling.diffusion_sampling_parameters import \
     load_diffusion_sampling_parameters
 from diffusion_for_multi_scale_molecular_dynamics.score_network.score_network_factory import \
@@ -54,11 +52,7 @@ def load_diffusion_model(hyper_params: Dict[AnyStr, Any]) -> AXLDiffusionLightni
 
     diffusion_sampling_parameters = load_diffusion_sampling_parameters(hyper_params)
 
-    oracle_parameters = None
-    if "oracle" in hyper_params:
-        oracle_parameters = create_energy_oracle_parameters(
-            hyper_params["oracle"], elements
-        )
+    single_point_calculator_configuration = hyper_params.get("oracle")
 
     regularizer_parameters = None
     if "regularizer" in hyper_params:
@@ -72,7 +66,8 @@ def load_diffusion_model(hyper_params: Dict[AnyStr, Any]) -> AXLDiffusionLightni
         scheduler_parameters=scheduler_parameters,
         regularizer_parameters=regularizer_parameters,
         diffusion_sampling_parameters=diffusion_sampling_parameters,
-        oracle_parameters=oracle_parameters,
+        single_point_calculator_configuration=single_point_calculator_configuration,
+        elements=elements,
     )
 
     model = AXLDiffusionLightningModel(diffusion_params)

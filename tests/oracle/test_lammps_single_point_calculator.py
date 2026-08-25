@@ -5,10 +5,6 @@ import numpy as np
 import pytest
 from pymatgen.io.lammps.data import LammpsData
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
-    LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
     FlarePotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.grace import \
@@ -17,6 +13,10 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.mtp import
     MtpPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
+    LammpsSinglePointCalculator
 
 REFERENCE_FILES_DIR = Path(__file__).parent.parent / "reference_files"
 STRUCTURE_FILE = REFERENCE_FILES_DIR / "structure" / "Si8.in"
@@ -102,7 +102,7 @@ class BaseTestLammpsSinglePointCalculator:
 
         from flare.bffs.sgp import SGP_Wrapper
 
-        from diffusion_for_multi_scale_molecular_dynamics.calc.flare_single_point_calculator import \
+        from diffusion_for_multi_scale_molecular_dynamics.oracle.flare_single_point_calculator import \
             FlareSinglePointCalculator
 
         with open(FLARE_SGP_FILE) as file:

@@ -7,16 +7,16 @@ from typing import Optional, Union
 from pymatgen.core import Structure
 from pymatgen.io.lammps.data import LammpsData
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
-    BaseSinglePointCalculator, SinglePointCalculation)
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
     extract_all_fields
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.single_point_calc_lammps_input import (
     LammpsInputBuilder, write_lammps_input)
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
+    BaseSinglePointCalculator, SinglePointCalculation)
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 
 
 class LammpsSinglePointCalculator(BaseSinglePointCalculator):

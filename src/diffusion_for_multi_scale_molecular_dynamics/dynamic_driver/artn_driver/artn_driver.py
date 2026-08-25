@@ -4,15 +4,15 @@ import os
 from pathlib import Path
 from typing import List, Optional, Union
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
     DynamicDriver
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import (
     build_artn_lammps_tail, get_calculation_state_from_artn_output,
     write_artn_input_file)
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 
 ARTN_PLUGIN_PATH_ENVIRONMENT_VARIABLE = "ARTN_PLUGIN_PATH"
 ARTN_LIBRARY_FILE_NAME = "libartn-lmp.so"

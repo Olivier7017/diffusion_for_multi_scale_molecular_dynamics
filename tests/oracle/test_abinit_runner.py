@@ -6,7 +6,7 @@ subprocess launch and error handling are exercised without an actual Abinit inst
 
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.calc.abinit_runner import (
+from diffusion_for_multi_scale_molecular_dynamics.oracle.abinit_runner import (
     ABINIT_ERROR_FILE_NAME, ABINIT_LOG_FILE_NAME, AbinitRunner)
 
 

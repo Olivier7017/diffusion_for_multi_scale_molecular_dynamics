@@ -3,14 +3,14 @@
 from pathlib import Path
 from typing import Union
 
-from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
     DynamicDriver
-from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
-    InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.md import \
     build_md_lammps_tail
+from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
+    InProcessLammpsRunner, SubprocessLammpsRunner)
 
 
 class MdDriver(DynamicDriver):
