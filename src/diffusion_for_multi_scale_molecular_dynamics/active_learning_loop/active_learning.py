@@ -15,7 +15,7 @@ from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.logging i
 from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation,
     get_active_environment_indices)
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
     extract_all_fields_from_dump

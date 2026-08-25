@@ -11,12 +11,12 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.base_single_point_calcula
     BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
-from diffusion_for_multi_scale_molecular_dynamics.io.lammps.input_builder import (
-    LammpsInputBuilder, write_lammps_input)
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
     extract_all_fields
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.single_point_calc_lammps_input import (
+    LammpsInputBuilder, write_lammps_input)
 
 
 class LammpsSinglePointCalculator(BaseSinglePointCalculator):

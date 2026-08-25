@@ -87,35 +87,6 @@ def reference_directory(tmp_path):
 
 
 @pytest.fixture
-def artn_reference_directory(tmp_path):
-    """A reference directory holding 'initial_configuration.dat' and a minimal 'artn.in'."""
-    directory = tmp_path / "artn_reference"
-    directory.mkdir()
-    _write_initial_configuration(directory)
-    artn_input = (
-        "&ARTN_PARAMETERS\n"
-        "  engine_units='lammps/metal'\n"
-        "  verbose = 2\n"
-        "  ninit = 2\n"
-        "  nsmooth = 2\n"
-        "  forc_thr = 0.01\n"
-        "  push_step_size = 0.1\n"
-        "  push_mode = 'list'\n"
-        "  push_ids = 1\n"
-        "  push_add_const(:,1) = 1.0, -1.0, -1.0, 20\n"
-        "  lanczos_disp = 1.0D-4\n"
-        "  lanczos_max_size = 10\n"
-        "  lanczos_min_size = 3\n"
-        "  lanczos_eval_conv_thr = 1e-2\n"
-        "  eigen_step_size = 0.1\n"
-        "  push_over = 2.0\n"
-        "/\n"
-    )
-    (directory / "artn.in").write_text(artn_input)
-    return directory
-
-
-@pytest.fixture
 def lammps_executable_path():
     """Path to a LAMMPS executable on PATH (only resolved for the end-to-end tests)."""
     return Path(shutil.which("lmp") or shutil.which("lammps"))
