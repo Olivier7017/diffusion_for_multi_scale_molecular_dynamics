@@ -7,7 +7,7 @@ import pytest
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
     DynamicDriver
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 
 _DYNAMICS_BLOCK = "run 0  # stub dynamics"

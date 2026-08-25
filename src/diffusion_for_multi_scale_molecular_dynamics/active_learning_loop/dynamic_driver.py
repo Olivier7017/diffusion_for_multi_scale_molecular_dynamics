@@ -4,7 +4,6 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from string import Template
 from typing import Union
 
 from pymatgen.core import Structure
@@ -12,16 +11,16 @@ from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.dynamic_driver_lammps_input import \
+    build_dynamic_driver_lammps_inputs
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
     generate_named_elements_blocks
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
     configure_logging
-
-PATH_TO_SHARED_TEMPLATE = Path(__file__).parent / "dynamic_driver.template"
 
 
 class DynamicDriver(ABC):
@@ -50,8 +49,6 @@ class DynamicDriver(ABC):
         self.initial_structure = self._load_initial_configuration(self._initial_configuration_file_path)
 
         self._lammps_runner = lammps_runner
-        with open(PATH_TO_SHARED_TEMPLATE, mode="r") as file_descriptor:
-            self._template = Template(file_descriptor.read())
         self._lammps_input_filename = "lammps.in"
 
     @staticmethod
@@ -121,8 +118,8 @@ class DynamicDriver(ABC):
         )
 
     def _write_lammps_input(self, working_directory: Path, parameters: dict) -> None:
-        """Render the shared template with the parameters and write the LAMMPS input script."""
-        script_content = self._template.safe_substitute(**parameters)
+        """Build the shared LAMMPS input script from the parameters and write it to the working directory."""
+        script_content = build_dynamic_driver_lammps_inputs(**parameters)
         with open(working_directory / self._lammps_input_filename, "w") as file_descriptor:
             file_descriptor.write(script_content)
 

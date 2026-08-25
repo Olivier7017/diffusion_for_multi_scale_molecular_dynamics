@@ -1,9 +1,12 @@
 import numpy as np
 import pytest
 
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import (
-    INTERRUPTION_MESSAGE, SUCCESS_MESSAGE, CalculationState,
-    get_calculation_state_from_artn_output, get_saddle_energy)
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import (
+    INTERRUPTION_MESSAGE, SUCCESS_MESSAGE, build_artn_lammps_tail,
+    get_calculation_state_from_artn_output, get_saddle_energy,
+    write_artn_input_file)
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
+    CalculationState
 from tests.fake_data_utils import generate_random_string
 
 
@@ -61,3 +64,31 @@ def test_get_calculation_state_from_artn_output(artn_output, job_status):
 def test_get_saddle_energy(artn_output, saddle_energy):
     computed_saddle_energy = get_saddle_energy(artn_output)
     np.testing.assert_almost_equal(computed_saddle_energy, saddle_energy, decimal=5)
+
+
+def test_write_artn_input_file(tmp_path):
+    """The namelist is written with the task-specific push variables and the typed defaults."""
+    path = write_artn_input_file(tmp_path / "artn.in", push_ids=441, push_add_const=[1.0, -1.0, -1.0, 20])
+    content = path.read_text()
+
+    assert content.startswith("&ARTN_PARAMETERS")
+    assert content.strip().endswith("/")
+    assert "push_ids = 441" in content
+    assert "push_add_const(:,441) = 1.0, -1.0, -1.0, 20" in content
+    assert "engine_units = 'lammps/metal'" in content  # string is quoted
+    assert "lpush_final = .true." in content            # bool is Fortran-formatted
+
+
+def test_write_artn_input_file_overrides_defaults(tmp_path):
+    """A defaulted method variable can be overridden through artn_parameters."""
+    path = write_artn_input_file(tmp_path / "artn.in", push_ids=1, push_add_const=[1, 0, 0, 10],
+                                 artn_parameters={"forc_thr": 0.05})
+    assert "forc_thr = 0.05" in path.read_text()
+
+
+def test_build_artn_lammps_tail():
+    """The ARTn LAMMPS tail loads the plugin, adds the ARTn fix, and runs a minimization."""
+    tail = build_artn_lammps_tail("/plugins/libartn-lmp.so")
+    assert "plugin load /plugins/libartn-lmp.so" in tail
+    assert "fix artn_fix_id all artn" in tail
+    assert "minimize" in tail

@@ -18,7 +18,7 @@ from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
     SubprocessLammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential

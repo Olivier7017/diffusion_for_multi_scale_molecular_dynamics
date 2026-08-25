@@ -1,4 +1,4 @@
-"""Tests for the ARTn dynamic driver (unit-level rendering/parsing + an end-to-end LAMMPS+ARTn run)."""
+"""Tests for the ARTn dynamic driver (unit-level generation/parsing + an end-to-end LAMMPS+ARTn run)."""
 
 from unittest.mock import MagicMock
 
@@ -8,47 +8,50 @@ from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.artn_driv
     ArtnDriver
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
     SubprocessLammpsRunner
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import (
-    INTERRUPTION_MESSAGE, CalculationState)
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import \
+    INTERRUPTION_MESSAGE
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
+    CalculationState
+
+PUSH_IDS = 1
+PUSH_ADD_CONST = [1.0, -1.0, -1.0, 20]
 
 
 @pytest.fixture
 def fake_plugin_path(tmp_path):
     """A dummy file standing in for the compiled ARTn plugin (never loaded at unit level)."""
-    plugin_path = tmp_path / "libartn.so"
+    plugin_path = tmp_path / "libartn-lmp.so"
     plugin_path.write_text("")
     return plugin_path
 
 
 @pytest.fixture
-def artn_driver(artn_reference_directory, fake_plugin_path):
+def artn_driver(reference_directory, fake_plugin_path):
     """An ARTn driver with a mock runner (unit-level: no LAMMPS is actually launched)."""
     return ArtnDriver(
         lammps_runner=MagicMock(),
-        reference_directory=artn_reference_directory,
+        reference_directory=reference_directory,
+        push_ids=PUSH_IDS,
+        push_add_const=PUSH_ADD_CONST,
         artn_library_plugin_path=fake_plugin_path,
     )
 
 
 class TestUnit:
-    def test_missing_artn_in_raises(self, reference_directory, fake_plugin_path):
-        """A reference directory without an 'artn.in' file is rejected at construction time."""
-        with pytest.raises(AssertionError):
-            ArtnDriver(lammps_runner=MagicMock(), reference_directory=reference_directory,
-                       artn_library_plugin_path=fake_plugin_path)
-
-    def test_prepare_reference_files_copies_artn_in(self, artn_driver, tmp_path):
-        """Preparing the run copies the reference 'artn.in' into the working directory."""
+    def test_prepare_reference_files_writes_artn_in(self, artn_driver, tmp_path):
+        """Preparing the run generates 'artn.in' (with the push variables) in the working directory."""
         working_directory = tmp_path / "work"
         working_directory.mkdir()
         artn_driver._prepare_reference_files(working_directory)
-        assert (working_directory / "artn.in").is_file()
 
-    def test_dynamics_block_substitutes_plugin_path(self, artn_driver, fake_plugin_path):
-        """The ARTn block loads the plugin from the configured path with no leftover placeholders."""
-        block = artn_driver._dynamics_block()
-        assert "$" not in block
-        assert str(fake_plugin_path) in block
+        artn_input = (working_directory / "artn.in").read_text()
+        assert "&ARTN_PARAMETERS" in artn_input
+        assert f"push_ids = {PUSH_IDS}" in artn_input
+        assert f"push_add_const(:,{PUSH_IDS}) = 1.0, -1.0, -1.0, 20" in artn_input
+
+    def test_dynamics_block_loads_the_plugin(self, artn_driver, fake_plugin_path):
+        """The ARTn LAMMPS tail loads the plugin from the configured path."""
+        assert str(fake_plugin_path) in artn_driver._dynamics_block()
 
     def test_missing_output_is_error(self, artn_driver, tmp_path):
         """An ARTn run that produced no 'artn.out' cannot be interpreted: ERROR."""
@@ -67,13 +70,14 @@ class TestUnit:
 
 @pytest.mark.requires_lammps_bin
 class TestEndToEnd:
-    def test_runs_and_returns_a_state(self, lammps_executable_path, artn_reference_directory, stub_mlip, tmp_path):
+    def test_runs_and_returns_a_state(self, lammps_executable_path, reference_directory, stub_mlip, tmp_path):
         """A real LAMMPS+ARTn run drives to completion and yields a parseable calculation state.
 
         Requires a LAMMPS executable built with the ARTn plugin; the plugin location is resolved by the
         driver from the ARTN_PLUGIN_PATH environment variable (ArtnDriver raises if it is not set).
         """
         runner = SubprocessLammpsRunner(lammps_executable_path=lammps_executable_path, mpi_processors=1)
-        driver = ArtnDriver(lammps_runner=runner, reference_directory=artn_reference_directory)
+        driver = ArtnDriver(lammps_runner=runner, reference_directory=reference_directory,
+                            push_ids=PUSH_IDS, push_add_const=PUSH_ADD_CONST)
         state = driver.run(stub_mlip, tmp_path / "work", uncertainty_threshold=1.0e9)
         assert isinstance(state, CalculationState)

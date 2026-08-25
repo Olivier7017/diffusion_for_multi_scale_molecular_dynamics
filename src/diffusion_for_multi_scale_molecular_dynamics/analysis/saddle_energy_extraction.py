@@ -7,7 +7,7 @@ import pandas as pd
 import yaml
 from tqdm import tqdm
 
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import \
     get_saddle_energy
 
 

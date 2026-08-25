@@ -1,19 +1,19 @@
 """ARTn dynamic driver."""
 
 import os
-import shutil
 from pathlib import Path
-from string import Template
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.dynamic_driver import \
     DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import (
-    CalculationState, get_calculation_state_from_artn_output)
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import (
+    build_artn_lammps_tail, get_calculation_state_from_artn_output,
+    write_artn_input_file)
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
+    CalculationState
 
-PATH_TO_ARTN_TEMPLATE = Path(__file__).parent / "artn.template"
 ARTN_PLUGIN_PATH_ENVIRONMENT_VARIABLE = "ARTN_PLUGIN_PATH"
 ARTN_LIBRARY_FILE_NAME = "libartn-lmp.so"
 
@@ -25,26 +25,29 @@ class ArtnDriver(DynamicDriver):
         self,
         lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
         reference_directory: Path,
+        push_ids: int,
+        push_add_const: List[float],
         artn_library_plugin_path: Optional[Path] = None,
+        **artn_parameters,
     ):
         """Init method.
 
         Args:
             lammps_runner: a runner whose LAMMPS executable can handle ARTn and the MLIP pair_style.
-            reference_directory: directory with 'initial_configuration.dat' and 'artn.in'.
+            reference_directory: directory with 'initial_configuration.dat' (the 'artn.in' is generated).
+            push_ids: the atom index ARTn pushes to escape the initial basin.
+            push_add_const: the four-component push constraint for that atom.
             artn_library_plugin_path: path to the compiled ARTn library plugin. When None, it is read from
                 the ARTN_PLUGIN_PATH environment variable. A directory is accepted too, in which case
                 'libartn-lmp.so' or 'lib/libartn-lmp.so' is looked up inside it.
+            artn_parameters: any other ARTn namelist overrides, forwarded to write_artn_input_file.
         """
         super().__init__(lammps_runner, reference_directory)
 
         self._artn_library_plugin_path = self._resolve_artn_library_plugin_path(artn_library_plugin_path)
-
-        self._reference_artn_in_file_path = reference_directory / "artn.in"
-        assert self._reference_artn_in_file_path.is_file(), "The reference artn.in file does not exist."
-
-        with open(PATH_TO_ARTN_TEMPLATE, mode="r") as file_descriptor:
-            self._dynamics_template = Template(file_descriptor.read())
+        self._push_ids = push_ids
+        self._push_add_const = push_add_const
+        self._artn_parameters = artn_parameters
 
     @staticmethod
     def _resolve_artn_library_plugin_path(artn_library_plugin_path: Optional[Path]) -> Path:
@@ -73,14 +76,17 @@ class ArtnDriver(DynamicDriver):
         return artn_library_plugin_path
 
     def _prepare_reference_files(self, working_directory: Path) -> None:
-        """Copy the reference artn.in into the working directory."""
-        shutil.copy(self._reference_artn_in_file_path, str(working_directory / "artn.in"))
+        """Write the ARTn input file (artn.in) into the working directory."""
+        write_artn_input_file(
+            working_directory / "artn.in",
+            push_ids=self._push_ids,
+            push_add_const=self._push_add_const,
+            **self._artn_parameters,
+        )
 
     def _dynamics_block(self) -> str:
-        """Render the ARTn dynamics commands (plugin load + fix artn + FIRE minimization)."""
-        return self._dynamics_template.safe_substitute(
-            artn_library_plugin_path=str(self._artn_library_plugin_path)
-        )
+        """Build the ARTn dynamics commands (plugin load + fix artn + FIRE minimization)."""
+        return build_artn_lammps_tail(self._artn_library_plugin_path)
 
     def _get_calculation_state(self, working_directory: Path) -> CalculationState:
         """Parse artn.out for the ARTn outcome (ERROR if the file is missing)."""

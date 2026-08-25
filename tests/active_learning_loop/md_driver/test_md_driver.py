@@ -8,7 +8,7 @@ from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.md_driver
     MdDriver
 from diffusion_for_multi_scale_molecular_dynamics.calc.lammps_runner import \
     SubprocessLammpsRunner
-from diffusion_for_multi_scale_molecular_dynamics.io.artn import \
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 
 _TEMPERATURE = 300.0
