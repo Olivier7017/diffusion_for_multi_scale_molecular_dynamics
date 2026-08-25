@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from pymatgen.core import Structure
 from pymatgen.io.lammps.data import LammpsData
@@ -48,8 +48,10 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         self._input_file_name = "lammps.in"
         self._data_filename = "configuration.dat"
 
-    def _extract_calculation_results(self, working_directory: str) -> SinglePointCalculation:
-        lammps_dump_path = Path(working_directory) / "dump.yaml"
+    def _extract_calculation_results(
+        self, working_directory: str, dump_filename: str = "dump.yaml"
+    ) -> SinglePointCalculation:
+        lammps_dump_path = Path(working_directory) / dump_filename
 
         list_structures, list_forces, list_energies, list_uncertainties = (
             extract_all_fields(lammps_dump_path, uncertainty_field=self._potential.uncertainty_field())
@@ -126,3 +128,47 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
                 shutil.move(src, dst)
 
         return calculation_result
+
+    def calculate_many_in_work_directory(
+        self, structures: List[Structure], work_directory: Union[Path, str]
+    ) -> List[SinglePointCalculation]:
+        """Evaluate several configurations with a single LAMMPS run in a given working directory.
+
+        A single looping input reads one data file and writes one dump file per configuration, so LAMMPS is
+        launched only once (one process for the subprocess runner, one instance for the in-process runner).
+
+        Args:
+            structures: the configurations to evaluate, in order.
+            work_directory: work directory where inputs and outputs will be recorded.
+
+        Returns:
+            calculation_results: the parsed LAMMPS output, one per structure (in the same order).
+        """
+        work_directory = Path(work_directory)
+        work_directory.mkdir(parents=True, exist_ok=True)
+
+        configuration_filenames = [f"configuration_{index}.dat" for index in range(len(structures))]
+        dump_filenames = [f"dump_{index}.yaml" for index in range(len(structures))]
+
+        for structure, configuration_filename in zip(structures, configuration_filenames):
+            lammps_data = LammpsData.from_structure(structure, atom_style="atomic")
+            lammps_data.write_file(str(work_directory / configuration_filename))
+
+        input_content = self._input_builder.build_looping_single_point(
+            structures, self._potential, configuration_filenames, dump_filenames,
+            with_uncertainty=self._with_uncertainty,
+        )
+        write_lammps_input(input_content, work_directory / self._input_file_name)
+
+        self._lammps_runner.run_lammps(working_directory=work_directory,
+                                       lammps_input_file_name=self._input_file_name)
+
+        return [self._extract_calculation_results(str(work_directory), dump_filename)
+                for dump_filename in dump_filenames]
+
+    def calculate_many(self, structures: List[Structure]) -> List[SinglePointCalculation]:
+        """Evaluate several configurations with a single LAMMPS run (see ``calculate_many_in_work_directory``)."""
+        if not structures:
+            return []
+        with tempfile.TemporaryDirectory() as tmp_work_dir:
+            return self.calculate_many_in_work_directory(structures, tmp_work_dir)

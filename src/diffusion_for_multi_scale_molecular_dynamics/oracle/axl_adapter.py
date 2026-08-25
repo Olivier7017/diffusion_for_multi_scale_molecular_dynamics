@@ -101,6 +101,10 @@ def compute_axl_energies_and_forces(
     number_of_samples, number_of_atoms, spatial_dimension = (
         batched_relative_coordinates.shape
     )
+    assert spatial_dimension == 3, (
+        "The single-point calculators build pymatgen structures, so labelling AXL samples is only "
+        f"supported in 3 spatial dimensions (got {spatial_dimension})."
+    )
 
     # Build one structure per (non-degenerate) sample, remembering which batch index it came from.
     list_energy: List[float] = [0.0] * number_of_samples
