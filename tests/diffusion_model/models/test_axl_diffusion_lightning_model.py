@@ -272,11 +272,12 @@ class TestPositionDiffusionLightningModel:
         return sampling_parameters
 
     @pytest.fixture()
-    def diffusion_sampling_parameters(self, sampling_parameters):
+    def diffusion_sampling_parameters(self, sampling_parameters, spatial_dimension):
         noise_parameters = NoiseParameters(total_time_steps=5)
         metrics_parameters = SamplingMetricsParameters(
             structure_factor_max_distance=1.0,
-            compute_energies=True,
+            # The energy oracle builds pymatgen structures, so it is only meaningful in 3D.
+            compute_energies=(spatial_dimension == 3),
             compute_structure_factor=False,
         )
         diffusion_sampling_parameters = DiffusionSamplingParameters(

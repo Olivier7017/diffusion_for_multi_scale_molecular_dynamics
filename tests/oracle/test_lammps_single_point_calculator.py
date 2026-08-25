@@ -94,6 +94,28 @@ class BaseTestLammpsSinglePointCalculator:
             assert result.uncertainties.shape == (number_of_atoms,)
             assert np.all(np.isfinite(result.uncertainties))
 
+    @pytest.mark.requires_pair_style("sw")
+    def test_calculate_many_matches_single(self, lammps_runner, structure):
+        """calculate_many (one looping run) returns one result per structure, matching individual calculate()."""
+        structures = []
+        for scale in (1.0, 1.03, 1.06):
+            scaled_structure = structure.copy()
+            scaled_structure.scale_lattice(scaled_structure.volume * scale)
+            structures.append(scaled_structure)
+        calculator = LammpsSinglePointCalculator(_stillinger_weber_potential(), lammps_runner)
+
+        batched_results = calculator.calculate_many(structures)
+        assert len(batched_results) == len(structures)
+
+        for single_structure, batched_result in zip(structures, batched_results):
+            single_result = calculator.calculate(single_structure)
+            np.testing.assert_allclose(batched_result.energy, single_result.energy, atol=1e-6)
+            np.testing.assert_allclose(batched_result.forces, single_result.forces, atol=1e-6)
+
+        # Distinct volumes give distinct energies: guards against every dump being parsed from one frame.
+        energies = [result.energy for result in batched_results]
+        assert len(set(np.round(energies, 6))) == len(energies)
+
     @pytest.mark.requires_flare
     @pytest.mark.requires_pair_style("flare")
     def test_mapped_flare_matches_sgp(self, lammps_runner, structure):
@@ -145,6 +167,12 @@ class TestSubprocessMpi(BaseTestLammpsSinglePointCalculator):
     @pytest.fixture()
     def lammps_runner(self):
         return SubprocessLammpsRunner(lammps_executable_path=_lammps_executable_path(), mpi_processors=2)
+
+
+def test_calculate_many_empty_returns_empty():
+    """An empty batch short-circuits: no LAMMPS run, an empty list back."""
+    calculator = LammpsSinglePointCalculator(_stillinger_weber_potential(), lammps_runner=object())
+    assert calculator.calculate_many([]) == []
 
 
 def test_stillinger_weber_potential_rejects_uncertainty():
