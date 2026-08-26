@@ -1,12 +1,9 @@
 """Active learning example: FLARE MLIP, MD dynamic driver, Stillinger-Weber oracle, no-op sample maker.
 
-This example is self-contained: it creates its own starting configuration and starts the MLIP cold. Set the
-values in the "User configuration" block below for your machine, then run this file. Every create_* function
-lists all of its parameters (defaults left explicit) so the available knobs are visible; main() is identical
-across the examples, so switching a component is a copy-paste of the matching create_* function.
+This example is self-contained and every create_* function is interchangeable with other activelearning_ examples.
 
 Notes about this example (the chosen options):
-    - MLIP: FLARE, started cold (a fresh model). Option B in create_mlip loads a pretrained checkpoint instead.
+    - MLIP: FLARE, started cold (a fresh model).
     - Dynamic driver: MD (NVT molecular dynamics).
     - Oracle: Stillinger-Weber.
     - Sample maker: no-op, which keeps the uncertain structure as-is (no excision or repaint).
