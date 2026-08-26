@@ -27,7 +27,7 @@ class GraceTrainer(BaseMLIPTrainer):
     def __init__(
         self,
         grace_configuration: GraceConfiguration,
-        initial_configuration: SinglePointCalculation,
+        initial_configuration: Optional[SinglePointCalculation] = None,
         gracemaker_executable_path: Optional[Path] = None,
         pace_activeset_executable_path: Optional[Path] = None,
         training_database=None,
@@ -36,7 +36,8 @@ class GraceTrainer(BaseMLIPTrainer):
 
         Args:
             grace_configuration: the GRACE-FS model definition (mapped onto the gracemaker input.yaml).
-            initial_configuration: the labelled configuration used as the (separate) gracemaker test set.
+            initial_configuration: the labelled configuration used as the (separate) gracemaker test set. When
+                None, the first training configuration is reused as the test set.
             gracemaker_executable_path: path to 'gracemaker'; looked up on PATH if None.
             pace_activeset_executable_path: path to 'pace_activeset'; looked up on PATH if None.
             training_database: the training set (single source of truth); may be attached later.
@@ -70,8 +71,17 @@ class GraceTrainer(BaseMLIPTrainer):
             raise ValueError("Only ground-truth single-point calculations (without uncertainties) can be added.")
 
     def create_test_set(self, test_set_path: Path) -> None:
-        """Write the initial configuration as the gracemaker test set."""
-        write_grace_pkl([self._initial_configuration.to_atoms()], test_set_path)
+        """Write the gracemaker test set: the provided initial configuration, or the first training config."""
+        if self._initial_configuration is not None:
+            test_atoms = self._initial_configuration.to_atoms()
+        else:
+            # No explicit test configuration: reuse the first training config (gracemaker needs a test set).
+            assert self._training_database and self._training_database.labelled_atoms, (
+                "GraceTrainer needs either an initial_configuration or a non-empty training database to build "
+                "the gracemaker test set."
+            )
+            test_atoms = self._training_database.labelled_atoms[0]
+        write_grace_pkl([test_atoms], test_set_path)
 
     def fit(self) -> None:
         """Fit the GRACE-FS model with gracemaker and export it (the active set is built at deploy time)."""
@@ -137,7 +147,7 @@ class GraceTrainer(BaseMLIPTrainer):
         cls,
         checkpoint_path: Path,
         grace_configuration: GraceConfiguration,
-        initial_configuration: SinglePointCalculation,
+        initial_configuration: Optional[SinglePointCalculation] = None,
         gracemaker_executable_path: Optional[Path] = None,
         pace_activeset_executable_path: Optional[Path] = None,
         training_database=None,
