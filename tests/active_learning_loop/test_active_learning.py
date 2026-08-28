@@ -18,8 +18,12 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
-from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
-    get_active_environment_indices
+from diffusion_for_multi_scale_molecular_dynamics.io.utils import \
+    write_atoms_trajectory
+from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
+    BaseMLIP
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (
+    SinglePointCalculation, get_active_environment_indices)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
     SubprocessLammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
@@ -45,6 +49,7 @@ def _uncertain_atoms() -> Atoms:
 def _stub_mlip():
     mlip = MagicMock()
     mlip.training_metrics.return_value = dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
+    mlip.minimum_number_of_training_environments.return_value = 0  # no precomputation for the stubbed loop
     return mlip
 
 
@@ -135,6 +140,135 @@ def test_forced_train_restart_retrains_a_complete_epoch(tmp_path):
     assert active_learning._training_database.is_model_committed(1)
 
 
+def test_restart_reloads_the_latest_committed_model(tmp_path):
+    """Restarting a campaign with a completed epoch reloads that epoch's model from disk (no re-fit)."""
+    database = TrainingDatabase(tmp_path / "database")
+    database.write_dynamic(1, _uncertain_atoms())
+    database.write_oracle(1, [_labelled_atoms(energy=1.0)])
+    (database.model_directory(1) / "model").write_text("model")  # epoch 1 fully committed
+
+    mlip = _stub_mlip()
+    active_learning = RecordingActiveLearning(success_at_epoch=2)
+    active_learning.run_campaign(uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path)
+
+    # Resumes at round 2's driver, having reloaded epoch 1's model straight from disk (no precomputation).
+    assert active_learning.calls == [("driver", 2)]
+    mlip.load.assert_called_once_with(database.model_directory(1))
+
+
+class _PrecomputationStubMLIP(BaseMLIP):
+    """A real BaseMLIP (so augment_configurations/minimum_number_of_atomic_structures run for real) with a
+    fixed environment minimum and a stubbed train/deploy (no LAMMPS)."""
+
+    def __init__(self, minimum_number_of_environments: int):
+        super().__init__(trainer=MagicMock(), lammps_runner=MagicMock())
+        self._minimum_number_of_environments = minimum_number_of_environments
+        self.trained_model_directories = []
+
+    def minimum_number_of_training_environments(self) -> int:
+        return self._minimum_number_of_environments
+
+    def train(self, output_directory):
+        self.trained_model_directories.append(Path(output_directory))
+        (Path(output_directory) / "model").write_text("model")
+
+    def prepare_mlip_first_round(self, output_directory):
+        pass
+
+    def training_metrics(self, reference_atoms=None):
+        return dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
+
+    def write_state_yaml(self, output_path):
+        pass
+
+    def write_logger_info(self, logger):
+        pass
+
+    @classmethod
+    def load_checkpoint(cls, checkpoint_path):
+        pass
+
+
+def test_run_campaign_precomputation_doubles_a_single_configuration(tmp_path):
+    """run_campaign with the rounds skipped precomputes: one provided config is augmented to reach the minimum.
+
+    The seed has 2 atoms and the minimum is 4 environments, so precomputation must produce 2 labelled
+    configurations (double the single seed) before any round runs.
+    """
+    provided_configurations_path = tmp_path / "initial.traj"
+    write_atoms_trajectory([_labelled_atoms(energy=0.0)], provided_configurations_path)  # a single seed config
+
+    oracle = MagicMock()
+    oracle.calculate_many.side_effect = lambda structures: [
+        SinglePointCalculation(calculation_type="stub", structure=structure,
+                               forces=np.zeros((len(structure), 3)), energy=-1.0)
+        for structure in structures
+    ]
+    sample_maker = MagicMock()
+    sample_maker.arguments.element_list = ["Si"]
+
+    mlip = _PrecomputationStubMLIP(minimum_number_of_environments=4)  # 2-atom seed -> 2 structures (doubled)
+
+    active_learning = ActiveLearning(oracle_single_point_calculator=oracle,
+                                     sample_maker=sample_maker, dynamic_driver=MagicMock())
+    active_learning.run_campaign(
+        uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path,
+        maximum_number_of_rounds=0,  # skip the campaign; only precomputation runs
+        path_to_provided_configurations=provided_configurations_path,
+    )
+
+    database = active_learning._training_database
+    assert len(database.labelled_atoms) == 2  # one seed config doubled by augmentation
+    assert database.number_of_labelled_environments() == 4
+    assert mlip.trained_model_directories == [database.precomputation_model_directory()]
+    assert database.is_precomputation_model_committed()
+
+
+def test_run_campaign_uses_provided_database_directly_when_it_covers_the_minimum(tmp_path):
+    """A provided database that already covers the minimum is used as the training set, without augmentation."""
+    provided_configurations_path = tmp_path / "provided.traj"
+    write_atoms_trajectory([_labelled_atoms(energy=float(index)) for index in range(3)],  # 3 x 2 atoms = 6 envs
+                           provided_configurations_path)
+
+    oracle = MagicMock()  # must NOT be called: nothing to augment/label
+    sample_maker = MagicMock()
+    sample_maker.arguments.element_list = ["Si"]
+    mlip = _PrecomputationStubMLIP(minimum_number_of_environments=4)  # 6 >= 4 -> use the provided configs directly
+
+    active_learning = ActiveLearning(oracle_single_point_calculator=oracle,
+                                     sample_maker=sample_maker, dynamic_driver=MagicMock())
+    active_learning.run_campaign(
+        uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path,
+        maximum_number_of_rounds=0,
+        path_to_provided_configurations=provided_configurations_path,
+    )
+
+    database = active_learning._training_database
+    assert len(database.labelled_atoms) == 3  # the provided configurations, adopted as-is
+    oracle.calculate_many.assert_not_called()
+    assert mlip.trained_model_directories == [database.precomputation_model_directory()]
+
+
+def test_precomputation_raises_on_unlabelled_provided_configurations(tmp_path):
+    """Precomputation refuses provided configurations that carry no energy/forces (they must be labelled)."""
+    unlabelled_configuration = Atoms("Si2", positions=[[0.0, 0.0, 0.0], [1.1, 1.1, 1.1]],
+                                     cell=[5.0, 5.0, 5.0], pbc=True)  # no calculator: unlabelled
+    provided_configurations_path = tmp_path / "provided.traj"
+    write_atoms_trajectory([unlabelled_configuration], provided_configurations_path)
+
+    sample_maker = MagicMock()
+    sample_maker.arguments.element_list = ["Si"]
+    mlip = _PrecomputationStubMLIP(minimum_number_of_environments=4)
+
+    active_learning = ActiveLearning(oracle_single_point_calculator=MagicMock(),
+                                     sample_maker=sample_maker, dynamic_driver=MagicMock())
+    with pytest.raises(ValueError, match="must be labelled"):
+        active_learning.run_campaign(
+            uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path,
+            maximum_number_of_rounds=0, path_to_provided_configurations=provided_configurations_path,
+        )
+
+
 @pytest.mark.requires_lammps_bin
 @pytest.mark.requires_pair_style("sw")
 class TestFullRound:
@@ -172,6 +306,7 @@ class TestFullRound:
         dynamic_driver.run.side_effect = [CalculationState.INTERRUPTION, CalculationState.SUCCESS]
         mlip = MagicMock()
         mlip.training_metrics.return_value = dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
+        mlip.minimum_number_of_training_environments.return_value = 0  # no precomputation in this round test
         mlip.train.side_effect = lambda model_directory: (Path(model_directory) / "model").write_text("model")
 
         active_learning = ActiveLearning(oracle_single_point_calculator=oracle,

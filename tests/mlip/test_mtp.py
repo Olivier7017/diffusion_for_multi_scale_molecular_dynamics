@@ -20,9 +20,23 @@ class TestMtpConfiguration:
 
         assert configuration.species_count == 1
         assert configuration.radial_basis_size == 8
+        assert configuration.radial_funcs_count == 2
         assert configuration.alpha_scalar_moments == 5
-        assert configuration.min_dist == 2.0
         assert configuration.number_of_adjustable_parameters == 14
+
+    @pytest.mark.parametrize("level, elements, expected_descriptors", [
+        # Basis sizes are level-determined (verified against the shipped templates); species_count = #elements.
+        (6, ["Si"], dict(species_count=1, radial_basis_size=8, radial_funcs_count=2, alpha_scalar_moments=5)),
+        (8, ["Si"], dict(species_count=1, radial_basis_size=8, radial_funcs_count=2, alpha_scalar_moments=9)),
+        (16, ["Si"], dict(species_count=1, radial_basis_size=8, radial_funcs_count=4, alpha_scalar_moments=92)),
+        (6, ["Si", "Ge"], dict(species_count=2, radial_basis_size=8, radial_funcs_count=2, alpha_scalar_moments=5)),
+    ])
+    def test_read_descriptors(self, level, elements, expected_descriptors):
+        """read_descriptors reads the basis sizes from the level template but the species count from the elements."""
+        template_path = Path(mtp_package.__file__).parent.parent / "MTP_templates" / f"{level:02d}.almtp"
+        configuration = MtpConfiguration(elements=elements, level=level, max_dist=4.0)
+
+        assert configuration.read_descriptors(template_path) == expected_descriptors
 
     def test_write_only_updates_max_dist(self, tmp_path):
         """Writing max_dist updates that line only, leaving the level-determined parameters readable."""

@@ -6,6 +6,8 @@ from typing import Dict, Optional, Union
 
 import yaml
 
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.mtp import \
+    MtpPotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
@@ -35,6 +37,11 @@ class MtpMlip(BaseMLIP):
         """
         super().__init__(trainer=mtp_trainer, lammps_runner=lammps_runner)
         self._check_lammps_dependency()
+        self._set_descriptors()
+
+    def _set_descriptors(self) -> None:
+        """Read the level-determined MTP basis descriptors from the template into self.descriptors."""
+        self.descriptors = self._trainer.configuration.read_descriptors(self._trainer.template_path)
 
     def _check_lammps_dependency(self) -> None:
         """Fail early if the LAMMPS runner lacks the mtp/extrapolation pair_style from lammps-mtp-kokkos."""
@@ -45,6 +52,26 @@ class MtpMlip(BaseMLIP):
                 f"{error} The 'mtp/extrapolation' pair_style is provided by lammps-mtp-kokkos "
                 f"({LAMMPS_MTP_KOKKOS_URL}); build LAMMPS with it using CPU-only or with Kokkos."
             ) from error
+
+    def minimum_number_of_training_environments(self) -> int:
+        """Minimum number of atomic environments needed for the D-optimality active set.
+
+        MTP uncertainty relies on a D-optimality active set: it needs at least n atomic environments to build
+        the maximal-volume n x n matrix (the active set), where n is the dimension of the descriptor space
+        (equivalently, the number of trainable coefficients). n combines the level-determined basis sizes
+        (radial_funcs_count, radial_basis_size, alpha_scalar_moments) with the species count, the radial term
+        scaling as species_count squared:
+
+            n = species_count**2 * radial_funcs_count * radial_basis_size + alpha_scalar_moments + species_count
+
+        Verified against the level templates: L6/1sp = 22, L8/1sp = 26, L16/1sp = 125, L16/3sp = 383.
+        """
+        descriptors = self.descriptors
+        return (
+            descriptors["species_count"] ** 2 * descriptors["radial_funcs_count"] * descriptors["radial_basis_size"]
+            + descriptors["alpha_scalar_moments"]
+            + descriptors["species_count"]
+        )
 
     @classmethod
     def load_checkpoint(
@@ -70,6 +97,11 @@ class MtpMlip(BaseMLIP):
         self._model_file = self.lammps_potential.mtp_file_path
         self.write_state_yaml(output_directory / "state.yaml")
 
+    def load(self, model_directory: Path) -> None:
+        """Load the committed MTP model (its ``potential.almtp``) from model_directory into a runnable potential."""
+        self._lammps_potential = MtpPotential(mtp_file_path=Path(model_directory) / "potential.almtp")
+        self._model_file = self.lammps_potential.mtp_file_path
+
     def write_state_yaml(self, output_path: Path) -> None:
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
         with open(str(output_path), "w") as file_descriptor:
@@ -87,7 +119,6 @@ class MtpMlip(BaseMLIP):
         return dict(
             level=configuration.level,
             max_dist=configuration.max_dist,
-            min_dist=configuration.min_dist,
             radial_basis_size=configuration.radial_basis_size,
             alpha_scalar_moments=configuration.alpha_scalar_moments,
             species_count=configuration.species_count,

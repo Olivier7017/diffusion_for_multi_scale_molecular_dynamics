@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import yaml
+from ase import Atoms
 from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
@@ -78,6 +79,26 @@ class TestBaseMLIP:
         assert metrics["n_training_conf"] == 2
         assert metrics["rmse_energy"] == pytest.approx(np.sqrt((1.0 ** 2 + 3.0 ** 2) / 2))
         assert metrics["rmse_forces"] == pytest.approx(np.sqrt(1.0 ** 2 / 6))
+
+    @pytest.mark.parametrize(
+        "minimum_environments, expected_number_of_structures",
+        [(9, 2), (24, 3)],  # ceil(minimum_environments / 8 atoms)
+    )
+    def test_augment_configurations_covers_active_set(self, mlip, minimum_environments,
+                                                      expected_number_of_structures):
+        """The seed (8 atoms) is perturbed into ceil(minimum_environments / 8) copies covering the active set."""
+        structure = Atoms("Si8", positions=np.zeros((8, 3)), cell=5.0 * np.eye(3), pbc=True)
+        mlip.minimum_number_of_training_environments = lambda: minimum_environments
+
+        assert mlip.minimum_number_of_atomic_structures(structure) == expected_number_of_structures
+        augmented_structures = mlip.augment_configurations(structure, standard_deviation=0.05)
+
+        assert len(augmented_structures) == expected_number_of_structures
+        assert all(len(configuration) == 8 for configuration in augmented_structures)
+
+    def test_default_minimum_number_of_training_environments_is_zero(self, mlip):
+        """With no D-optimality active set, no environments are required."""
+        assert mlip.minimum_number_of_training_environments() == 0
 
 
 class TestDerivedMLIP:
@@ -183,6 +204,11 @@ class TestDerivedMLIP:
             fit_hyperparameters.assert_called_once()
         assert isinstance(mlip.lammps_potential, LammpsPotential)
         assert mlip.model_file.is_file()
+
+    def test_minimum_number_of_training_environments(self, mlip_type, mlip):
+        """FLARE needs no active set (0); a level-6 single-species MTP needs its descriptor-space dimension (22)."""
+        expected_minimum = {"flare": 0, "mtp": 22}[mlip_type]
+        assert mlip.minimum_number_of_training_environments() == expected_minimum
 
 
 class TestGraceMlip:

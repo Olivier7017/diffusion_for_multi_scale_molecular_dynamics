@@ -3,7 +3,7 @@
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 from ase import Atoms
@@ -23,6 +23,8 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_cal
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
     to_pymatgen_structure
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
+    create_perturbed_structures
 
 
 class BaseMLIP(ABC):
@@ -47,6 +49,8 @@ class BaseMLIP(ABC):
         self._lammps_runner = lammps_runner
         self._lammps_potential: Optional[LammpsPotential] = None
         self._model_file: Optional[Path] = None
+        # Specific descriptor information; populated by each MLIP subclass.
+        self.descriptors: Dict[str, Any] = {}
 
     @property
     def lammps_potential(self) -> LammpsPotential:
@@ -75,6 +79,40 @@ class BaseMLIP(ABC):
         """Add a labelled structure to the training set."""
         self._trainer.add_labelled_structure(single_point_calculation, active_environment_indices)
 
+    def minimum_number_of_training_environments(self) -> int:
+        """Number of atomic environments the active set needs (the descriptor-space dimension).
+
+        The default is 0 (no D-optimality active set, e.g. FLARE); a D-optimality MLIP (MTP, GRACE-FS)
+        redefines this.
+        """
+        return 0
+
+    def minimum_number_of_atomic_structures(self, structure: Atoms, number_of_existing_environments: int = 0) -> int:
+        """Number of structures of this composition needed to reach the minimum number of training environments."""
+        missing_environments = self.minimum_number_of_training_environments() - number_of_existing_environments
+        if missing_environments <= 0:
+            return 0
+        return int(np.ceil(missing_environments / len(structure)))
+
+    def augment_configurations(
+        self, structure: Atoms, number_of_existing_environments: int = 0, standard_deviation: float = 0.05
+    ) -> List[Atoms]:
+        """Perturb the structure into enough copies to top the training set up to the D-optimality minimum.
+
+        Args:
+            structure: the seed configuration to perturb.
+            number_of_existing_environments: environments already in the training set.
+            standard_deviation: standard deviation (Angstrom) of the Gaussian displacements.
+
+        Returns:
+            the perturbed configurations sized to reach the minimum (empty if already met).
+        """
+        return create_perturbed_structures(
+            structure,
+            standard_deviation,
+            self.minimum_number_of_atomic_structures(structure, number_of_existing_environments),
+        )
+
     def prepare_mlip_first_round(self, output_directory: Path) -> None:
         """Deploy the pretrained model so it can be run before any training happens this campaign."""
         self._deploy(output_directory)
@@ -82,6 +120,14 @@ class BaseMLIP(ABC):
     def _deploy(self, output_directory: Path) -> None:
         """Write the model into output_directory and cache the resulting LAMMPS potential."""
         self._lammps_potential = self._trainer.write_checkpoint(output_directory)
+
+    def load(self, model_directory: Path) -> None:
+        """Load an already-trained model from model_directory into a runnable potential (no fitting).
+
+        Used to resume a campaign straight off disk. Retraining later refits from the training database, so
+        this only needs to restore the deployed potential, not the trainer's state.
+        """
+        raise NotImplementedError("must be implemented in a child class.")
 
     def calculate(
         self, configurations: Union[Structure, Atoms, List[Union[Structure, Atoms]]]

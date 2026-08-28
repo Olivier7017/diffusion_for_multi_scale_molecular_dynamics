@@ -67,13 +67,15 @@ class TestPathsAndDiscovery:
         assert not model_path.exists()
         assert database.model_directory(1) == model_path and model_path.is_dir()
 
-    def test_initial_files_exclude_epoch_trajectories(self, database, tmp_path):
-        """Top-level .traj files are initial data; epoch_*/*.traj are not listed as initial."""
-        write_atoms_trajectory([_labelled_atoms()], database._root / "Si50.traj")
-        database.write_oracle(1, [_labelled_atoms()])
+    def test_labelled_atoms_ignore_provided_confs_and_other_trajectories(self, database):
+        """The training set is training_configurations.traj + epoch oracles; provided_confs/other .traj are not."""
+        database.append_training_configurations([_labelled_atoms(energy=-1.0)])
+        database.write_provided_confs([_labelled_atoms(energy=-9.0)])                      # seed, not trained on
+        write_atoms_trajectory([_labelled_atoms(energy=-8.0)], database._root / "other.traj")  # ignored
+        database.write_oracle(1, [_labelled_atoms(energy=-2.0)])
 
-        initial = database.initial_trajectory_files()
-        assert [path.name for path in initial] == ["Si50.traj"]
+        energies = sorted(atoms.get_potential_energy() for atoms in database.labelled_atoms)
+        assert energies == [-2.0, -1.0]
 
 
 class TestStaging:
@@ -100,9 +102,9 @@ class TestStaging:
 
 
 class TestTrainingSet:
-    def test_labelled_atoms_combine_initial_and_oracle(self, database):
-        """The training set is the initial files plus every oracle epoch; dynamic configs are excluded."""
-        write_atoms_trajectory([_labelled_atoms(energy=-1.0)], database._root / "seed.traj")
+    def test_labelled_atoms_combine_training_configurations_and_oracle(self, database):
+        """The training set is training_configurations.traj plus every oracle epoch; dynamic configs excluded."""
+        database.append_training_configurations([_labelled_atoms(energy=-1.0)])
 
         # epoch 1: fully complete round.
         database.write_dynamic(1, _uncertain_atoms())
@@ -118,20 +120,25 @@ class TestTrainingSet:
 
     def test_check_passes_for_labelled_data(self, database):
         """A fully labelled database passes the energy/forces check."""
-        write_atoms_trajectory([_labelled_atoms()], database._root / "seed.traj")
+        database.append_training_configurations([_labelled_atoms()])
         database.write_oracle(1, [_labelled_atoms()])
         database.check_labelled_atoms_have_energy_and_forces()
 
     def test_check_raises_on_missing_forces(self, database):
         """A frame without forces in its calculator results fails the check."""
-        write_atoms_trajectory([_labelled_atoms(with_forces=False)], database._root / "seed.traj")
+        database.append_training_configurations([_labelled_atoms(with_forces=False)])
         with pytest.raises(ValueError, match="missing an energy or forces"):
             database.check_labelled_atoms_have_energy_and_forces()
 
 
 class TestAutoResume:
-    def test_empty_database_starts_at_first_driver(self, database):
-        """With no epochs, auto resume starts the driver of epoch 1."""
+    def test_empty_database_starts_at_precomputation(self, database):
+        """With nothing trained yet, auto resume points at epoch 0 (precomputation)."""
+        assert database.resume_point("auto") == (0, Stage.DRIVER)
+
+    def test_committed_precomputation_starts_first_round(self, database):
+        """Once precomputation (epoch 0) is committed, auto resume starts the driver of round 1."""
+        (database.precomputation_model_directory() / "model").write_text("model")
         assert database.resume_point("auto") == (1, Stage.DRIVER)
 
     def test_only_dynamic_resumes_at_oracle(self, database):

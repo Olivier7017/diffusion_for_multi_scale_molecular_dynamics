@@ -5,9 +5,16 @@ files. It is the single source of truth for the training set and the bookkeeping
 recovery. It deals only in ase.Atoms (never SinglePointCalculation), keeping ``io`` free of any ``calc``
 dependency; energies/forces ride on an attached calculator and indices/uncertainty live in ``atoms.info``.
 
-Per-epoch layout::
+The training set is exactly ``training_configurations.traj`` plus every committed ``epoch_N/oracle.traj``;
+no other trajectory in the folder is considered.
+
+Layout::
 
     database/
+      provided_confs.traj             the PROVIDED starting configuration(s); the augmentation seed and the
+                                     dynamic driver's starting point. NOT part of the training set.
+      training_configurations.traj   the labelled training set produced/adopted during precomputation.
+      precomputation/                the precomputation model (fit before the first round).
       epoch_1/
         dynamic/       dynamic driver working directory
         dynamic.traj   stage 1 commit: the uncertain configuration (+ per-atom 'uncertainty')
@@ -15,7 +22,6 @@ Per-epoch layout::
         oracle.traj    stage 2 commit: the labelled configurations (energy + forces)
         model/         stage 3 commit: the deployed MLIP checkpoint
       epoch_2/ ...
-      *.traj           top-level initial files: always part of the training set, never loop-managed
 """
 
 import shutil
@@ -25,6 +31,9 @@ from typing import List, Tuple
 
 from diffusion_for_multi_scale_molecular_dynamics.io.utils import (
     read_atoms_trajectory, write_atoms_trajectory)
+
+PROVIDED_CONFS_FILENAME = "provided_confs.traj"
+TRAINING_CONFIGURATIONS_FILENAME = "training_configurations.traj"
 
 
 class Stage(Enum):
@@ -51,6 +60,16 @@ class TrainingDatabase:
         self._root = Path(database_directory)
         self._root.mkdir(parents=True, exist_ok=True)
 
+    @classmethod
+    def from_computation_folder(cls, working_directory: Path) -> "TrainingDatabase":
+        """Create the training database for a campaign working directory (its ``database/`` subfolder)."""
+        return cls(Path(working_directory) / "database")
+
+    @classmethod
+    def get_epoch_and_stage(cls, working_directory: Path, restart_from_stage: str = "auto") -> Tuple[int, "Stage"]:
+        """Scan a working directory and return the (epoch, stage) to (re)enter at (0 = precomputation)."""
+        return cls.from_computation_folder(working_directory).resume_point(restart_from_stage)
+
     # ------------------------------------------------------------------ paths
     def epoch_directory(self, epoch: int) -> Path:
         """The ``epoch_{epoch}`` folder (created on demand)."""
@@ -71,7 +90,9 @@ class TrainingDatabase:
         return directory
 
     def model_directory(self, epoch: int) -> Path:
-        """The deployed-model directory for an epoch (created on demand)."""
+        """The committed-model directory: precomputation for epoch 0, ``epoch_N/model`` otherwise."""
+        if epoch == 0:
+            return self.precomputation_model_directory()
         directory = self.epoch_directory(epoch) / "model"
         directory.mkdir(parents=True, exist_ok=True)
         return directory
@@ -99,9 +120,47 @@ class TrainingDatabase:
         numbers = self._epoch_numbers()
         return numbers[-1] if numbers else 0
 
-    def initial_trajectory_files(self) -> List[Path]:
-        """The top-level (non loop-managed) initial .traj files, sorted by name."""
-        return sorted(path for path in self._root.glob("*.traj") if path.is_file())
+    # ------------------------------------------------------------ precomputation
+    def provided_confs_path(self) -> Path:
+        """Path to the provided starting configuration(s) trajectory (the augmentation seed)."""
+        return self._root / PROVIDED_CONFS_FILENAME
+
+    def has_provided_confs(self) -> bool:
+        """Whether a provided starting-configuration trajectory exists."""
+        return self.provided_confs_path().is_file()
+
+    def write_provided_confs(self, configurations: List) -> Path:
+        """Write the provided starting configuration(s) to provided_confs.traj."""
+        return write_atoms_trajectory(list(configurations), self.provided_confs_path())
+
+    def read_provided_confs(self) -> List:
+        """Read back the provided starting configuration(s)."""
+        return read_atoms_trajectory(self.provided_confs_path())
+
+    def training_configurations_path(self) -> Path:
+        """Path to the labelled training-configurations trajectory."""
+        return self._root / TRAINING_CONFIGURATIONS_FILENAME
+
+    def append_training_configurations(self, labelled_configurations: List) -> Path:
+        """Append labelled configurations to training_configurations.traj."""
+        path = self.training_configurations_path()
+        existing = read_atoms_trajectory(path) if path.is_file() else []
+        return write_atoms_trajectory(existing + list(labelled_configurations), path)
+
+    def number_of_labelled_environments(self) -> int:
+        """Total number of atomic environments (atoms) across the labelled training set."""
+        return sum(len(atoms) for atoms in self.labelled_atoms)
+
+    def precomputation_model_directory(self) -> Path:
+        """The directory holding the precomputation model, fit before the first round (created on demand)."""
+        directory = self._root / "precomputation"
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def is_precomputation_model_committed(self) -> bool:
+        """Whether the precomputation model directory has been populated (a fit finished)."""
+        directory = self._root / "precomputation"
+        return directory.is_dir() and any(directory.iterdir())
 
     # ---------------------------------------------------------------- staging
     def is_dynamic_committed(self, epoch: int) -> bool:
@@ -113,7 +172,9 @@ class TrainingDatabase:
         return self._oracle_trajectory_path(epoch).is_file()
 
     def is_model_committed(self, epoch: int) -> bool:
-        """Whether the epoch's model (stage 3) directory has been populated."""
+        """Whether the epoch's model is committed (epoch 0 is the precomputation model)."""
+        if epoch == 0:
+            return self.is_precomputation_model_committed()
         model_directory = self._root / f"epoch_{epoch}" / "model"
         return model_directory.is_dir() and any(model_directory.iterdir())
 
@@ -136,13 +197,14 @@ class TrainingDatabase:
     # ----------------------------------------------------------- training set
     @property
     def labelled_atoms(self) -> List:
-        """The full training set: every initial .traj plus every committed ``epoch_*/oracle.traj``.
+        """The full training set: ``training_configurations.traj`` plus every committed ``epoch_*/oracle.traj``.
 
-        The dynamic (uncertain) configurations are provenance only and are deliberately excluded.
+        No other trajectory in the folder is considered; the dynamic (uncertain) configurations and the
+        provided_confs seed are deliberately excluded.
         """
         atoms_list = []
-        for initial_path in self.initial_trajectory_files():
-            atoms_list.extend(read_atoms_trajectory(initial_path))
+        if self.training_configurations_path().is_file():
+            atoms_list.extend(read_atoms_trajectory(self.training_configurations_path()))
         for epoch in self._epoch_numbers():
             if self.is_oracle_committed(epoch):
                 atoms_list.extend(self.read_oracle(epoch))
@@ -155,7 +217,9 @@ class TrainingDatabase:
         energy/force evaluation.
         """
         required_results = {"energy", "forces"}
-        trajectory_paths = list(self.initial_trajectory_files())
+        trajectory_paths = []
+        if self.training_configurations_path().is_file():
+            trajectory_paths.append(self.training_configurations_path())
         trajectory_paths += [
             self._oracle_trajectory_path(epoch)
             for epoch in self._epoch_numbers()
@@ -189,9 +253,13 @@ class TrainingDatabase:
         return self._forced_resume_stage(restart_from_stage)
 
     def _driver_resume_stage(self) -> Tuple[int, Stage]:
-        """Return (epoch, stage) for a driver run: a fresh epoch if the latest one is already complete."""
+        """Return (epoch, stage) for a driver run: epoch 0 (precomputation) when nothing is trained yet, the
+        next round when the latest one is complete, or a re-run of the latest round otherwise."""
         latest = self.epoch
-        if latest == 0 or self.is_model_committed(latest):
+        if latest == 0:
+            # No rounds yet: start round 1 if precomputation (epoch 0) is done, else precompute.
+            return (1, Stage.DRIVER) if self.is_model_committed(0) else (0, Stage.DRIVER)
+        if self.is_model_committed(latest):
             return latest + 1, Stage.DRIVER
         return latest, Stage.DRIVER
 
