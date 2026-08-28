@@ -1,0 +1,134 @@
+================================================================================
+ACTIVE LEARNING: PRECOMPUTATION + CAMPAIGN STRUCTURE
+(design notes — to become a user-facing tutorial once the software is solid)
+================================================================================
+
+WHY THIS EXISTS
+---------------
+An active-learning run needs a *deployable, uncertainty-aware* MLIP before the
+first dynamic-driver simulation can run. A model on its own is worthless: what
+matters is the model TOGETHER WITH the training database it was fit on (MTP is a
+special case — it embeds its training set/active set inside the .almtp itself;
+FLARE and GRACE-FS keep the model file plus the external database).
+
+The uncertainty of a D-optimality MLIP (MTP, GRACE-FS) is a MaxVol "active set"
+whose size is the dimension of the descriptor space. Building it requires a
+minimum number of atomic environments in the training set
+(mlip.minimum_number_of_training_environments()). A cold model therefore cannot
+produce meaningful uncertainty until it has been fit on at least that many
+environments. FLARE needs no such active set (minimum = 0): an empty sparse GP
+deploys and reports uncertainty from the start.
+
+
+THE ARTIFACTS (single source of truth, all under database/)
+-----------------------------------------------------------
+  database/
+    provided_confs.traj        # PROVIDED starting configuration(s): one atomic
+                              #   structure, or several if the user supplies them.
+                              #   Also the dynamic driver's starting point.
+    training_configurations.traj     # the LABELLED training set used for the
+                              #   precomputation fit. Either provided_confs
+                              #   augmented+labelled (steps below), or, when the
+                              #   user provides a database, that database itself.
+    precomputation/
+      model...                # the fitted model (.almtp / .flare / .yaml).
+                              #   Written ONLY on a successful fit, so its
+                              #   existence == "precomputation fit finished".
+    epoch_1/ , epoch_2/ ...   # one folder per active-learning round (the campaign)
+
+Checkpoints are defined by ARTIFACT EXISTENCE, not by in-memory state. This is
+what makes restart robust: on (re)start we look at what is on disk and resume
+from the first missing artifact. No is_fitted flag, no provenance side-file.
+
+
+THE THREE ORDERED STEPS
+-----------------------
+  1. CREATE THE TRAINING DATABASE (in precomputation)
+       - If the available labelled environments are fewer than
+         minimum_number_of_training_environments, augment provided_confs.traj by
+         perturbing it (small Gaussian rattle, utils.structure_utils
+         .create_perturbed_structures), label the copies with the oracle, and
+         write the labelled result to training_configurations.traj.
+       - Otherwise (a provided database already covers the minimum), copy /
+         adopt it as training_configurations.traj.
+       - Only ever augment the SHORTFALL: ceil((minimum - current) / atoms).
+       - Reaches checkpoint: training_configurations.traj exists with >= minimum
+         labelled environments.
+
+  2. FIT THE MODEL (in precomputation)
+       - Fit on training_configurations.traj -> produces precomputation/model...
+       - Reaches checkpoint: the model file exists (fit finished).
+
+  3. START THE CAMPAIGN
+       - Deploy the model and run the active-learning rounds (see CAMPAIGN).
+
+
+STARTING CASES  (each resumes at the first step whose checkpoint is unmet)
+--------------------------------------------------------------------------
+  A. Pretrained model + training database
+        -> step 3 if the database already covers the minimum,
+           step 1 if it is too small (augment, then refit at step 2).
+  B. Training database only (no model)
+        -> step 2 if the database covers the minimum,
+           step 1 if it is too small.
+  C. Cold start (just an initial configuration)
+        -> step 1.
+  D. Restart after a precomputation FIT crash
+        -> step 2 (training_configurations.traj exists, model does not: refit).
+  E. Restart after an epoch crash / at the end of an epoch
+        -> step 3 (model + database exist: continue the campaign).
+
+Resume rule (top-down): model exists -> step 3; else training_configurations.traj has
+>= minimum environments -> step 2; else -> step 1.
+
+
+================================================================================
+THE CAMPAIGN
+================================================================================
+Once a deployable model exists, the campaign iterates active-learning ROUNDS
+(epochs) until the dynamic driver finds no structure whose uncertainty exceeds
+the threshold. Each round is three stages, and each stage commits an artifact to
+database/epoch_N/ so a crash resumes at the first uncommitted stage of the
+current epoch:
+
+  Stage DRIVER  (run the dynamic driver — ARTn or MD — with the current MLIP)
+     1. Run the driver; it halts on the first high-uncertainty configuration.
+     2. Extract the per-atom uncertainty of that configuration.
+     -> commits epoch_N/dynamic.traj   (SUCCESS instead = no uncertain config
+        found; the campaign is complete and exits.)
+
+  Stage ORACLE  (label around the uncertain configuration)
+     3. Make samples from the uncertain configuration (excise + repaint /
+        excise + random / no-op).
+     4. Label the samples with the oracle (DFT, Stillinger-Weber, ...).
+     5. Commit the labelled structures to the database.
+     -> commits epoch_N/oracle.traj
+
+  Stage TRAIN  (fold in and retrain)
+     6. Fold the labelled structures into the training set and retrain the MLIP;
+        deploy the new model.
+     -> commits epoch_N/model/
+
+The full training set at any point = training_configurations.traj plus every committed
+epoch_*/oracle.traj. The MLIP is retrained from that set each round; MTP/GRACE
+refit from the whole set, FLARE folds the new structures into its sparse GP.
+
+restart_from_stage="auto" resumes from what is on disk; "driver"/"oracle"/
+"train" force the resume stage of the latest epoch.
+
+
+================================================================================
+NOTES TO CONVEY IN THE EVENTUAL TUTORIAL
+================================================================================
+  - "A model is worthless without its training database." Show the artifact tree
+    and explain the model <-> database pairing (and that MTP embeds its own).
+  - Explain the D-optimality active set and the minimum-environments idea: why a
+    cold MTP/GRACE cannot report uncertainty until precomputation, why FLARE can.
+  - Walk through the three precomputation steps and the five starting cases with
+    a concrete example each (cold start; bring-your-own database; restart).
+  - Show that checkpoints are just files on disk, so a run is fully restartable
+    and inspectable — point at each artifact and what it means.
+  - Explain augmentation (rattle) vs. the diffusion repaint sample maker: the
+    former only seeds precomputation; the latter proposes campaign candidates.
+  - Cross-reference the runnable examples in examples/ (one MLIP + driver +
+    oracle + sample-maker combination each).

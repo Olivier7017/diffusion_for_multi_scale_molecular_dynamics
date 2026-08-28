@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from pymatgen.core import Element
 
@@ -18,8 +18,8 @@ class MtpConfiguration:
     max_dist: float
 
     # Read back from the template/fitted potential (the level fixes these).
-    min_dist: float = 0.0
     radial_basis_size: Optional[int] = None
+    radial_funcs_count: Optional[int] = None
     alpha_scalar_moments: Optional[int] = None
     species_count: Optional[int] = None
 
@@ -34,15 +34,17 @@ class MtpConfiguration:
     )
 
     # The parameters read from an MTP file and their python type.
-    _FILE_PARAMETERS = dict(species_count=int, min_dist=float, radial_basis_size=int, alpha_scalar_moments=int)
+    _FILE_PARAMETERS = dict(species_count=int, radial_basis_size=int,
+                            radial_funcs_count=int, alpha_scalar_moments=int)
 
     @property
     def number_of_adjustable_parameters(self) -> int:
         """The number of adjustable MTP parameters."""
         return self.radial_basis_size + self.alpha_scalar_moments + self.species_count
 
-    def read_from_file(self, mtp_file_path: Path) -> None:
-        """Read the level-determined parameters back from an MTP file into the configuration.
+    @classmethod
+    def _parse_header(cls, mtp_file_path: Path) -> Dict:
+        """Parse the readable header of an MTP file into a dict of the _FILE_PARAMETERS values.
 
         The MTP file mixes a readable text header with binary data, so it is parsed line by line.
         """
@@ -51,15 +53,34 @@ class MtpConfiguration:
             for raw_line in file_descriptor:
                 key, separator, value = raw_line.decode("latin-1").partition("=")
                 key = key.strip()
-                if separator and key in self._FILE_PARAMETERS and key not in found:
-                    found[key] = self._FILE_PARAMETERS[key](value.strip())
-                    if len(found) == len(self._FILE_PARAMETERS):
+                if separator and key in cls._FILE_PARAMETERS and key not in found:
+                    found[key] = cls._FILE_PARAMETERS[key](value.strip())
+                    if len(found) == len(cls._FILE_PARAMETERS):
                         break
+        return found
 
+    def read_from_file(self, mtp_file_path: Path) -> None:
+        """Read the level-determined parameters back from an MTP file into the configuration."""
+        found = self._parse_header(mtp_file_path)
         self.species_count = found["species_count"]
-        self.min_dist = found["min_dist"]
         self.radial_basis_size = found["radial_basis_size"]
+        self.radial_funcs_count = found["radial_funcs_count"]
         self.alpha_scalar_moments = found["alpha_scalar_moments"]
+
+    def read_descriptors(self, mtp_file_path: Path) -> Dict[str, int]:
+        """Return the MTP basis descriptors that fix the size of the model's coefficient space.
+
+        The basis sizes (radial_basis_size, radial_funcs_count, alpha_scalar_moments) are level-determined and
+        read from the (single-species) level template; the species_count comes from the configured elements
+        (the templates always report 1), since the radial term scales as species_count squared.
+        """
+        header = self._parse_header(mtp_file_path)
+        return dict(
+            species_count=len(self.elements),
+            radial_basis_size=header["radial_basis_size"],
+            radial_funcs_count=header["radial_funcs_count"],
+            alpha_scalar_moments=header["alpha_scalar_moments"],
+        )
 
     def write_to_file(self, mtp_file_path: Path) -> None:
         """Write the configuration's max_dist into an MTP file, leaving the rest (including binary) untouched."""
@@ -93,8 +114,6 @@ class MtpConfiguration:
             raise ValueError("The MTP level should be positive.")
         if self.max_dist <= 0.0:
             raise ValueError("The maximum distance (cutoff) should be positive.")
-        if self.min_dist < 0.0:
-            raise ValueError("The minimum distance should be non-negative.")
 
         weights = dict(energy_weight=self.energy_weight, force_weight=self.force_weight,
                        stress_weight=self.stress_weight, site_en_weight=self.site_en_weight)

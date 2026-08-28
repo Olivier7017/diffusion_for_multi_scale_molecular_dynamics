@@ -50,6 +50,11 @@ class MtpTrainer(BaseMLIPTrainer):
         """The MTP configuration, with the level-determined parameters filled in once fitted."""
         return self._configuration
 
+    @property
+    def template_path(self) -> Path:
+        """Path to the level template shipped with the package (its header carries the basis descriptors)."""
+        return self._template_path()
+
     def _add_labelled_structure_to_model(
         self,
         single_point_calculation: SinglePointCalculation,

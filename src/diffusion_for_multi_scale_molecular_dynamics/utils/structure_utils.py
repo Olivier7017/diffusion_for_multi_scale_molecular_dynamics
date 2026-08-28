@@ -1,15 +1,20 @@
-from typing import List
+from typing import List, Union
 
 import numpy as np
 import torch
+from ase import Atoms
 from pykeops.torch import LazyTensor
 from pymatgen.core import Lattice, Structure
 
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
+    BaseSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
     get_relative_coordinates_lattice_vectors
 from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import (
     _get_shifted_positions, get_periodic_adjacency_information,
     get_positions_from_coordinates)
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
 
 
 def create_structure(
@@ -161,3 +166,50 @@ def compute_distances(
     distances = torch.linalg.norm(cartesian_displacements, dim=-1)
     # Identify neighbors within the radial_cutoff, but avoiding self.
     return distances[distances > 0.0]
+
+
+def create_perturbed_structures(
+    atoms: Union[Atoms, List[Atoms]], standard_deviation: float, number_of_configurations: int
+) -> List[Atoms]:
+    """Create slightly perturbed copies of each input structure.
+
+    Each structure's atoms are displaced by small Gaussian noise (ASE's rattle), number_of_configurations
+    times, keeping the same cell and species. This augments a training set around known configurations; it is
+    not a fully-random placement of atoms.
+
+    Args:
+        atoms: an ase.Atoms (or list of them) to perturb.
+        standard_deviation: standard deviation (Angstrom) of the Gaussian displacements.
+        number_of_configurations: number of perturbed configurations to generate per input structure.
+
+    Returns:
+        perturbed_structures: the perturbed configurations.
+    """
+    if isinstance(atoms, Atoms):
+        atoms = [atoms]
+    random_generator = np.random.default_rng()
+    perturbed_structures = []
+    for structure in atoms:
+        for _ in range(number_of_configurations):
+            perturbed_structure = structure.copy()
+            perturbed_structure.rattle(stdev=standard_deviation, rng=random_generator)
+            perturbed_structures.append(perturbed_structure)
+    return perturbed_structures
+
+
+def label_configurations(
+    configurations: List[Atoms], single_point_calculator: BaseSinglePointCalculator
+) -> List[Atoms]:
+    """Compute the energy and forces of each configuration with the single-point calculator.
+
+    Args:
+        configurations: the ase.Atoms to label.
+        single_point_calculator: the oracle used to evaluate them.
+
+    Returns:
+        the configurations as labelled ase.Atoms (energy and forces on their calculator).
+    """
+    calculations = single_point_calculator.calculate_many(
+        [to_pymatgen_structure(atoms) for atoms in configurations]
+    )
+    return [calculation.to_atoms(list(range(len(calculation.structure)))) for calculation in calculations]

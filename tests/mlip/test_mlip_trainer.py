@@ -25,13 +25,12 @@ MOCK_ENERGY = -26.43783
 SI8_STRUCTURE_FILE = Path(__file__).parent.parent / "reference_files" / "structure" / "Si8.in"
 
 # Parameters read back from a level-6 MTP fitted on the fixed Si8 structure. The radial basis size, alpha scalar
-# moments and species count are fixed by the level; min_dist is the (deterministic) minimum interatomic distance.
+# moments and species count are fixed by the level.
 MTP_LEVEL = 6
 MTP_MAX_DIST = 3.5
 MTP_EXPECTED_RADIAL_BASIS_SIZE = 8
 MTP_EXPECTED_ALPHA_SCALAR_MOMENTS = 5
 MTP_EXPECTED_SPECIES_COUNT = 1
-MTP_EXPECTED_MIN_DIST = 2.3336
 
 
 def predict_mtp_energy(trainer, structure):
@@ -81,7 +80,6 @@ def verify_fitted_model(trainer_type, trainer, labelled_structure):
         assert configuration.alpha_scalar_moments == MTP_EXPECTED_ALPHA_SCALAR_MOMENTS
         assert configuration.species_count == MTP_EXPECTED_SPECIES_COUNT
         assert configuration.number_of_adjustable_parameters == 14
-        np.testing.assert_allclose(configuration.min_dist, MTP_EXPECTED_MIN_DIST, atol=1e-3)
         predicted_energy = predict_mtp_energy(trainer, labelled_structure.structure)
         np.testing.assert_allclose(predicted_energy, labelled_structure.energy, atol=1e-1)
     else:
