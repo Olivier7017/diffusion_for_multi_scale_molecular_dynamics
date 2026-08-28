@@ -15,16 +15,16 @@ from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
     BaseMLIPTrainer
-from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
-    SinglePointCalculation
+from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (
+    BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
     to_pymatgen_structure
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
-    create_perturbed_structures
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import (
+    create_perturbed_structures, label_configurations)
 
 
 class BaseMLIP(ABC):
@@ -112,6 +112,87 @@ class BaseMLIP(ABC):
             standard_deviation,
             self.minimum_number_of_atomic_structures(structure, number_of_existing_environments),
         )
+
+    def prepare_training_set(
+        self,
+        provided_configurations: List[Atoms],
+        single_point_calculator: BaseSinglePointCalculator,
+        standard_deviation: float = 0.05,
+    ) -> None:
+        """Seed this MLIP's training database from the provided configuration(s) for precomputation.
+
+        Assembles the training configurations (augmenting the provided configuration(s) with oracle-labelled
+        perturbations when they are too few) and writes the provided and training configurations to the
+        database. Does nothing when the training set already covers the minimum number of training
+        environments (e.g. on a restart).
+
+        Args:
+            provided_configurations: the (labelled) seed configurations.
+            single_point_calculator: the oracle used to label the perturbed copies.
+            standard_deviation: standard deviation (Angstrom) of the Gaussian displacements when augmenting.
+        """
+        database = self.training_database
+        if database.number_of_labelled_environments() >= self.minimum_number_of_training_environments():
+            return
+
+        training_configurations = self.create_training_configurations(
+            provided_configurations, single_point_calculator, standard_deviation
+        )
+        database.write_provided_configurations(provided_configurations)
+        database.append_training_configurations(training_configurations)
+
+    def create_training_configurations(
+        self,
+        provided_configurations: List[Atoms],
+        single_point_calculator: BaseSinglePointCalculator,
+        standard_deviation: float = 0.05,
+    ) -> List[Atoms]:
+        """Assemble the labelled training set from the provided configuration(s).
+
+        The provided configuration(s) must already be labelled (energy and forces). When they hold fewer
+        environments than the D-optimality minimum, they are augmented with perturbed, oracle-labelled copies.
+
+        Args:
+            provided_configurations: the (labelled) seed configurations.
+            single_point_calculator: the oracle used to label the perturbed copies.
+            standard_deviation: standard deviation (Angstrom) of the Gaussian displacements when augmenting.
+
+        Returns:
+            the labelled training configurations (provided plus any augmented, oracle-labelled copies).
+        """
+        required_results = {"energy", "forces"}
+        for configuration in provided_configurations:
+            available_results = set(getattr(configuration.calc, "results", {})) if configuration.calc else set()
+            if not required_results.issubset(available_results):
+                raise ValueError(
+                    "The provided configurations must be labelled (carry an energy and forces) to seed the "
+                    "training set. Label them first with "
+                    "utils.structure_utils.label_configurations(configurations, oracle)."
+                )
+
+        training_configurations = list(provided_configurations)
+        number_of_environments = sum(len(configuration) for configuration in provided_configurations)
+        if number_of_environments < self.minimum_number_of_training_environments():
+            perturbed_configurations = self._augment_configurations(
+                provided_configurations, number_of_environments, standard_deviation
+            )
+            training_configurations += label_configurations(perturbed_configurations, single_point_calculator)
+        return training_configurations
+
+    def _augment_configurations(
+        self, provided_configurations: List[Atoms], number_of_existing_environments: int, standard_deviation: float
+    ) -> List[Atoms]:
+        """Perturb the provided configuration(s) into enough (unlabelled) copies to cover the shortfall."""
+        perturbed_configurations = []
+        for seed_configuration in provided_configurations:
+            new_configurations = self.augment_configurations(
+                seed_configuration,
+                number_of_existing_environments=number_of_existing_environments,
+                standard_deviation=standard_deviation,
+            )
+            perturbed_configurations.extend(new_configurations)
+            number_of_existing_environments += sum(len(structure) for structure in new_configurations)
+        return perturbed_configurations
 
     def prepare_mlip_first_round(self, output_directory: Path) -> None:
         """Deploy the pretrained model so it can be run before any training happens this campaign."""

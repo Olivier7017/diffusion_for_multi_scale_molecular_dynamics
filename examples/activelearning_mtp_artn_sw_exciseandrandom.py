@@ -19,7 +19,7 @@ Notes about this example (the chosen options):
 
 from pathlib import Path
 
-from pymatgen.core import Lattice, Structure
+from ase.build import bulk
 from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
@@ -44,6 +44,10 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excise_and_random
     ExciseAndRandomSampleMaker, ExciseAndRandomSampleMakerArguments)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excisor.nearest_neighbors_excisor import (
     NearestNeighborsExcision, NearestNeighborsExcisionArguments)
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
+    label_configurations
 
 # --- User configuration (set these for your machine and task) ---
 ELEMENT_LIST = ["Si"]
@@ -73,9 +77,15 @@ def main():
     With restart_from_stage="auto" the campaign starts from Stage.DRIVER on a fresh run, and on a restart
     resumes just after the last stage that completed successfully.
     """
-    write_initial_configuration(create_atoms())
+    initial_configuration = create_initial_configuration()  # DynamicDriver initial configuration
+    provided_configurations = create_provided_configurations()  # Initial training configuration for the MLIP
+
+    oracle = create_oracle()
+    provided_configurations = label_configurations(create_atoms(), oracle)
+    exit()
+
     active_learning = ActiveLearning(
-        oracle_single_point_calculator=create_oracle(),
+        oracle_single_point_calculator=oracle,
         sample_maker=create_sample_maker(),
         dynamic_driver=create_dynamic_driver(),
     )
@@ -83,28 +93,24 @@ def main():
         uncertainty_threshold=UNCERTAINTY_THRESHOLD,
         mlip=create_mlip(),
         working_directory=WORKING_DIRECTORY,
+        provided_configurations=provided_configurations,
         maximum_number_of_rounds=100,
         restart_from_stage="auto",  # either {"auto", "driver", "oracle", "train"}
     )
 
 
-def create_atoms():
-    """Create the starting atomic structure (a small silicon crystal)."""
-    structure = Structure(
-        lattice=Lattice.cubic(5.43),
-        species=["Si", "Si"],
-        coords=[[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]],
-    )
-    structure.make_supercell([2, 2, 2])
-    return structure
+def create_initial_configuration():
+    """Create the starting configuration(s) as an ase trajectory (a small silicon crystal)."""
+    silicon = bulk("Si", "diamond", a=5.43)
+    silicon_supercell = silicon.repeat((2, 2, 2))
+    return silicon_supercell
 
-
-def write_initial_configuration(structure):
-    """Write the structure as REFERENCE_DIRECTORY/initial_configuration.dat (the driver's starting point)."""
-    REFERENCE_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    lammps_data = LammpsData.from_structure(structure, atom_style="atomic")
-    lammps_data.write_file(str(REFERENCE_DIRECTORY / "initial_configuration.dat"))
-
+def create_provided_configurations():
+    """Create the starting configuration(s) as an ase trajectory (a small silicon crystal)."""
+    silicon = bulk("Si", "diamond", a=5.43)
+    silicon_supercell = silicon.repeat((2, 2, 2))
+    print(len(silicon_supercell))
+    return [silicon_supercell]
 
 def create_mlip():
     """Create the MTP MLIP to drive and refine."""

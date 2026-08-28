@@ -18,8 +18,6 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
     extract_all_fields_from_dump
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import (
     Stage, TrainingDatabase)
-from diffusion_for_multi_scale_molecular_dynamics.io.utils import \
-    read_atoms_trajectory
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
@@ -33,16 +31,8 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion imp
     to_pymatgen_structure
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter import \
     StructureConverter
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
-    label_configurations
 
 UNCERTAINTY_INFO_KEY = "uncertainty"
-
-
-def _has_energy_and_forces(atoms: Atoms) -> bool:
-    """Whether an ase.Atoms already carries an energy and forces on its calculator."""
-    results = set(getattr(atoms.calc, "results", {})) if atoms.calc is not None else set()
-    return {"energy", "forces"}.issubset(results)
 
 
 class ActiveLearning:
@@ -68,6 +58,7 @@ class ActiveLearning:
         oracle_single_point_calculator: BaseSinglePointCalculator,
         sample_maker: BaseSampleMaker,
         dynamic_driver: DynamicDriver,
+        mlip: BaseMLIP,
     ):
         """Init method.
 
@@ -75,10 +66,12 @@ class ActiveLearning:
             oracle_single_point_calculator: class responsible for generating of ground truth labels.
             sample_maker: class responsible for generating samples for active learning.
             dynamic_driver: class responsible for running LAMMPS to search for uncertain structures (ARTn or MD).
+            mlip: the machine-learning interatomic potential to drive and refine.
         """
         self.oracle_calculator = oracle_single_point_calculator
         self.sample_maker = sample_maker
         self.dynamic_driver = dynamic_driver
+        self.mlip = mlip
         self._structure_converter = StructureConverter(list_of_element_symbols=sample_maker.arguments.element_list)
 
     def _get_uncertain_structure_and_uncertainties(
@@ -196,29 +189,25 @@ class ActiveLearning:
     def run_campaign(
         self,
         uncertainty_threshold: float,
-        mlip: BaseMLIP,
         working_directory: Path,
+        provided_configurations: List[Atoms],
         maximum_number_of_rounds: int = 100,
         restart_from_stage: str = "auto",
-        path_to_provided_configurations: Optional[Path] = None,
         initial_perturbation_standard_deviation: float = 0.05,
     ):
         """Run campaign.
 
         Perform a full campaign of active learning, resuming a crashed run when a database is already present.
         The preparation before the rounds (resume bookkeeping and precomputation) is done in
-        ``_prepare_for_campaign``; each round is then run by ``_run_round``.
+        ``_prepare_campaign``; each round is then run by ``_run_round``.
 
         Args:
             uncertainty_threshold: the uncertainty threshold to interrupt a dynamic driver run.
-            mlip: the machine-learning interatomic potential to drive and refine.
-            working_directory: top directory where all the campaign artifacts (including 'database/') are written.
+            working_directory: top directory where all the campaign artifacts are written.
+            provided_configurations: the labelled starting configuration(s)
             maximum_number_of_rounds: maximum number of active learning rounds (guards against infinite loops).
             restart_from_stage: 'auto' resumes from what is on disk (or starts clean); 'driver'/'oracle'/'train'
                 force the resume stage of the latest epoch.
-            path_to_provided_configurations: path to a .traj of the provided starting configuration(s); its
-                contents are copied into the database's provided_confs.traj (the precomputation seed). When
-                None, the dynamic driver's starting structure is used as the seed.
             initial_perturbation_standard_deviation: standard deviation (Angstrom) of the Gaussian
                 displacements used to augment the seed during precomputation.
         """
@@ -230,26 +219,25 @@ class ActiveLearning:
         self._uncertainty_threshold = uncertainty_threshold
 
         start_epoch, start_stage = self._prepare_campaign(
-            mlip, restart_from_stage, path_to_provided_configurations, initial_perturbation_standard_deviation
+            restart_from_stage, provided_configurations, initial_perturbation_standard_deviation
         )
 
         epoch, stage = start_epoch, start_stage
         for _ in range(maximum_number_of_rounds):
             logger.info(f"Starting epoch {epoch} at stage {stage.name}")
-            if self._run_round(epoch, stage, mlip):
+            if self._run_round(epoch, stage):
                 logger.info("Active Learning Campaign is Complete. Exiting.")
                 break
             epoch += 1
             stage = Stage.DRIVER
 
-        self._finish_campaign(mlip, uncertainty_threshold, epoch)
+        self._finish_campaign(uncertainty_threshold, epoch)
         clean_up_campaign_logger(logger)
 
     def _prepare_campaign(
         self,
-        mlip: BaseMLIP,
         restart_from_stage: str,
-        path_to_provided_configurations: Optional[Path],
+        provided_configurations: List[Atoms],
         standard_deviation: float,
     ) -> Tuple[int, Stage]:
         """Prepare the simulation state and return the (epoch, stage) to enter the round loop at.
@@ -262,116 +250,62 @@ class ActiveLearning:
 
         if restart_epoch == 0:
             self._logger.info("Starting from scratch.")
-            return self._start_from_scratch(mlip, path_to_provided_configurations, standard_deviation)
+            return self._start_from_scratch(provided_configurations, standard_deviation)
 
         self._logger.info(f"Restarting from epoch {restart_epoch} at stage {restart_stage.name}.")
-        return self._restart_computation(mlip, restart_epoch, restart_stage, restart_from_stage)
+        return self._restart_computation(restart_epoch, restart_stage, restart_from_stage)
 
     def _start_from_scratch(
-        self, mlip: BaseMLIP, path_to_provided_configurations: Optional[Path], standard_deviation: float
+        self, provided_configurations: List[Atoms], standard_deviation: float
     ) -> Tuple[int, Stage]:
         """Start a fresh campaign: precompute the initial (epoch 0) model, then begin at the first round."""
-        self._training_database = TrainingDatabase.from_computation_folder(self._working_directory)
-        mlip.attach_training_database(self._training_database)
-        self._run_precomputation(mlip, path_to_provided_configurations, standard_deviation)
+        self._training_database = TrainingDatabase.from_scratch(self._working_directory)
+        self._training_database.precomputation_model_directory()  # create the precomputation directory
+        self.mlip.attach_training_database(self._training_database)
+        self._run_precomputation(provided_configurations, standard_deviation)
         return 1, Stage.DRIVER
 
     def _restart_computation(
-        self, mlip: BaseMLIP, restart_epoch: int, restart_stage: Stage, restart_from_stage: str
+        self, restart_epoch: int, restart_stage: Stage, restart_from_stage: str
     ) -> Tuple[int, Stage]:
         """Restart from the work already on disk: reload the latest model and resume at the right stage."""
         self._training_database = TrainingDatabase.from_computation_folder(self._working_directory)
-        mlip.attach_training_database(self._training_database)
+        self.mlip.attach_training_database(self._training_database)
         self._training_database.check_labelled_atoms_have_energy_and_forces()
         if restart_from_stage != "auto":
             self._training_database.reset_epoch_to_stage(restart_epoch, restart_stage)
 
-        mlip.load(self._training_database.model_directory(restart_epoch - 1))  # epoch 0 = precomputation
+        self.mlip.load(self._training_database.model_directory(restart_epoch - 1))  # epoch 0 = precomputation
         return restart_epoch, restart_stage
 
-    def _finish_campaign(self, mlip: BaseMLIP, uncertainty_threshold: float, final_epoch: int) -> None:
+    def _finish_campaign(self, uncertainty_threshold: float, final_epoch: int) -> None:
         """Log the campaign summary once the round loop has finished."""
         campaign_details = dict(uncertainty_threshold=float(uncertainty_threshold),
                                 final_epoch=int(final_epoch),
-                                **mlip.training_metrics())
+                                **self.mlip.training_metrics())
         self._log_campaign_details(campaign_working_directory_path=self._working_directory,
                                    campaign_details=campaign_details)
 
     def _run_precomputation(
-        self, mlip: BaseMLIP, path_to_provided_configurations: Optional[Path], standard_deviation: float
+        self, provided_configurations: List[Atoms], standard_deviation: float
     ) -> None:
         """Precompute the initial model before the first round.
 
-        1. Create the training database (augmenting the provided configurations when they are too few).
+        1. Let the MLIP seed its training database from the provided configuration(s).
         2. Fit and deploy the model. A model needing no training environments is simply deployed as-is.
         """
-        if mlip.minimum_number_of_training_environments() == 0:
-            mlip.prepare_mlip_first_round(self._working_directory / "initial_mlip")
+        if self.mlip.minimum_number_of_training_environments() == 0:
+            self.mlip.prepare_mlip_first_round(self._working_directory / "initial_mlip")
             return
 
-        self._create_training_database(mlip, path_to_provided_configurations, standard_deviation)
+        self.mlip.prepare_training_set(provided_configurations, self.oracle_calculator, standard_deviation)
 
         self._logger.info("  Precomputation: fitting and deploying the initial model.")
         model_directory = self._training_database.precomputation_model_directory()
-        mlip.train(model_directory)
+        self.mlip.train(model_directory)
         self._update_latest_mlip_symlink(self._working_directory, model_directory)
 
-    def _create_training_database(
-        self, mlip: BaseMLIP, path_to_provided_configurations: Optional[Path], standard_deviation: float
-    ) -> None:
-        """Step 1: make the training database reach the minimum number of training environments.
-
-        The provided configuration(s) must be labelled (energy and forces); they seed the training set and
-        are augmented with perturbed, oracle-labelled copies when they are too few. Does nothing when the
-        training set already covers the minimum (e.g. on a restart).
-        """
-        training_database = self._training_database
-        minimum_number_of_environments = mlip.minimum_number_of_training_environments()
-        if training_database.number_of_labelled_environments() >= minimum_number_of_environments:
-            return
-
-        if not training_database.has_provided_confs():
-            if path_to_provided_configurations is not None:
-                training_database.write_provided_confs(read_atoms_trajectory(path_to_provided_configurations))
-            else:
-                training_database.write_provided_confs([self.dynamic_driver.initial_structure.to_ase_atoms()])
-
-        provided_configurations = training_database.read_provided_confs()
-        if not all(_has_energy_and_forces(configuration) for configuration in provided_configurations):
-            raise ValueError(
-                "The provided configurations must be labelled (carry an energy and forces) to seed the "
-                "training set. Label them first with "
-                "utils.structure_utils.label_configurations(configurations, oracle)."
-            )
-
-        training_configurations = list(provided_configurations)
-        number_of_environments = sum(len(configuration) for configuration in provided_configurations)
-        if number_of_environments < minimum_number_of_environments:
-            self._logger.info("  Precomputation: augmenting the provided configuration(s) to cover the active set.")
-            perturbed_structures = self._augment_configurations(
-                mlip, provided_configurations, number_of_environments, standard_deviation
-            )
-            training_configurations += label_configurations(perturbed_structures, self.oracle_calculator)
-
-        training_database.append_training_configurations(training_configurations)
-
-    def _augment_configurations(
-        self, mlip: BaseMLIP, provided_configurations: List[Atoms],
-        number_of_existing_environments: int, standard_deviation: float,
-    ) -> List[Atoms]:
-        """Perturb the provided configuration(s) into enough copies to cover the environment shortfall."""
-        perturbed_structures = []
-        for seed_configuration in provided_configurations:
-            new_structures = mlip.augment_configurations(
-                seed_configuration,
-                number_of_existing_environments=number_of_existing_environments,
-                standard_deviation=standard_deviation,
-            )
-            perturbed_structures.extend(new_structures)
-            number_of_existing_environments += sum(len(structure) for structure in new_structures)
-        return perturbed_structures
-
-    def _run_round(self, epoch: int, entry_stage: Stage, mlip: BaseMLIP) -> bool:
+    def _run_round(self, epoch: int, entry_stage: Stage) -> bool:
         """Run one round from entry_stage (skipping already-committed stages); return True when complete.
 
         A round is made of the following 6 steps, grouped into the 3 stages that also act as the restart
@@ -391,7 +325,7 @@ class ActiveLearning:
         if current_stage == Stage.DRIVER:
             # Start this epoch's driver from a clean slate (clears any partial artifacts of a crashed attempt).
             self._training_database.reset_epoch_to_stage(epoch, Stage.DRIVER)
-            uncertain_configuration = self.run_dynamic_driver(mlip, epoch)
+            uncertain_configuration = self.run_dynamic_driver(epoch)
             if uncertain_configuration is None:  # SUCCESS: no uncertain structure was found.
                 return True
             self._training_database.write_dynamic(epoch, uncertain_configuration)
@@ -405,17 +339,17 @@ class ActiveLearning:
 
         if current_stage == Stage.TRAIN:
             training_configurations = self._training_database.read_oracle(epoch)
-            self._retrain(epoch, mlip, training_configurations)
+            self._retrain(epoch, training_configurations)
 
         return False
 
-    def run_dynamic_driver(self, mlip: BaseMLIP, epoch: int) -> Optional[Atoms]:
+    def run_dynamic_driver(self, epoch: int) -> Optional[Atoms]:
         """Stage DRIVER (steps 1-2): run the driver and return the uncertain configuration (None on SUCCESS)."""
         dynamics_working_directory = self._training_database.dynamic_directory(epoch)
 
         self._logger.info("  Launching the dynamic driver simulation...")
         calculation_state = self.dynamic_driver.run(
-            mlip=mlip,
+            mlip=self.mlip,
             working_directory=dynamics_working_directory,
             uncertainty_threshold=self._uncertainty_threshold,
         )
@@ -429,7 +363,7 @@ class ActiveLearning:
             return None
 
         uncertain_structure, uncertainty_per_atom = self._get_uncertain_structure_and_uncertainties(
-            dynamics_working_directory, mlip.lammps_potential.uncertainty_field()
+            dynamics_working_directory, self.mlip.lammps_potential.uncertainty_field()
         )
         number_of_uncertain_envs = np.sum(uncertainty_per_atom > self._uncertainty_threshold)
         self._logger.info(
@@ -471,17 +405,17 @@ class ActiveLearning:
             for calculation, active_environment_indices in zip(list_single_point_calculations, list_active_indices)
         ]
 
-    def _retrain(self, epoch: int, mlip: BaseMLIP, training_configurations: List[Atoms]) -> None:
+    def _retrain(self, epoch: int, training_configurations: List[Atoms]) -> None:
         """Stage TRAIN (step 6): fold this epoch's labelled data into the model, retrain, commit the model."""
         self._logger.info("  Folding labelled samples into the model and retraining the MLIP...")
         for atoms in training_configurations:
-            mlip.add_labelled_structure(
+            self.mlip.add_labelled_structure(
                 SinglePointCalculation.from_atoms(atoms), get_active_environment_indices(atoms)
             )
         model_directory = self._training_database.model_directory(epoch)
-        mlip.train(model_directory)
+        self.mlip.train(model_directory)
         self._update_latest_mlip_symlink(self._working_directory, model_directory)
-        mlip.write_logger_info(self._logger)
+        self.mlip.write_logger_info(self._logger)
 
     @staticmethod
     def _update_latest_mlip_symlink(working_directory: Path, mlip_training_directory: Path):
