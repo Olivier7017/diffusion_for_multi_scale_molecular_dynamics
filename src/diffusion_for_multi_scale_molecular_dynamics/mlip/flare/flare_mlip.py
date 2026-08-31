@@ -100,4 +100,5 @@ class FlareMLIP(BaseMLIP):
             unc_file=unc_file,
             lammps_potential_file=lammps_potential_file,
             hyperparameters=hyperparameters,
+            **self.training_set_state(),
         )

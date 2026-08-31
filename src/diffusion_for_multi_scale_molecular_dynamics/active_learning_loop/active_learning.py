@@ -20,6 +20,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.training_database import (
     Stage, TrainingDatabase)
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
+from diffusion_for_multi_scale_molecular_dynamics.namespace import (
+    DUMP_FILENAME, UNCERTAIN_DUMP_FILENAME, numbered_filename)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation,
     get_active_environment_indices)
@@ -86,7 +88,7 @@ class ActiveLearning:
             dynamics_working_directory: directory holding the dynamic driver's 'uncertain_dump.dump'.
             uncertainty_field: the per-atom uncertainty column to read (depends on the MLIP backend).
         """
-        lammps_dump_path = dynamics_working_directory / "uncertain_dump.dump"
+        lammps_dump_path = dynamics_working_directory / UNCERTAIN_DUMP_FILENAME
         assert lammps_dump_path.is_file(), f"The file {lammps_dump_path} is missing."
 
         list_structures, _, list_uncertainties = extract_all_fields_from_dump(
@@ -389,7 +391,7 @@ class ActiveLearning:
         start_time = time.time()
         list_single_point_calculations = []
         for index, structure in enumerate(list_sample_structures):
-            results_path = oracle_directory / f"dump_{index}.dump"
+            results_path = oracle_directory / numbered_filename(DUMP_FILENAME, index)
             calculation = self.oracle_calculator.calculate(structure, results_path=results_path)
             list_single_point_calculations.append(calculation)
         self._logger.info(f" -> It took {time.time() - start_time: 6.2e} seconds to compute labels with Oracle.")

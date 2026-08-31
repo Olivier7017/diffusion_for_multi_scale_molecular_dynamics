@@ -136,4 +136,5 @@ class GraceMlip(BaseMLIP):
             unc_file=unc_file,
             lammps_potential_file=lammps_potential_file,
             hyperparameters=self._grace_parameters(),
+            **self.training_set_state(),
         )

@@ -91,6 +91,7 @@ def main():
     dynamic_driver = create_dynamic_driver(initial_configuration)
     mlip = create_mlip()
 
+    print("PROVIDED CONF", provided_configurations)
     provided_configurations = label_configurations(provided_configurations, oracle)
 
     active_learning = ActiveLearning(
@@ -110,8 +111,8 @@ def main():
 
 def create_initial_configuration():
     """Create the starting configuration for the dynamic (432 atoms)."""
-    silicon = bulk("Si", "diamond", a=5.43)
-    silicon_supercell = silicon.repeat((6, 6, 6))
+    silicon = bulk("Si", "diamond", a=5.43, cubic=True)
+    silicon_supercell = silicon.repeat((4, 4, 4))
     return silicon_supercell
 
 
@@ -152,8 +153,9 @@ def create_dynamic_driver(initial_configuration):
     lammps_runner = SubprocessLammpsRunner(
         lammps_executable_path=LAMMPS_EXECUTABLE_PATH, mpi_processors=1, openmp_threads=1, mpi_executable="mpirun",
     )
-    return MdDriver(lammps_runner=lammps_runner, initial_configuration=initial_configuration,
-                    temperature=300.0, timestep=0.001, number_of_steps=1000)
+    dynamic_driver = MdDriver(lammps_runner=lammps_runner, initial_configuration=initial_configuration,
+                        temperature=300.0, timestep=0.001, number_of_steps=1000)
+    return dynamic_driver
 
 
 def create_oracle():

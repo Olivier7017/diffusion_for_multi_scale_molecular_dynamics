@@ -17,6 +17,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
     generate_named_elements_blocks
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
+from diffusion_for_multi_scale_molecular_dynamics.namespace import (
+    INITIAL_CONFIGURATION_FILENAME, LAMMPS_INPUT_FILENAME)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
@@ -47,7 +49,7 @@ class DynamicDriver(ABC):
         assert_orthogonal_cell(initial_configuration)
         self.initial_configuration = initial_configuration
         self._lammps_runner = lammps_runner
-        self._lammps_input_filename = "lammps.in"
+        self._lammps_input_filename = LAMMPS_INPUT_FILENAME
 
     def run(self, mlip: BaseMLIP, working_directory: Path, uncertainty_threshold: float) -> CalculationState:
         """Run the dynamics with the MLIP and return the resulting calculation state.
@@ -82,7 +84,7 @@ class DynamicDriver(ABC):
 
         logger.info("Write the starting configuration to the working directory.")
         _, _, elements_string = generate_named_elements_blocks(self.initial_configuration)
-        with open(working_directory / "initial_configuration.dat", "w") as file_descriptor:
+        with open(working_directory / INITIAL_CONFIGURATION_FILENAME, "w") as file_descriptor:
             # specorder mirrors the (mass-sorted) group/mass blocks so the atom-type integers stay consistent.
             write_lammps_data(file_descriptor, self.initial_configuration, atom_style="atomic",
                               specorder=elements_string.split(), masses=True)
@@ -94,7 +96,7 @@ class DynamicDriver(ABC):
         potential = mlip.lammps_potential
         group_block, mass_block, elements_string = generate_named_elements_blocks(self.initial_configuration)
         return dict(
-            configuration_file_path="initial_configuration.dat",
+            configuration_file_path=INITIAL_CONFIGURATION_FILENAME,
             interaction_commands="\n".join(potential.interaction_commands(elements_string, with_uncertainty=True)),
             uncertainty_field=potential.uncertainty_field(),
             dump_fields=" ".join(potential.dump_fields(with_uncertainty=True)),

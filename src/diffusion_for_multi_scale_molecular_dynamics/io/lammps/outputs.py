@@ -13,7 +13,7 @@ import numpy as np
 from ase.io import read as read_ase
 from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.io.lammps.namespace import \
+from diffusion_for_multi_scale_molecular_dynamics.namespace import \
     UNCERTAINTY_FIELD
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
     to_pymatgen_structure
