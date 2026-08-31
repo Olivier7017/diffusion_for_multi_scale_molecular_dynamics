@@ -11,6 +11,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.md import \
     build_md_lammps_tail
+from diffusion_for_multi_scale_molecular_dynamics.namespace import \
+    UNCERTAIN_DUMP_FILENAME
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 
@@ -49,7 +51,7 @@ class MdDriver(DynamicDriver):
 
     def _get_calculation_state(self, working_directory: Path) -> CalculationState:
         """Interpret the run: a non-empty uncertain dump means the halt fired on an uncertain structure."""
-        uncertain_dump_path = working_directory / "uncertain_dump.dump"
+        uncertain_dump_path = working_directory / UNCERTAIN_DUMP_FILENAME
         if uncertain_dump_path.is_file() and uncertain_dump_path.stat().st_size > 0:
             return CalculationState.INTERRUPTION
         return CalculationState.SUCCESS

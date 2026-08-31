@@ -12,7 +12,10 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.single_point_calc_lammps_input import (
-    DUMP_FILENAME, ENERGY_FILENAME, LammpsInputBuilder, write_lammps_input)
+    LammpsInputBuilder, write_lammps_input)
+from diffusion_for_multi_scale_molecular_dynamics.namespace import (
+    CONFIGURATION_FILENAME, DUMP_FILENAME, ENERGY_FILENAME,
+    LAMMPS_INPUT_FILENAME, numbered_filename)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
@@ -45,8 +48,8 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         self._input_builder = LammpsInputBuilder()
 
         self._calculation_type = lammps_potential.calculation_type
-        self._input_file_name = "lammps.in"
-        self._data_filename = "configuration.dat"
+        self._input_file_name = LAMMPS_INPUT_FILENAME
+        self._data_filename = CONFIGURATION_FILENAME
 
     def _extract_calculation_results(
         self, working_directory: str, dump_filename: str = DUMP_FILENAME, energy_filename: str = ENERGY_FILENAME
@@ -149,9 +152,9 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         work_directory = Path(work_directory)
         work_directory.mkdir(parents=True, exist_ok=True)
 
-        configuration_filenames = [f"configuration_{index}.dat" for index in range(len(structures))]
-        dump_filenames = [f"dump_{index}.dump" for index in range(len(structures))]
-        energy_filenames = [f"energy_{index}.dat" for index in range(len(structures))]
+        configuration_filenames = [numbered_filename(CONFIGURATION_FILENAME, index) for index in range(len(structures))]
+        dump_filenames = [numbered_filename(DUMP_FILENAME, index) for index in range(len(structures))]
+        energy_filenames = [numbered_filename(ENERGY_FILENAME, index) for index in range(len(structures))]
 
         for structure, configuration_filename in zip(structures, configuration_filenames):
             lammps_data = LammpsData.from_structure(structure, atom_style="atomic")

@@ -6,6 +6,9 @@ halt (dumping the structure) when it crosses the threshold -- and appends the dr
 tail (the ARTn or MD commands).
 """
 
+from diffusion_for_multi_scale_molecular_dynamics.namespace import (
+    DUMP_FILENAME, UNCERTAIN_DUMP_FILENAME)
+
 
 def build_dynamic_driver_lammps_inputs(
     configuration_file_path: str,
@@ -68,13 +71,13 @@ fix extreme_extrapolation all halt 1 v_continue_run != 1
 
 
 # ----------- OUTPUT DUMP
-dump dump_id all custom 1 dump.dump {dump_fields}
+dump dump_id all custom 1 {DUMP_FILENAME} {dump_fields}
 dump_modify dump_id element {elements_string}
 
 thermo 1
 thermo_style custom step pe v_max_unc
 
-dump uncertain_dump_id all custom 1 uncertain_dump.dump {dump_fields}
+dump uncertain_dump_id all custom 1 {UNCERTAIN_DUMP_FILENAME} {dump_fields}
 dump_modify uncertain_dump_id element {elements_string}
 
 dump_modify uncertain_dump_id skip v_continue_run

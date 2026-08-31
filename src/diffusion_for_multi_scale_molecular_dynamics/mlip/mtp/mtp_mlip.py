@@ -135,4 +135,5 @@ class MtpMlip(BaseMLIP):
             unc_file=potential_file,
             lammps_potential_file=potential_file,
             hyperparameters=self._mtp_parameters(),
+            **self.training_set_state(),
         )

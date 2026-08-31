@@ -229,6 +229,22 @@ class BaseMLIP(ABC):
         )
         return [calculator.calculate(to_pymatgen_structure(configuration)) for configuration in configurations]
 
+    def training_set_state(self) -> Dict:
+        """Training-set provenance for the state file: the source trajectories, the epoch and the counts.
+
+        Returns an empty dict when no training database is attached.
+        """
+        database = self.training_database
+        if database is None:
+            return {}
+        labelled_atoms = database.labelled_atoms
+        return dict(
+            epoch=database.epoch,
+            number_of_training_configurations=len(labelled_atoms),
+            number_of_training_atomic_environments=sum(len(atoms) for atoms in labelled_atoms),
+            training_files=[str(path) for path in database.training_trajectory_paths()],
+        )
+
     def training_metrics(self, reference_atoms: Optional[List[Atoms]] = None) -> Dict:
         """Return accuracy metrics (configuration count, energy RMSE, forces RMSE) of the deployed potential.
 

@@ -6,15 +6,16 @@ that drives crash recovery. It deals only in ase.Atoms (never SinglePointCalcula
 of any ``oracle`` dependency; energies/forces ride on an attached calculator and indices/uncertainty live
 in ``atoms.info``.
 
-The training set is exactly ``training_configurations.traj`` plus every committed ``epoch_N/oracle.traj``;
-no other trajectory in the folder is considered.
+The training set is exactly ``precomputation/first_training.traj`` plus every committed
+``epoch_N/oracle.traj``; no other trajectory in the folder is considered.
 
 Layout (the working directory itself)::
 
     provided_configurations.traj    the PROVIDED starting configuration(s); the augmentation seed. NOT part
                                      of the training set.
-    training_configurations.traj    the labelled training set produced/adopted during precomputation.
-    precomputation/                 the precomputation model (fit before the first round).
+    precomputation/                 the precomputation model (fit before the first round) and its data:
+      first_training.traj           the labelled first training set (provided + augmented) for precomputation.
+      potential...                  the deployed precomputation model files.
     epoch_1/
       dynamic/       dynamic driver working directory
       dynamic.traj   stage 1 commit: the uncertain configuration (+ per-atom 'uncertainty')
@@ -31,9 +32,9 @@ from typing import List, Tuple
 
 from diffusion_for_multi_scale_molecular_dynamics.io.utils import (
     read_atoms_trajectory, write_atoms_trajectory)
-
-PROVIDED_CONFIGURATIONS_FILENAME = "provided_configurations.traj"
-TRAINING_CONFIGURATIONS_FILENAME = "training_configurations.traj"
+from diffusion_for_multi_scale_molecular_dynamics.namespace import (
+    FIRST_TRAINING_FILENAME, PRECOMPUTATION_DIRECTORY_NAME,
+    PROVIDED_CONFIGURATIONS_FILENAME)
 
 
 class Stage(Enum):
@@ -143,12 +144,13 @@ class TrainingDatabase:
         return read_atoms_trajectory(self.provided_configurations_path())
 
     def training_configurations_path(self) -> Path:
-        """Path to the labelled training-configurations trajectory."""
-        return self._root / TRAINING_CONFIGURATIONS_FILENAME
+        """Path to the labelled first-training trajectory (the precomputation training set)."""
+        return self._root / PRECOMPUTATION_DIRECTORY_NAME / FIRST_TRAINING_FILENAME
 
     def append_training_configurations(self, labelled_configurations: List) -> Path:
-        """Append labelled configurations to training_configurations.traj."""
+        """Append labelled configurations to precomputation/first_training.traj."""
         path = self.training_configurations_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
         existing = read_atoms_trajectory(path) if path.is_file() else []
         return write_atoms_trajectory(existing + list(labelled_configurations), path)
 
@@ -158,14 +160,20 @@ class TrainingDatabase:
 
     def precomputation_model_directory(self) -> Path:
         """The directory holding the precomputation model, fit before the first round (created on demand)."""
-        directory = self._root / "precomputation"
+        directory = self._root / PRECOMPUTATION_DIRECTORY_NAME
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
     def is_precomputation_model_committed(self) -> bool:
-        """Whether the precomputation model directory has been populated (a fit finished)."""
-        directory = self._root / "precomputation"
-        return directory.is_dir() and any(directory.iterdir())
+        """Whether the precomputation model has been written (a fit finished).
+
+        The precomputation model files share the folder with ``first_training.traj``, so the training
+        trajectory alone does not count as a committed model.
+        """
+        directory = self._root / PRECOMPUTATION_DIRECTORY_NAME
+        if not directory.is_dir():
+            return False
+        return any(path.suffix != ".traj" for path in directory.iterdir())
 
     # ---------------------------------------------------------------- staging
     def is_dynamic_committed(self, epoch: int) -> bool:
@@ -200,19 +208,29 @@ class TrainingDatabase:
         return read_atoms_trajectory(self._oracle_trajectory_path(epoch))
 
     # ----------------------------------------------------------- training set
+    def training_trajectory_paths(self) -> List[Path]:
+        """The trajectory files that make up the training set, in order.
+
+        This is ``precomputation/first_training.traj`` (when present) followed by every committed
+        ``epoch_N/oracle.traj``; no other trajectory in the folder is considered. The dynamic (uncertain)
+        configurations and the provided_configurations seed are deliberately excluded.
+        """
+        trajectory_paths = []
+        if self.training_configurations_path().is_file():
+            trajectory_paths.append(self.training_configurations_path())
+        trajectory_paths += [
+            self._oracle_trajectory_path(epoch)
+            for epoch in self._epoch_numbers()
+            if self.is_oracle_committed(epoch)
+        ]
+        return trajectory_paths
+
     @property
     def labelled_atoms(self) -> List:
-        """The full training set: ``training_configurations.traj`` plus every committed ``epoch_*/oracle.traj``.
-
-        No other trajectory in the folder is considered; the dynamic (uncertain) configurations and the
-        provided_configurations seed are deliberately excluded.
-        """
+        """The full training set: the atoms read from every ``training_trajectory_paths`` file."""
         atoms_list = []
-        if self.training_configurations_path().is_file():
-            atoms_list.extend(read_atoms_trajectory(self.training_configurations_path()))
-        for epoch in self._epoch_numbers():
-            if self.is_oracle_committed(epoch):
-                atoms_list.extend(self.read_oracle(epoch))
+        for trajectory_path in self.training_trajectory_paths():
+            atoms_list.extend(read_atoms_trajectory(trajectory_path))
         return atoms_list
 
     def check_labelled_atoms_have_energy_and_forces(self) -> None:
@@ -222,15 +240,7 @@ class TrainingDatabase:
         energy/force evaluation.
         """
         required_results = {"energy", "forces"}
-        trajectory_paths = []
-        if self.training_configurations_path().is_file():
-            trajectory_paths.append(self.training_configurations_path())
-        trajectory_paths += [
-            self._oracle_trajectory_path(epoch)
-            for epoch in self._epoch_numbers()
-            if self.is_oracle_committed(epoch)
-        ]
-        for trajectory_path in trajectory_paths:
+        for trajectory_path in self.training_trajectory_paths():
             for frame_index, atoms in enumerate(read_atoms_trajectory(trajectory_path)):
                 available_results = set(getattr(atoms.calc, "results", {})) if atoms.calc else set()
                 if not required_results.issubset(available_results):

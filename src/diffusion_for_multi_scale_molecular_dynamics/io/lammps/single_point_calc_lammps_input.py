@@ -9,10 +9,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
     generate_named_elements_blocks
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
-
-DEFAULT_CONFIGURATION_FILENAME = "configuration.dat"
-DUMP_FILENAME = "dump.dump"
-ENERGY_FILENAME = "energy.dat"
+from diffusion_for_multi_scale_molecular_dynamics.namespace import (
+    CONFIGURATION_FILENAME, DUMP_FILENAME, ENERGY_FILENAME)
 
 
 class LammpsInputBuilder:
@@ -29,7 +27,7 @@ class LammpsInputBuilder:
         structure: Structure,
         potential: LammpsPotential,
         with_uncertainty: bool = False,
-        configuration_filename: str = DEFAULT_CONFIGURATION_FILENAME,
+        configuration_filename: str = CONFIGURATION_FILENAME,
         dump_filename: str = DUMP_FILENAME,
         energy_filename: str = ENERGY_FILENAME,
     ) -> str:
