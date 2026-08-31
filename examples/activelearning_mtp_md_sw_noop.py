@@ -19,8 +19,10 @@ Notes about this example (the chosen options):
 
 from pathlib import Path
 
-from ase.build import bulk
+from pymatgen.core import Lattice, Structure
 from pymatgen.io.lammps.data import LammpsData
+from ase.build import bulk
+
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
@@ -44,20 +46,24 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excise_and_random
     ExciseAndRandomSampleMaker, ExciseAndRandomSampleMakerArguments)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excisor.nearest_neighbors_excisor import (
     NearestNeighborsExcision, NearestNeighborsExcisionArguments)
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
-    to_pymatgen_structure
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
-    label_configurations
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.threshold_atom_selector import (
+    ThresholdAtomSelector, ThresholdAtomSelectorParameters)
+from diffusion_for_multi_scale_molecular_dynamics.sample_maker.no_op_sample_maker import (
+    NoOpSampleMaker, NoOpSampleMakerArguments)
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.md_driver.md_driver import \
+    MdDriver
+
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import label_configurations
 
 # --- User configuration (set these for your machine and task) ---
 ELEMENT_LIST = ["Si"]
 UNCERTAINTY_THRESHOLD = 2.0  # MTP extrapolation grade (gamma); atoms above this are treated as uncertain
-WORKING_DIRECTORY = Path("active_learning_run")
+WORKING_DIRECTORY = Path("run")
 REFERENCE_DIRECTORY = Path("reference")  # where the generated initial_configuration.dat is written
-LAMMPS_EXECUTABLE_PATH = Path("/path/to/lmp")  # your LAMMPS executable (built with mtp/extrapolation and ARTn)
-STILLINGER_WEBER_COEFFICIENTS_FILE_PATH = Path("Si.sw")  # your Stillinger-Weber coefficients file
-MLP_EXECUTABLE_PATH = Path("/path/to/mlp")  # the MLIP-3 'mlp' executable (fits the MTP)
-ARTN_LIBRARY_PLUGIN_PATH = Path("/path/to/libartn-lmp.so")  # compiled ARTn plugin (or set ARTN_PLUGIN_PATH)
+LAMMPS_EXECUTABLE_PATH = Path("/home/olivi/software/lammps/build/lmp")  # your LAMMPS executable (built with mtp/extrapolation and ARTn)
+STILLINGER_WEBER_COEFFICIENTS_FILE_PATH = Path("/home/olivi/Data/Potential/aSi.sw")  # your Stillinger-Weber coefficients file
+MLP_EXECUTABLE_PATH = Path("/home/olivi/software/MLIP-3/mlip-3/bin/mlp")  # the MLIP-3 'mlp' executable (fits the MTP)
+ARTN_LIBRARY_PLUGIN_PATH = Path("/home/olivi/software/artn-plugin/ENGINES/LAMMPS/libartn-lmp.so")  # compiled ARTn plugin (or set ARTN_PLUGIN_PATH)
 
 
 def main():
@@ -81,17 +87,20 @@ def main():
     provided_configurations = create_provided_configurations()  # Initial training configuration for the MLIP
 
     oracle = create_oracle()
-    provided_configurations = label_configurations(create_atoms(), oracle)
-    exit()
+    sample_maker = create_sample_maker()
+    dynamic_driver = create_dynamic_driver(initial_configuration)
+    mlip = create_mlip()
+
+    provided_configurations = label_configurations(provided_configurations, oracle)
 
     active_learning = ActiveLearning(
         oracle_single_point_calculator=oracle,
-        sample_maker=create_sample_maker(),
-        dynamic_driver=create_dynamic_driver(),
+        sample_maker=sample_maker,
+        dynamic_driver=dynamic_driver,
+        mlip=mlip,
     )
     active_learning.run_campaign(
         uncertainty_threshold=UNCERTAINTY_THRESHOLD,
-        mlip=create_mlip(),
         working_directory=WORKING_DIRECTORY,
         provided_configurations=provided_configurations,
         maximum_number_of_rounds=100,
@@ -100,17 +109,18 @@ def main():
 
 
 def create_initial_configuration():
-    """Create the starting configuration(s) as an ase trajectory (a small silicon crystal)."""
+    """Create the starting configuration for the dynamic (432 atoms)."""
     silicon = bulk("Si", "diamond", a=5.43)
-    silicon_supercell = silicon.repeat((2, 2, 2))
+    silicon_supercell = silicon.repeat((6, 6, 6))
     return silicon_supercell
 
+
 def create_provided_configurations():
-    """Create the starting configuration(s) as an ase trajectory (a small silicon crystal)."""
+    """Create a training configuration to start simulations (16 atoms)."""
     silicon = bulk("Si", "diamond", a=5.43)
     silicon_supercell = silicon.repeat((2, 2, 2))
-    print(len(silicon_supercell))
     return [silicon_supercell]
+
 
 def create_mlip():
     """Create the MTP MLIP to drive and refine."""
@@ -120,7 +130,7 @@ def create_mlip():
 
     # A. Cold start from a fresh MTP model (default).
     mtp_configuration = MtpConfiguration(
-        elements=ELEMENT_LIST, level=6, max_dist=5.0, min_dist=1.0,
+        elements=ELEMENT_LIST, level=6, max_dist=5.0,
         energy_weight=1.0, force_weight=0.01, stress_weight=0.0, site_en_weight=0.0,
         training_params=dict(max_iter=1000, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
     )
@@ -137,23 +147,13 @@ def create_mlip():
     # return MtpMlip(mtp_trainer=mtp_trainer, lammps_runner=lammps_runner)
 
 
-def create_dynamic_driver():
-    """Create an ARTn (activation-relaxation) dynamic driver."""
+def create_dynamic_driver(initial_configuration):
+    """Create a molecular-dynamics dynamic driver."""
     lammps_runner = SubprocessLammpsRunner(
         lammps_executable_path=LAMMPS_EXECUTABLE_PATH, mpi_processors=1, openmp_threads=1, mpi_executable="mpirun",
     )
-    return ArtnDriver(
-        lammps_runner=lammps_runner,
-        reference_directory=REFERENCE_DIRECTORY,
-        push_ids=0,  # index of the atom ARTn pushes to leave the initial basin
-        push_add_const=[0.0, 0.0, 0.0, 1.0],  # four-component push constraint for that atom
-        artn_library_plugin_path=ARTN_LIBRARY_PLUGIN_PATH,  # or None to read the ARTN_PLUGIN_PATH env var
-        # ARTn namelist parameters, forwarded to the generated artn.in (see the ARTn documentation):
-        engine_units="lammps/metal", verbose=2, ninit=2, lpush_final=True, nsmooth=2,
-        forc_thr=0.01, push_step_size=0.1, push_mode="list", lanczos_disp=1e-4,
-        lanczos_max_size=10, lanczos_min_size=3, lanczos_eval_conv_thr=1e-2,
-        eigen_step_size=0.1, push_over=2.0,
-    )
+    return MdDriver(lammps_runner=lammps_runner, initial_configuration=initial_configuration,
+                    temperature=300.0, timestep=0.001, number_of_steps=1000)
 
 
 def create_oracle():
@@ -169,25 +169,16 @@ def create_oracle():
                                        with_uncertainty=False)
 
 
+
 def create_sample_maker():
-    """Create an excise-and-random sample maker (cuts out uncertain environments, refills a box at random)."""
-    atom_selector = TopKAtomSelector(TopKAtomSelectorParameters(
-        algorithm="top_k", top_k_environment=4,  # keep the 4 most uncertain atoms as excision centers
+    """Create a no-op sample maker (labels the uncertain structure itself, without excision or repaint)."""
+    atom_selector = ThresholdAtomSelector(ThresholdAtomSelectorParameters(
+        algorithm="threshold", uncertainty_threshold=UNCERTAINTY_THRESHOLD,
     ))
-    environment_excisor = NearestNeighborsExcision(NearestNeighborsExcisionArguments(
-        algorithm="nearest_neighbors", number_of_neighbors=4,  # atoms kept around each excision center
-    ))
-    arguments = ExciseAndRandomSampleMakerArguments(
-        element_list=ELEMENT_LIST, algorithm="excise_and_random",
-        sample_box_strategy="fixed", sample_box_size=[6.0, 6.0, 6.0],  # cubic box (Angstrom) for each sample
-        max_constrained_substructure=-1,  # -1: no limit on the number of excised environments
-        number_of_samples_per_substructure=1,
-        total_number_of_atoms=16,  # total atoms per sample (excised environment + random filler atoms)
-        random_coordinates_algorithm="true_random",  # or "voxel_random"
-        max_attempts=10, minimal_interatomic_distance=1.5,
+    arguments = NoOpSampleMakerArguments(
+        element_list=ELEMENT_LIST, algorithm="noop", sample_box_strategy="noop", sample_box_size=None,
     )
-    return ExciseAndRandomSampleMaker(sample_maker_arguments=arguments, atom_selector=atom_selector,
-                                      environment_excisor=environment_excisor)
+    return NoOpSampleMaker(sample_maker_arguments=arguments, atom_selector=atom_selector)
 
 
 if __name__ == "__main__":

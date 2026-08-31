@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import List, Optional, Union
 
+from ase import Atoms
+
 from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
     DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import (
@@ -24,7 +26,7 @@ class ArtnDriver(DynamicDriver):
     def __init__(
         self,
         lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
-        reference_directory: Path,
+        initial_configuration: Atoms,
         push_ids: int,
         push_add_const: List[float],
         artn_library_plugin_path: Optional[Path] = None,
@@ -34,7 +36,7 @@ class ArtnDriver(DynamicDriver):
 
         Args:
             lammps_runner: a runner whose LAMMPS executable can handle ARTn and the MLIP pair_style.
-            reference_directory: directory with 'initial_configuration.dat' (the 'artn.in' is generated).
+            initial_configuration: the single starting configuration the ARTn search is launched from.
             push_ids: the atom index ARTn pushes to escape the initial basin.
             push_add_const: the four-component push constraint for that atom.
             artn_library_plugin_path: path to the compiled ARTn library plugin. When None, it is read from
@@ -42,7 +44,7 @@ class ArtnDriver(DynamicDriver):
                 'libartn-lmp.so' or 'lib/libartn-lmp.so' is looked up inside it.
             artn_parameters: any other ARTn namelist overrides, forwarded to write_artn_input_file.
         """
-        super().__init__(lammps_runner, reference_directory)
+        super().__init__(lammps_runner, initial_configuration)
 
         self._artn_library_plugin_path = self._resolve_artn_library_plugin_path(artn_library_plugin_path)
         self._push_ids = push_ids

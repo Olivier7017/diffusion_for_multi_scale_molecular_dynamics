@@ -67,10 +67,10 @@ class TestPathsAndDiscovery:
         assert not model_path.exists()
         assert database.model_directory(1) == model_path and model_path.is_dir()
 
-    def test_labelled_atoms_ignore_provided_confs_and_other_trajectories(self, database):
-        """The training set is training_configurations.traj + epoch oracles; provided_confs/other .traj are not."""
+    def test_labelled_atoms_ignore_provided_configurations_and_other_trajectories(self, database):
+        """Training set is training_configurations.traj + epoch oracles; provided_configurations/other .traj are not."""
         database.append_training_configurations([_labelled_atoms(energy=-1.0)])
-        database.write_provided_confs([_labelled_atoms(energy=-9.0)])                      # seed, not trained on
+        database.write_provided_configurations([_labelled_atoms(energy=-9.0)])              # seed, not trained on
         write_atoms_trajectory([_labelled_atoms(energy=-8.0)], database._root / "other.traj")  # ignored
         database.write_oracle(1, [_labelled_atoms(energy=-2.0)])
 

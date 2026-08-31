@@ -12,7 +12,7 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.single_point_calc_lammps_input import (
-    LammpsInputBuilder, write_lammps_input)
+    DUMP_FILENAME, ENERGY_FILENAME, LammpsInputBuilder, write_lammps_input)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
@@ -49,22 +49,24 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         self._data_filename = "configuration.dat"
 
     def _extract_calculation_results(
-        self, working_directory: str, dump_filename: str = "dump.yaml"
+        self, working_directory: str, dump_filename: str = DUMP_FILENAME, energy_filename: str = ENERGY_FILENAME
     ) -> SinglePointCalculation:
         lammps_dump_path = Path(working_directory) / dump_filename
 
-        list_structures, list_forces, list_energies, list_uncertainties = (
+        list_structures, list_forces, list_uncertainties = (
             extract_all_fields(lammps_dump_path, uncertainty_field=self._potential.uncertainty_field())
         )
         assert (
             len(list_structures) == 1
         ), "There is more than one frame in the dump file. This is not 'single point'!"
 
+        energy = float((Path(working_directory) / energy_filename).read_text().strip())
+
         result = SinglePointCalculation(
             calculation_type=self._calculation_type,
             structure=list_structures[0],
             forces=list_forces[0],
-            energy=list_energies[0],
+            energy=energy,
             uncertainties=list_uncertainties[0],
         )
 
@@ -114,7 +116,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
 
         Args:
             structure: pymatgen structure.
-            results_path: (Optional) if present, the dump.yaml file produced by the LAMMPS calculation will
+            results_path: (Optional) if present, the text dump file produced by the LAMMPS calculation will
                 be moved to this location.
 
         Returns:
@@ -123,7 +125,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         with tempfile.TemporaryDirectory() as tmp_work_dir:
             calculation_result = self.calculate_in_work_directory(structure, tmp_work_dir)
             if results_path is not None:
-                src = os.path.join(tmp_work_dir, "dump.yaml")
+                src = os.path.join(tmp_work_dir, DUMP_FILENAME)
                 dst = str(results_path)
                 shutil.move(src, dst)
 
@@ -148,14 +150,15 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         work_directory.mkdir(parents=True, exist_ok=True)
 
         configuration_filenames = [f"configuration_{index}.dat" for index in range(len(structures))]
-        dump_filenames = [f"dump_{index}.yaml" for index in range(len(structures))]
+        dump_filenames = [f"dump_{index}.dump" for index in range(len(structures))]
+        energy_filenames = [f"energy_{index}.dat" for index in range(len(structures))]
 
         for structure, configuration_filename in zip(structures, configuration_filenames):
             lammps_data = LammpsData.from_structure(structure, atom_style="atomic")
             lammps_data.write_file(str(work_directory / configuration_filename))
 
         input_content = self._input_builder.build_looping_single_point(
-            structures, self._potential, configuration_filenames, dump_filenames,
+            structures, self._potential, configuration_filenames, dump_filenames, energy_filenames,
             with_uncertainty=self._with_uncertainty,
         )
         write_lammps_input(input_content, work_directory / self._input_file_name)
@@ -163,8 +166,8 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         self._lammps_runner.run_lammps(working_directory=work_directory,
                                        lammps_input_file_name=self._input_file_name)
 
-        return [self._extract_calculation_results(str(work_directory), dump_filename)
-                for dump_filename in dump_filenames]
+        return [self._extract_calculation_results(str(work_directory), dump_filename, energy_filename)
+                for dump_filename, energy_filename in zip(dump_filenames, energy_filenames)]
 
     def calculate_many(self, structures: List[Structure]) -> List[SinglePointCalculation]:
         """Evaluate several configurations with a single LAMMPS run (see ``calculate_many_in_work_directory``)."""

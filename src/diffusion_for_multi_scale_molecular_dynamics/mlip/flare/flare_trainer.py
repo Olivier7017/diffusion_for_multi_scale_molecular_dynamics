@@ -13,7 +13,7 @@ from flare.utils import NumpyEncoder
 from scipy.optimize import OptimizeResult
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
-    sort_elements_by_atomic_mass
+    sort_symbols_by_atomic_mass
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
     FlarePotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip_trainer import \
@@ -103,11 +103,10 @@ class FlareTrainer(BaseMLIPTrainer):
         """Get a map where the key is the atomic number and the value is the integer label."""
         species_numbers_map = dict()
 
-        list_elements = [pymatgen.core.Element(symbol) for symbol in list_element_symbols]
-        list_sorted_elements = sort_elements_by_atomic_mass(list_elements)
+        sorted_elements = sort_symbols_by_atomic_mass(list_element_symbols)
 
-        for idx, element in enumerate(list_sorted_elements):
-            species_numbers_map[element.number] = idx
+        for idx, (symbol, _) in enumerate(sorted_elements):
+            species_numbers_map[pymatgen.core.Element(symbol).number] = idx
         return species_numbers_map
 
     def fit_hyperparameters(self, optimizer: FlareHyperparametersOptimizer) -> Tuple[OptimizeResult, pd.DataFrame]:

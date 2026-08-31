@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Union
 
+from ase import Atoms
+
 from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
     DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
@@ -19,7 +21,7 @@ class MdDriver(DynamicDriver):
     def __init__(
         self,
         lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
-        reference_directory: Path,
+        initial_configuration: Atoms,
         temperature: float,
         timestep: float,
         number_of_steps: int,
@@ -28,12 +30,12 @@ class MdDriver(DynamicDriver):
 
         Args:
             lammps_runner: a runner whose LAMMPS executable can handle the MLIP pair_style.
-            reference_directory: directory with 'initial_configuration.dat'.
+            initial_configuration: the single starting configuration the MD run is launched from.
             temperature: NVT thermostat temperature (K).
             timestep: MD timestep (ps, LAMMPS 'metal' units).
             number_of_steps: number of MD steps to run (if the uncertainty stays below the threshold).
         """
-        super().__init__(lammps_runner, reference_directory)
+        super().__init__(lammps_runner, initial_configuration)
         self._temperature = temperature
         self._timestep = timestep
         self._number_of_steps = number_of_steps
@@ -47,7 +49,7 @@ class MdDriver(DynamicDriver):
 
     def _get_calculation_state(self, working_directory: Path) -> CalculationState:
         """Interpret the run: a non-empty uncertain dump means the halt fired on an uncertain structure."""
-        uncertain_dump_path = working_directory / "uncertain_dump.yaml"
+        uncertain_dump_path = working_directory / "uncertain_dump.dump"
         if uncertain_dump_path.is_file() and uncertain_dump_path.stat().st_size > 0:
             return CalculationState.INTERRUPTION
         return CalculationState.SUCCESS

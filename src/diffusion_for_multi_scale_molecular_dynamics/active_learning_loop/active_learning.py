@@ -80,16 +80,16 @@ class ActiveLearning:
         """Get uncertain structure.
 
         This method assumes the CONVENTION that the dynamic driver's LAMMPS run produces a file
-        named 'uncertain_dump.yaml' that contains the uncertain structure.
+        named 'uncertain_dump.dump' that contains the uncertain structure.
 
         Args:
-            dynamics_working_directory: directory holding the dynamic driver's 'uncertain_dump.yaml'.
+            dynamics_working_directory: directory holding the dynamic driver's 'uncertain_dump.dump'.
             uncertainty_field: the per-atom uncertainty column to read (depends on the MLIP backend).
         """
-        lammps_dump_path = dynamics_working_directory / "uncertain_dump.yaml"
+        lammps_dump_path = dynamics_working_directory / "uncertain_dump.dump"
         assert lammps_dump_path.is_file(), f"The file {lammps_dump_path} is missing."
 
-        list_structures, _, _, list_uncertainties = extract_all_fields_from_dump(
+        list_structures, _, list_uncertainties = extract_all_fields_from_dump(
             lammps_dump_path, uncertainty_field=uncertainty_field
         )
         uncertain_structure = list_structures[0]
@@ -389,7 +389,7 @@ class ActiveLearning:
         start_time = time.time()
         list_single_point_calculations = []
         for index, structure in enumerate(list_sample_structures):
-            results_path = oracle_directory / f"dump_{index}.yaml"
+            results_path = oracle_directory / f"dump_{index}.dump"
             calculation = self.oracle_calculator.calculate(structure, results_path=results_path)
             list_single_point_calculations.append(calculation)
         self._logger.info(f" -> It took {time.time() - start_time: 6.2e} seconds to compute labels with Oracle.")

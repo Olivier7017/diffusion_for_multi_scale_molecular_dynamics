@@ -26,11 +26,11 @@ def fake_plugin_path(tmp_path):
 
 
 @pytest.fixture
-def artn_driver(reference_directory, fake_plugin_path):
+def artn_driver(initial_configuration, fake_plugin_path):
     """An ARTn driver with a mock runner (unit-level: no LAMMPS is actually launched)."""
     return ArtnDriver(
         lammps_runner=MagicMock(),
-        reference_directory=reference_directory,
+        initial_configuration=initial_configuration,
         push_ids=PUSH_IDS,
         push_add_const=PUSH_ADD_CONST,
         artn_library_plugin_path=fake_plugin_path,
@@ -70,14 +70,14 @@ class TestUnit:
 
 @pytest.mark.requires_lammps_bin
 class TestEndToEnd:
-    def test_runs_and_returns_a_state(self, lammps_executable_path, reference_directory, stub_mlip, tmp_path):
+    def test_runs_and_returns_a_state(self, lammps_executable_path, initial_configuration, stub_mlip, tmp_path):
         """A real LAMMPS+ARTn run drives to completion and yields a parseable calculation state.
 
         Requires a LAMMPS executable built with the ARTn plugin; the plugin location is resolved by the
         driver from the ARTN_PLUGIN_PATH environment variable (ArtnDriver raises if it is not set).
         """
         runner = SubprocessLammpsRunner(lammps_executable_path=lammps_executable_path, mpi_processors=1)
-        driver = ArtnDriver(lammps_runner=runner, reference_directory=reference_directory,
+        driver = ArtnDriver(lammps_runner=runner, initial_configuration=initial_configuration,
                             push_ids=PUSH_IDS, push_add_const=PUSH_ADD_CONST)
         state = driver.run(stub_mlip, tmp_path / "work", uncertainty_threshold=1.0e9)
         assert isinstance(state, CalculationState)
