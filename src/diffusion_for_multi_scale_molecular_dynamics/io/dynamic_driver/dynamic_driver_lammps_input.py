@@ -68,15 +68,13 @@ fix extreme_extrapolation all halt 1 v_continue_run != 1
 
 
 # ----------- OUTPUT DUMP
-dump dump_id all yaml 1 dump.yaml {dump_fields}
-dump_modify dump_id thermo yes
+dump dump_id all custom 1 dump.dump {dump_fields}
 dump_modify dump_id element {elements_string}
 
 thermo 1
 thermo_style custom step pe v_max_unc
 
-dump uncertain_dump_id all yaml 1 uncertain_dump.yaml {dump_fields}
-dump_modify uncertain_dump_id thermo yes
+dump uncertain_dump_id all custom 1 uncertain_dump.dump {dump_fields}
 dump_modify uncertain_dump_id element {elements_string}
 
 dump_modify uncertain_dump_id skip v_continue_run

@@ -5,8 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import pytest
-from pymatgen.core import Lattice, Structure
-from pymatgen.io.lammps.data import LammpsData
+from ase import Atoms
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
@@ -47,24 +46,6 @@ class StubMlip:
         return self._lammps_potential
 
 
-def _write_initial_configuration(reference_directory: Path) -> Structure:
-    """Write a small silicon crystal to 'initial_configuration.dat' and return its structure.
-
-    The cell is a 2x2x2 supercell so its box (~10.9 Angstrom) comfortably exceeds the LAMMPS ghost-atom
-    cutoff, which the shared template's 'comm_style tiled'/'balance' commands require.
-    """
-    lattice = Lattice.cubic(_SILICON_LATTICE_CONSTANT)
-    structure = Structure(
-        lattice=lattice,
-        species=["Si", "Si"],
-        coords=[[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]],
-    )
-    structure.make_supercell([2, 2, 2])
-    lammps_data = LammpsData.from_structure(structure, atom_style="atomic")
-    lammps_data.write_file(str(reference_directory / "initial_configuration.dat"))
-    return structure
-
-
 @pytest.fixture
 def stub_potential():
     """A stub LJ-based LAMMPS potential with a synthetic uncertainty field."""
@@ -78,12 +59,19 @@ def stub_mlip(stub_potential):
 
 
 @pytest.fixture
-def reference_directory(tmp_path):
-    """A reference directory holding only 'initial_configuration.dat' (for base + MD drivers)."""
-    directory = tmp_path / "reference"
-    directory.mkdir()
-    _write_initial_configuration(directory)
-    return directory
+def initial_configuration():
+    """A small orthogonal silicon crystal (ase.Atoms) used as the drivers' starting configuration.
+
+    The cell is a 2x2x2 supercell so its box (~10.9 Angstrom) comfortably exceeds the LAMMPS ghost-atom
+    cutoff, which the shared template's 'comm_style tiled'/'balance' commands require.
+    """
+    unit_cell = Atoms(
+        "Si2",
+        scaled_positions=[[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]],
+        cell=[_SILICON_LATTICE_CONSTANT] * 3,
+        pbc=True,
+    )
+    return unit_cell.repeat((2, 2, 2))
 
 
 @pytest.fixture

@@ -1,168 +1,73 @@
-"""LAMMPS.
+"""Read LAMMPS output into pymatgen structures, forces and per-atom uncertainties.
 
-This module implements methods to read LAMMPS dump output. It is assumed that the dump files are in the
-yaml format, and that the thermo data is included in the same file.
-
-The aim of this module is to extract single point calculations for further processing. This is somewhat
-different from what is done in src/diffusion_for_multi_scale_molecular_dynamics/data/parse_lammps_outputs.py,
-where there the goal is to combine the data into a parquet archive for training a generative model.
+The dumps are LAMMPS *text* dumps (``dump ... custom``); they are read with ``ase.io.read`` so the box
+(orthogonal or triclinic), the atomic positions and the species are parsed by ase rather than by hand. The
+total energy is not part of a text dump and is read separately by the caller (the single-point calculator
+writes it to its own file).
 """
 
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
-import pandas as pd
-import yaml
-from pymatgen.core import Lattice, Structure
-from tqdm import tqdm
-from yaml import CLoader
+from ase.io import read as read_ase
+from pymatgen.core import Structure
 
-from diffusion_for_multi_scale_molecular_dynamics.io.lammps.namespace import (
-    BOX_FIELD, ELEMENT_FIELD, ENERGY_FIELD, FORCES_FIELDS, ID_FIELD,
-    POSITIONS_FIELDS, UNCERTAINTY_FIELD)
-
-
-def _extract_data_from_yaml_document(yaml_document: dict) -> Tuple[pd.DataFrame, Dict]:
-    """Extract data from yaml document.
-
-    We make the assumption that the content of the dump file is for 3D data.
-
-    Args:
-        yaml_document: A single document, assumed to contain both global ("thermo") information and
-            atomwise information.
-
-    Returns:
-        atoms_df: a dataframe with all the atomwise information.
-        global_dict: a dictionary with the global information.
-    """
-    columns = yaml_document["keywords"]
-    data = yaml_document["data"]
-    atoms_df = pd.DataFrame(data=data, columns=columns).sort_values(by=ID_FIELD)
-
-    global_dict = _parse_thermo_fields(yaml_document)
-    # We assume an orthogonal cell
-    global_dict["cell_dimensions"] = np.array(
-        [bounds[1] for bounds in yaml_document[BOX_FIELD]]
-    )
-
-    return atoms_df, global_dict
-
-
-def _parse_thermo_fields(yaml_document: Dict) -> Dict:
-    """Parse thermo fields.
-
-    Args:
-        yaml_document: A single document, assumed to contain both global ("thermo") information and
-            atomwise information.
-
-    Returns:
-        thermo_dict: a dictionary with the thermo fields.
-    """
-    assert (
-        "thermo" in yaml_document
-    ), "The input document does not have the keyword thermo"
-    keywords = yaml_document["thermo"][0]["keywords"]
-    data = yaml_document["thermo"][1]["data"]
-    results = {k: v for k, v in zip(keywords, data)}
-    return results
-
-
-def _get_structure_from_atoms_dataframe(
-    atoms_df: pd.DataFrame, cell_dimensions: np.ndarray
-) -> Structure:
-    """Get structure from atoms dataframe.
-
-    Extract a pymatgen structure from the atoms dataframe.
-
-    Args:
-        atoms_df: a dataframe with all the atomwise information.
-        cell_dimensions: a numpy array containing the dimensions of the orthorhombic cell.
-
-    Returns:
-        structure: the corresponding pymatgen structure
-    """
-    lattice = Lattice(matrix=np.diag(cell_dimensions), pbc=(True, True, True))
-
-    structure = Structure(
-        lattice=lattice,
-        species=atoms_df[ELEMENT_FIELD].values,
-        coords=atoms_df[POSITIONS_FIELDS].astype(float).values,
-        coords_are_cartesian=True,
-    )
-
-    return structure
-
-
-def _get_forces_from_atoms_dataframe(atoms_df: pd.DataFrame) -> np.ndarray:
-    """Get forces from atoms dataframe."""
-    return atoms_df[FORCES_FIELDS].astype(float).values
-
-
-def _get_uncertainties_from_atoms_dataframe(
-    atoms_df: pd.DataFrame, uncertainty_field: Union[str, None],
-) -> Union[np.ndarray, None]:
-    """Get uncertainties from atoms dataframe."""
-    if uncertainty_field is not None and uncertainty_field in atoms_df.columns:
-        return atoms_df[uncertainty_field].astype(float).values
-    return None
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.namespace import \
+    UNCERTAINTY_FIELD
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
 
 
 def extract_all_fields_from_dump(
     lammps_dump_path: Path,
     uncertainty_field: Union[str, None] = UNCERTAINTY_FIELD,
-) -> (Tuple)[
-    List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]
-]:
-    """Extract structures, forces and energies from lammps dump.
+) -> Tuple[List[Structure], List[np.ndarray], List[Optional[np.ndarray]]]:
+    """Extract structures, forces and per-atom uncertainties from a LAMMPS text dump.
 
     Args:
-        lammps_dump_path: path to a lammps dump file, in yaml format, assumed to also contain the thermo data.
+        lammps_dump_path: path to a LAMMPS text dump (``dump ... custom``); may hold several frames.
         uncertainty_field: name of the per-atom uncertainty column to read, or None if there is none.
 
     Returns:
         list_structures: the structures in the dump file.
         list_forces: the forces in the dump file, in the same order as the structures.
-        list_energies: the energies in the dump file, in the same order as the structures.
-        list_uncertainties: the uncertainties in the dump file, if present, else None.
+        list_uncertainties: the per-atom uncertainties in the dump file, if present, else None.
     """
+    frames = read_ase(str(lammps_dump_path), format="lammps-dump-text", index=":")
+    if not isinstance(frames, list):
+        frames = [frames]
+
     list_structures = []
     list_forces = []
-    list_energies = []
     list_uncertainties = []
-    with open(str(lammps_dump_path), "r") as stream:
-        for yaml_document in tqdm(
-            yaml.load_all(stream, Loader=CLoader), "PARSING YAML"
-        ):
-            atoms_df, global_data_dict = _extract_data_from_yaml_document(yaml_document)
-            cell_dimensions = global_data_dict["cell_dimensions"]
-            structure = _get_structure_from_atoms_dataframe(atoms_df, cell_dimensions)
-            list_structures.append(structure)
+    for atoms in frames:
+        list_structures.append(to_pymatgen_structure(atoms))
+        list_forces.append(atoms.get_forces())
+        if uncertainty_field is not None and uncertainty_field in atoms.arrays:
+            # ase stores a scalar per-atom column as (N, 1); flatten it to the (N,) per-atom contract.
+            list_uncertainties.append(np.asarray(atoms.arrays[uncertainty_field], dtype=float).ravel())
+        else:
+            list_uncertainties.append(None)
 
-            forces = _get_forces_from_atoms_dataframe(atoms_df)
-            list_forces.append(forces)
-
-            list_energies.append(global_data_dict[ENERGY_FIELD])
-            list_uncertainties.append(_get_uncertainties_from_atoms_dataframe(atoms_df, uncertainty_field))
-
-    return list_structures, list_forces, list_energies, list_uncertainties
+    return list_structures, list_forces, list_uncertainties
 
 
 def extract_all_fields_from_cfg(
     configuration_output_path: Path,
     uncertainty_field: Union[str, None] = UNCERTAINTY_FIELD,
-) -> Tuple[List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]]:
-    """Extract structures, forces, energies and uncertainties from a MTP '.cfg' output."""
+) -> Tuple[List[Structure], List[np.ndarray], List[Optional[np.ndarray]]]:
+    """Extract structures, forces and uncertainties from a MTP '.cfg' output."""
     raise NotImplementedError("Reading a '.cfg' configuration output is not implemented yet.")
 
 
 def extract_all_fields(
     configuration_output_path: Path,
     uncertainty_field: Union[str, None] = UNCERTAINTY_FIELD,
-) -> Tuple[List[Structure], List[np.ndarray], List[float], List[Union[np.ndarray, None]]]:
+) -> Tuple[List[Structure], List[np.ndarray], List[Optional[np.ndarray]]]:
     """Extract all fields from a configuration output, dispatching on the file extension."""
     suffix = Path(configuration_output_path).suffix
-    if suffix in (".dump", ".yaml"):
+    if suffix in (".dump", ".lammpstrj"):
         return extract_all_fields_from_dump(configuration_output_path, uncertainty_field)
     if suffix == ".cfg":
         return extract_all_fields_from_cfg(configuration_output_path, uncertainty_field)

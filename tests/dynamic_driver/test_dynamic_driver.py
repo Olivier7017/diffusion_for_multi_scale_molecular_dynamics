@@ -40,36 +40,24 @@ def mock_runner():
 
 
 @pytest.fixture
-def driver(mock_runner, reference_directory):
-    return _StubDriver(lammps_runner=mock_runner, reference_directory=reference_directory)
+def driver(mock_runner, initial_configuration):
+    return _StubDriver(lammps_runner=mock_runner, initial_configuration=initial_configuration)
 
 
 class TestInitialization:
-    def test_loads_initial_structure(self, driver):
-        """The reference 'initial_configuration.dat' is parsed into the driver's initial structure."""
-        assert driver.initial_structure is not None
-        assert len(driver.initial_structure) == 16
-        assert {str(species) for species in driver.initial_structure.species} == {"Si"}
+    def test_stores_the_initial_configuration(self, driver):
+        """The starting ase.Atoms is stored on the driver."""
+        assert len(driver.initial_configuration) == 16
+        assert set(driver.initial_configuration.get_chemical_symbols()) == {"Si"}
 
-    def test_missing_reference_directory_raises(self, mock_runner, tmp_path):
-        """A reference directory that does not exist is rejected at construction time."""
-        with pytest.raises(AssertionError):
-            _StubDriver(lammps_runner=mock_runner, reference_directory=tmp_path / "does_not_exist")
-
-    def test_missing_initial_configuration_raises(self, mock_runner, tmp_path):
-        """A reference directory missing 'initial_configuration.dat' is rejected."""
-        empty_directory = tmp_path / "empty"
-        empty_directory.mkdir()
-        with pytest.raises(AssertionError):
-            _StubDriver(lammps_runner=mock_runner, reference_directory=empty_directory)
-
-    def test_unreadable_initial_configuration_raises(self, mock_runner, tmp_path):
-        """A malformed 'initial_configuration.dat' surfaces as a clear ValueError."""
-        bad_directory = tmp_path / "bad"
-        bad_directory.mkdir()
-        (bad_directory / "initial_configuration.dat").write_text("this is not a LAMMPS data file")
-        with pytest.raises(ValueError):
-            _StubDriver(lammps_runner=mock_runner, reference_directory=bad_directory)
+    def test_non_orthogonal_initial_configuration_raises(self, mock_runner, initial_configuration):
+        """A tilted (non-orthogonal) starting configuration is rejected at construction time."""
+        sheared_configuration = initial_configuration.copy()
+        cell = sheared_configuration.cell.array.copy()
+        cell[1, 0] = 1.0  # introduce an xy tilt
+        sheared_configuration.set_cell(cell, scale_atoms=False)
+        with pytest.raises(ValueError, match="orthogonal"):
+            _StubDriver(lammps_runner=mock_runner, initial_configuration=sheared_configuration)
 
 
 class TestSetupWorkingDirectory:
@@ -124,10 +112,10 @@ class TestWriteLammpsInput:
 
 
 class TestRunOrchestration:
-    def test_run_returns_error_when_lammps_fails(self, mock_runner, reference_directory, tmp_path):
+    def test_run_returns_error_when_lammps_fails(self, mock_runner, initial_configuration, tmp_path):
         """A failing LAMMPS run short-circuits to ERROR without ever interpreting a calculation state."""
         mock_runner.run_lammps.side_effect = RuntimeError("boom")
-        driver = _StubDriver(lammps_runner=mock_runner, reference_directory=reference_directory,
+        driver = _StubDriver(lammps_runner=mock_runner, initial_configuration=initial_configuration,
                              calculation_state=CalculationState.SUCCESS)
         get_state = MagicMock(wraps=driver._get_calculation_state)
         driver._get_calculation_state = get_state
@@ -137,9 +125,9 @@ class TestRunOrchestration:
         assert state == CalculationState.ERROR
         get_state.assert_not_called()
 
-    def test_run_delegates_state_when_lammps_succeeds(self, mock_runner, stub_mlip, reference_directory, tmp_path):
+    def test_run_delegates_state_when_lammps_succeeds(self, mock_runner, stub_mlip, initial_configuration, tmp_path):
         """A successful run writes the input, invokes the runner and returns the subclass's calculation state."""
-        driver = _StubDriver(lammps_runner=mock_runner, reference_directory=reference_directory,
+        driver = _StubDriver(lammps_runner=mock_runner, initial_configuration=initial_configuration,
                              calculation_state=CalculationState.INTERRUPTION)
         working_directory = tmp_path / "work"
 

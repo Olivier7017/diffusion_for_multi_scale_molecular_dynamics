@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from ase.build import bulk
 from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
@@ -17,6 +18,8 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
 
 REFERENCE_FILES_DIR = Path(__file__).parent.parent / "reference_files"
 STRUCTURE_FILE = REFERENCE_FILES_DIR / "structure" / "Si8.in"
@@ -115,6 +118,26 @@ class BaseTestLammpsSinglePointCalculator:
         # Distinct volumes give distinct energies: guards against every dump being parsed from one frame.
         energies = [result.energy for result in batched_results]
         assert len(set(np.round(energies, 6))) == len(energies)
+
+    @pytest.mark.requires_pair_style("sw")
+    def test_non_orthogonal_box_round_trips(self, lammps_runner):
+        """A triclinic (non-orthogonal) configuration is read back from the oracle dump unchanged.
+
+        This guards the LAMMPS-dump box parser: a tilted box must not be silently misread as orthogonal.
+        """
+        # ase's diamond primitive cell has 60-degree angles, so the repeated cell is genuinely triclinic.
+        input_structure = to_pymatgen_structure(bulk("Si", "diamond", a=5.43).repeat((2, 2, 2)))
+        assert not np.allclose(input_structure.lattice.angles, 90.0)
+
+        calculator = LammpsSinglePointCalculator(_stillinger_weber_potential(), lammps_runner)
+        output_structure = calculator.calculate(input_structure).structure
+
+        # Same cell (rotation-invariant lattice parameters) and same atoms (fractional coordinates, mod 1).
+        np.testing.assert_allclose(
+            output_structure.lattice.parameters, input_structure.lattice.parameters, atol=1e-4
+        )
+        fractional_difference = (output_structure.frac_coords - input_structure.frac_coords + 0.5) % 1.0 - 0.5
+        np.testing.assert_allclose(fractional_difference, 0.0, atol=1e-4)
 
     @pytest.mark.requires_flare
     @pytest.mark.requires_pair_style("flare")

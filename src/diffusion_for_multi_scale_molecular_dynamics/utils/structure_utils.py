@@ -213,3 +213,20 @@ def label_configurations(
         [to_pymatgen_structure(atoms) for atoms in configurations]
     )
     return [calculation.to_atoms(list(range(len(calculation.structure)))) for calculation in calculations]
+
+
+def assert_orthogonal_cell(atoms: Atoms, angle_tolerance: float = 1e-3) -> None:
+    """Raise a ValueError unless the configuration's cell is orthogonal (all angles are 90 degrees).
+
+    The LAMMPS dump reader assumes an orthogonal box; a tilted (triclinic) cell would be silently misread.
+
+    Args:
+        atoms: the ase.Atoms configuration to check.
+        angle_tolerance: maximum allowed deviation (degrees) of each cell angle from 90.
+    """
+    angles = atoms.cell.angles()
+    if not np.allclose(angles, 90.0, atol=angle_tolerance):
+        raise ValueError(
+            f"The configuration's cell is not orthogonal (angles {angles} degrees); only orthogonal cells "
+            "are supported. Build a cubic/orthorhombic cell, e.g. ase.build.bulk(..., cubic=True)."
+        )

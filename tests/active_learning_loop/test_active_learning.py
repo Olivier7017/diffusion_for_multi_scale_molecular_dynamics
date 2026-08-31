@@ -18,8 +18,6 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
-from diffusion_for_multi_scale_molecular_dynamics.io.utils import \
-    write_atoms_trajectory
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (
@@ -53,17 +51,29 @@ def _stub_mlip():
     return mlip
 
 
+def _stub_sample_maker():
+    sample_maker = MagicMock()
+    sample_maker.arguments.element_list = ["Si"]
+    return sample_maker
+
+
 class RecordingActiveLearning(ActiveLearning):
     """An ActiveLearning whose three stages are stubbed to record calls and write the database artifacts.
 
     This exercises the real run_campaign/_run_round/resume logic without any LAMMPS or MLIP dependency.
     """
 
-    def __init__(self, success_at_epoch: int):
+    def __init__(self, success_at_epoch: int, mlip=None):
+        super().__init__(
+            oracle_single_point_calculator=MagicMock(),
+            sample_maker=_stub_sample_maker(),
+            dynamic_driver=MagicMock(),
+            mlip=mlip if mlip is not None else _stub_mlip(),
+        )
         self.calls = []
         self._success_at_epoch = success_at_epoch
 
-    def run_dynamic_driver(self, mlip, epoch):
+    def run_dynamic_driver(self, epoch):
         self.calls.append(("driver", epoch))
         if epoch >= self._success_at_epoch:
             return None  # SUCCESS: no uncertain structure found.
@@ -73,7 +83,7 @@ class RecordingActiveLearning(ActiveLearning):
         self.calls.append(("oracle", epoch))
         return [_labelled_atoms(energy=float(epoch))]
 
-    def _retrain(self, epoch, mlip, training_configurations):
+    def _retrain(self, epoch, training_configurations):
         self.calls.append(("train", epoch))
         (self._training_database.model_directory(epoch) / "model").write_text("model")
 
@@ -81,7 +91,7 @@ class RecordingActiveLearning(ActiveLearning):
 def test_fresh_run_completes_and_commits_each_epoch(tmp_path):
     """A fresh run drives each epoch through all three stages until the driver reports SUCCESS."""
     active_learning = RecordingActiveLearning(success_at_epoch=3)
-    active_learning.run_campaign(uncertainty_threshold=0.1, mlip=_stub_mlip(), working_directory=tmp_path)
+    active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])
 
     assert active_learning.calls == [("driver", 1), ("oracle", 1), ("train", 1),
                                      ("driver", 2), ("oracle", 2), ("train", 2),
@@ -96,7 +106,7 @@ def test_fresh_run_completes_and_commits_each_epoch(tmp_path):
 def test_training_set_accumulates_across_epochs(tmp_path):
     """The database training set grows with every completed epoch (the reload-forgetting bug is gone)."""
     active_learning = RecordingActiveLearning(success_at_epoch=3)
-    active_learning.run_campaign(uncertainty_threshold=0.1, mlip=_stub_mlip(), working_directory=tmp_path)
+    active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])
 
     energies = sorted(atoms.get_potential_energy() for atoms in active_learning._training_database.labelled_atoms)
     assert energies == [1.0, 2.0]
@@ -104,36 +114,36 @@ def test_training_set_accumulates_across_epochs(tmp_path):
 
 def test_resume_at_oracle_skips_the_driver(tmp_path):
     """A crash after the driver resumes at the oracle: the driver is not re-run for that epoch."""
-    database = TrainingDatabase(tmp_path / "database")
+    database = TrainingDatabase(tmp_path)
     database.write_dynamic(1, _uncertain_atoms())  # epoch 1 crashed after the driver committed.
 
     active_learning = RecordingActiveLearning(success_at_epoch=2)
-    active_learning.run_campaign(uncertainty_threshold=0.1, mlip=_stub_mlip(), working_directory=tmp_path)
+    active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])
 
     assert active_learning.calls == [("oracle", 1), ("train", 1), ("driver", 2)]
 
 
 def test_resume_at_train_skips_driver_and_oracle(tmp_path):
     """A crash after labelling resumes at training: neither the driver nor the oracle re-run for that epoch."""
-    database = TrainingDatabase(tmp_path / "database")
+    database = TrainingDatabase(tmp_path)
     database.write_dynamic(1, _uncertain_atoms())
     database.write_oracle(1, [_labelled_atoms(energy=1.0)])
 
     active_learning = RecordingActiveLearning(success_at_epoch=2)
-    active_learning.run_campaign(uncertainty_threshold=0.1, mlip=_stub_mlip(), working_directory=tmp_path)
+    active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])
 
     assert active_learning.calls == [("train", 1), ("driver", 2)]
 
 
 def test_forced_train_restart_retrains_a_complete_epoch(tmp_path):
     """Forcing restart_from_stage='train' on a complete epoch resets its model and retrains it."""
-    database = TrainingDatabase(tmp_path / "database")
+    database = TrainingDatabase(tmp_path)
     database.write_dynamic(1, _uncertain_atoms())
     database.write_oracle(1, [_labelled_atoms(energy=1.0)])
     (database.model_directory(1) / "model").write_text("stale")  # epoch 1 was fully complete.
 
     active_learning = RecordingActiveLearning(success_at_epoch=2)
-    active_learning.run_campaign(uncertainty_threshold=0.1, mlip=_stub_mlip(), working_directory=tmp_path,
+    active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[],
                                  restart_from_stage="train")
 
     assert active_learning.calls == [("train", 1), ("driver", 2)]
@@ -142,14 +152,14 @@ def test_forced_train_restart_retrains_a_complete_epoch(tmp_path):
 
 def test_restart_reloads_the_latest_committed_model(tmp_path):
     """Restarting a campaign with a completed epoch reloads that epoch's model from disk (no re-fit)."""
-    database = TrainingDatabase(tmp_path / "database")
+    database = TrainingDatabase(tmp_path)
     database.write_dynamic(1, _uncertain_atoms())
     database.write_oracle(1, [_labelled_atoms(energy=1.0)])
     (database.model_directory(1) / "model").write_text("model")  # epoch 1 fully committed
 
     mlip = _stub_mlip()
-    active_learning = RecordingActiveLearning(success_at_epoch=2)
-    active_learning.run_campaign(uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path)
+    active_learning = RecordingActiveLearning(success_at_epoch=2, mlip=mlip)
+    active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])
 
     # Resumes at round 2's driver, having reloaded epoch 1's model straight from disk (no precomputation).
     assert active_learning.calls == [("driver", 2)]
@@ -164,6 +174,14 @@ class _PrecomputationStubMLIP(BaseMLIP):
         super().__init__(trainer=MagicMock(), lammps_runner=MagicMock())
         self._minimum_number_of_environments = minimum_number_of_environments
         self.trained_model_directories = []
+        self._attached_training_database = None
+
+    def attach_training_database(self, training_database):
+        self._attached_training_database = training_database  # the MagicMock trainer would not keep it
+
+    @property
+    def training_database(self):
+        return self._attached_training_database
 
     def minimum_number_of_training_environments(self) -> int:
         return self._minimum_number_of_environments
@@ -195,8 +213,7 @@ def test_run_campaign_precomputation_doubles_a_single_configuration(tmp_path):
     The seed has 2 atoms and the minimum is 4 environments, so precomputation must produce 2 labelled
     configurations (double the single seed) before any round runs.
     """
-    provided_configurations_path = tmp_path / "initial.traj"
-    write_atoms_trajectory([_labelled_atoms(energy=0.0)], provided_configurations_path)  # a single seed config
+    provided_configurations = [_labelled_atoms(energy=0.0)]  # a single seed config
 
     oracle = MagicMock()
     oracle.calculate_many.side_effect = lambda structures: [
@@ -204,17 +221,13 @@ def test_run_campaign_precomputation_doubles_a_single_configuration(tmp_path):
                                forces=np.zeros((len(structure), 3)), energy=-1.0)
         for structure in structures
     ]
-    sample_maker = MagicMock()
-    sample_maker.arguments.element_list = ["Si"]
-
     mlip = _PrecomputationStubMLIP(minimum_number_of_environments=4)  # 2-atom seed -> 2 structures (doubled)
 
     active_learning = ActiveLearning(oracle_single_point_calculator=oracle,
-                                     sample_maker=sample_maker, dynamic_driver=MagicMock())
+                                     sample_maker=_stub_sample_maker(), dynamic_driver=MagicMock(), mlip=mlip)
     active_learning.run_campaign(
-        uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path,
+        uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=provided_configurations,
         maximum_number_of_rounds=0,  # skip the campaign; only precomputation runs
-        path_to_provided_configurations=provided_configurations_path,
     )
 
     database = active_learning._training_database
@@ -226,21 +239,16 @@ def test_run_campaign_precomputation_doubles_a_single_configuration(tmp_path):
 
 def test_run_campaign_uses_provided_database_directly_when_it_covers_the_minimum(tmp_path):
     """A provided database that already covers the minimum is used as the training set, without augmentation."""
-    provided_configurations_path = tmp_path / "provided.traj"
-    write_atoms_trajectory([_labelled_atoms(energy=float(index)) for index in range(3)],  # 3 x 2 atoms = 6 envs
-                           provided_configurations_path)
+    provided_configurations = [_labelled_atoms(energy=float(index)) for index in range(3)]  # 3 x 2 atoms = 6 envs
 
     oracle = MagicMock()  # must NOT be called: nothing to augment/label
-    sample_maker = MagicMock()
-    sample_maker.arguments.element_list = ["Si"]
     mlip = _PrecomputationStubMLIP(minimum_number_of_environments=4)  # 6 >= 4 -> use the provided configs directly
 
     active_learning = ActiveLearning(oracle_single_point_calculator=oracle,
-                                     sample_maker=sample_maker, dynamic_driver=MagicMock())
+                                     sample_maker=_stub_sample_maker(), dynamic_driver=MagicMock(), mlip=mlip)
     active_learning.run_campaign(
-        uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path,
+        uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=provided_configurations,
         maximum_number_of_rounds=0,
-        path_to_provided_configurations=provided_configurations_path,
     )
 
     database = active_learning._training_database
@@ -253,19 +261,14 @@ def test_precomputation_raises_on_unlabelled_provided_configurations(tmp_path):
     """Precomputation refuses provided configurations that carry no energy/forces (they must be labelled)."""
     unlabelled_configuration = Atoms("Si2", positions=[[0.0, 0.0, 0.0], [1.1, 1.1, 1.1]],
                                      cell=[5.0, 5.0, 5.0], pbc=True)  # no calculator: unlabelled
-    provided_configurations_path = tmp_path / "provided.traj"
-    write_atoms_trajectory([unlabelled_configuration], provided_configurations_path)
-
-    sample_maker = MagicMock()
-    sample_maker.arguments.element_list = ["Si"]
     mlip = _PrecomputationStubMLIP(minimum_number_of_environments=4)
 
     active_learning = ActiveLearning(oracle_single_point_calculator=MagicMock(),
-                                     sample_maker=sample_maker, dynamic_driver=MagicMock())
+                                     sample_maker=_stub_sample_maker(), dynamic_driver=MagicMock(), mlip=mlip)
     with pytest.raises(ValueError, match="must be labelled"):
         active_learning.run_campaign(
-            uncertainty_threshold=0.1, mlip=mlip, working_directory=tmp_path,
-            maximum_number_of_rounds=0, path_to_provided_configurations=provided_configurations_path,
+            uncertainty_threshold=0.1, working_directory=tmp_path,
+            provided_configurations=[unlabelled_configuration], maximum_number_of_rounds=0,
         )
 
 
@@ -310,14 +313,14 @@ class TestFullRound:
         mlip.train.side_effect = lambda model_directory: (Path(model_directory) / "model").write_text("model")
 
         active_learning = ActiveLearning(oracle_single_point_calculator=oracle,
-                                         sample_maker=sample_maker, dynamic_driver=dynamic_driver)
+                                         sample_maker=sample_maker, dynamic_driver=dynamic_driver, mlip=mlip)
         # Bypass only the LAMMPS-dump reader; feed the uncertain configuration directly.
         monkeypatch.setattr(
             active_learning, "_get_uncertain_structure_and_uncertainties",
             lambda working_directory, uncertainty_field: (uncertain_structure, uncertainty_per_atom),
         )
 
-        active_learning.run_campaign(uncertainty_threshold=0.5, mlip=mlip, working_directory=tmp_path)
+        active_learning.run_campaign(uncertainty_threshold=0.5, working_directory=tmp_path, provided_configurations=[])
         database = active_learning._training_database
 
         # Stage 1: the uncertain configuration and its per-atom uncertainty were committed.

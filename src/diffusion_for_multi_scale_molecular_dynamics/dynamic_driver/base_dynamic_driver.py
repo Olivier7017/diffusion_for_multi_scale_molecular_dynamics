@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Union
 
-from pymatgen.core import Structure
-from pymatgen.io.lammps.data import LammpsData
+from ase import Atoms
+from ase.io.lammpsdata import write_lammps_data
 
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
@@ -21,6 +21,8 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
     configure_logging
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
+    assert_orthogonal_cell
 
 
 class DynamicDriver(ABC):
@@ -34,35 +36,18 @@ class DynamicDriver(ABC):
     def __init__(
         self,
         lammps_runner: Union[SubprocessLammpsRunner, InProcessLammpsRunner],
-        reference_directory: Path,
+        initial_configuration: Atoms,
     ):
         """Init method.
 
         Args:
             lammps_runner: a runner that drives LAMMPS (must handle the MLIP pair_style + uncertainty).
-            reference_directory: directory containing 'initial_configuration.dat' (the starting structure).
+            initial_configuration: the single starting configuration the dynamics is launched from.
         """
-        assert reference_directory.is_dir(), "The reference directory is not valid."
-
-        self._initial_configuration_file_path = reference_directory / "initial_configuration.dat"
-        assert self._initial_configuration_file_path.is_file(), "The initial configuration file does not exist."
-        self.initial_structure = self._load_initial_configuration(self._initial_configuration_file_path)
-
+        assert_orthogonal_cell(initial_configuration)
+        self.initial_configuration = initial_configuration
         self._lammps_runner = lammps_runner
         self._lammps_input_filename = "lammps.in"
-
-    @staticmethod
-    def _load_initial_configuration(initial_configuration_file_path: Path) -> Structure:
-        """Load the initial configuration as a structure."""
-        try:
-            structure = LammpsData.from_file(str(initial_configuration_file_path),
-                                             atom_style="atomic",
-                                             sort_id=True).structure
-        except Exception:
-            raise ValueError(f"The initial configuration file {initial_configuration_file_path} cannot be loaded.\n"
-                             "Make sure the file is present and in a format that can be read by the "
-                             "LammpsData module.")
-        return structure
 
     def run(self, mlip: BaseMLIP, working_directory: Path, uncertainty_threshold: float) -> CalculationState:
         """Run the dynamics with the MLIP and return the resulting calculation state.
@@ -96,15 +81,18 @@ class DynamicDriver(ABC):
         configure_logging(experiment_dir=str(working_directory), logger=logger, log_to_console=False)
 
         logger.info("Write the starting configuration to the working directory.")
-        lammps_data = LammpsData.from_structure(self.initial_structure, atom_style="atomic")
-        lammps_data.write_file(str(working_directory / "initial_configuration.dat"))
+        _, _, elements_string = generate_named_elements_blocks(self.initial_configuration)
+        with open(working_directory / "initial_configuration.dat", "w") as file_descriptor:
+            # specorder mirrors the (mass-sorted) group/mass blocks so the atom-type integers stay consistent.
+            write_lammps_data(file_descriptor, self.initial_configuration, atom_style="atomic",
+                              specorder=elements_string.split(), masses=True)
         self._prepare_reference_files(working_directory)
         return logger
 
     def _build_lammps_parameters(self, mlip: BaseMLIP, uncertainty_threshold: float) -> dict:
         """Assemble the template substitution parameters from the MLIP potential and the dynamics block."""
         potential = mlip.lammps_potential
-        group_block, mass_block, elements_string = generate_named_elements_blocks(self.initial_structure)
+        group_block, mass_block, elements_string = generate_named_elements_blocks(self.initial_configuration)
         return dict(
             configuration_file_path="initial_configuration.dat",
             interaction_commands="\n".join(potential.interaction_commands(elements_string, with_uncertainty=True)),

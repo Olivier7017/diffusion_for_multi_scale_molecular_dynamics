@@ -1,51 +1,61 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
-import numpy as np
-from pymatgen.core import Element, Structure
+from ase import Atoms
+from ase.data import atomic_masses, atomic_numbers
+from pymatgen.core import Structure
 
 
-def sort_elements_by_atomic_mass(list_elements: List[Element]) -> List[Element]:
-    """Sort elements by atomic mass.
+def sort_symbols_by_atomic_mass(symbols: List[str]) -> List[Tuple[str, float]]:
+    """Return the distinct element symbols as (symbol, atomic mass) pairs, sorted by increasing mass.
 
-    This is useful to define a canonical order for the elements.
+    This is the canonical element ordering shared by every LAMMPS input (data file, group/mass blocks).
 
     Args:
-        list_elements: Pymatgen elements, assumed to be real elements.
+        symbols: element symbols (duplicates allowed).
 
     Returns:
-        list_sorted_elements: same elements, sorted by increasing atomic mass.
+        the (symbol, atomic_mass) pairs of the distinct elements, sorted by increasing atomic mass.
     """
-    list_masses = [element.atomic_mass.real for element in list_elements]
-    indices = np.argsort(list_masses)
-    list_sorted_elements = [list_elements[idx] for idx in indices]
-    return list_sorted_elements
+    elements = [(symbol, atomic_masses[atomic_numbers[symbol]]) for symbol in set(symbols)]
+    return sorted(elements, key=lambda symbol_and_mass: symbol_and_mass[1])
 
 
-def generate_named_elements_blocks(structure: Structure) -> Tuple[str, str, str]:
+def sort_structure_elements_by_atomic_mass(structure: Structure) -> List[Tuple[str, float]]:
+    """Return the structure's unique elements as (symbol, atomic mass) pairs, sorted by increasing mass."""
+    return sort_symbols_by_atomic_mass([element.symbol for element in structure.elements])
+
+
+def sort_atoms_elements_by_atomic_mass(atoms: Atoms) -> List[Tuple[str, float]]:
+    """Return the configuration's unique elements as (symbol, atomic mass) pairs, sorted by increasing mass."""
+    return sort_symbols_by_atomic_mass(atoms.get_chemical_symbols())
+
+
+def generate_named_elements_blocks(configuration: Union[Structure, Atoms]) -> Tuple[str, str, str]:
     """Generate named elements blocks.
 
-    The LAMMPS input file requires the list of the elements present.
-    This method creates consistently sorted text blocks to identify the
-    group ids, the masses and the symbols of the elements.
+    The LAMMPS input file requires the list of the elements present. This creates consistently sorted text
+    blocks to identify the group ids, the masses and the symbols of the elements.
 
     Args:
-        structure: a pymatgen structure object.
+        configuration: a pymatgen structure or an ase.Atoms configuration.
 
     Returns:
         group_block: a multiline string, with the group id and element symbol on each line.
         mass_block:   a multiline string, with the group id mass symbol on each line.
         elements_string: a string with the element symbols.
     """
-    sorted_elements = sort_elements_by_atomic_mass(structure.elements)
+    if isinstance(configuration, Atoms):
+        sorted_elements = sort_atoms_elements_by_atomic_mass(configuration)
+    else:
+        sorted_elements = sort_structure_elements_by_atomic_mass(configuration)
 
     elements_string = ""
     group_block = ""
     mass_block = ""
 
-    for group_id, element in enumerate(sorted_elements, 1):
-        symbol = element.symbol
+    for group_id, (symbol, atomic_mass) in enumerate(sorted_elements, 1):
         group_block += f"\ngroup {symbol} type {group_id}"
-        mass_block += f"\nmass {group_id} {element.atomic_mass.real}"
+        mass_block += f"\nmass {group_id} {atomic_mass}"
         elements_string += f"{symbol} "
 
     return group_block, mass_block, elements_string.strip()

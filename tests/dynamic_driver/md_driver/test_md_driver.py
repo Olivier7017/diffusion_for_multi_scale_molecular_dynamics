@@ -17,11 +17,11 @@ _NUMBER_OF_STEPS = 5
 
 
 @pytest.fixture
-def md_driver(reference_directory):
+def md_driver(initial_configuration):
     """An MD driver with a mock runner (unit-level: no LAMMPS is actually launched)."""
     return MdDriver(
         lammps_runner=MagicMock(),
-        reference_directory=reference_directory,
+        initial_configuration=initial_configuration,
         temperature=_TEMPERATURE,
         timestep=_TIMESTEP,
         number_of_steps=_NUMBER_OF_STEPS,
@@ -50,35 +50,37 @@ class TestUnit:
 
     def test_empty_dump_is_success(self, md_driver, tmp_path):
         """An uncertain dump file with no content still means nothing was flagged: SUCCESS."""
-        (tmp_path / "uncertain_dump.yaml").write_text("")
+        (tmp_path / "uncertain_dump.dump").write_text("")
         assert md_driver._get_calculation_state(tmp_path) == CalculationState.SUCCESS
 
     def test_nonempty_dump_is_interruption(self, md_driver, tmp_path):
         """A non-empty uncertain dump means the halt fired on an uncertain structure: INTERRUPTION."""
-        (tmp_path / "uncertain_dump.yaml").write_text("---\nnatoms: 2\n")
+        (tmp_path / "uncertain_dump.dump").write_text("ITEM: TIMESTEP\n0\n")
         assert md_driver._get_calculation_state(tmp_path) == CalculationState.INTERRUPTION
 
 
 @pytest.mark.requires_lammps_bin
 class TestEndToEnd:
-    def _make_driver(self, lammps_executable_path, reference_directory):
+    def _make_driver(self, lammps_executable_path, initial_configuration):
         runner = SubprocessLammpsRunner(lammps_executable_path=lammps_executable_path, mpi_processors=1)
         return MdDriver(
             lammps_runner=runner,
-            reference_directory=reference_directory,
+            initial_configuration=initial_configuration,
             temperature=_TEMPERATURE,
             timestep=_TIMESTEP,
             number_of_steps=_NUMBER_OF_STEPS,
         )
 
-    def test_high_threshold_runs_to_completion(self, lammps_executable_path, reference_directory, stub_mlip, tmp_path):
+    def test_high_threshold_runs_to_completion(
+        self, lammps_executable_path, initial_configuration, stub_mlip, tmp_path
+    ):
         """A huge threshold is never exceeded, so a real MD run completes without a halt: SUCCESS."""
-        driver = self._make_driver(lammps_executable_path, reference_directory)
+        driver = self._make_driver(lammps_executable_path, initial_configuration)
         state = driver.run(stub_mlip, tmp_path / "work", uncertainty_threshold=1.0e9)
         assert state == CalculationState.SUCCESS
 
-    def test_low_threshold_halts_immediately(self, lammps_executable_path, reference_directory, stub_mlip, tmp_path):
+    def test_low_threshold_halts_immediately(self, lammps_executable_path, initial_configuration, stub_mlip, tmp_path):
         """A threshold below any per-atom energy trips the halt at once, producing the uncertain dump: INTERRUPTION."""
-        driver = self._make_driver(lammps_executable_path, reference_directory)
+        driver = self._make_driver(lammps_executable_path, initial_configuration)
         state = driver.run(stub_mlip, tmp_path / "work", uncertainty_threshold=-1.0e9)
         assert state == CalculationState.INTERRUPTION
