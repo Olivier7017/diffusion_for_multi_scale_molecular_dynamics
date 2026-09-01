@@ -80,24 +80,37 @@ class TestBaseMLIP:
         assert metrics["rmse_forces"] == pytest.approx(np.sqrt(1.0 ** 2 / 6))
 
     @pytest.mark.parametrize(
-        "minimum_environments, expected_number_of_structures",
-        [(9, 2), (24, 3)],  # ceil(minimum_environments / 8 atoms)
+        "minimum_environments, expected_number_of_seeds",
+        [(16, 1), (24, 2), (25, 3)],  # the 8-atom seed already counts; ceil((minimum - 8) / 8) copies more
     )
-    def test_augment_configurations_covers_active_set(self, mlip, minimum_environments,
-                                                      expected_number_of_structures):
-        """The seed (8 atoms) is perturbed into ceil(minimum_environments / 8) copies covering the active set."""
+    def test_greedy_augmentation_single_element(self, mlip, minimum_environments, expected_number_of_seeds):
+        """One 8-atom Si seed is rattled ceil((minimum - 8) / 8) times to cover a single-element floor."""
         structure = Atoms("Si8", positions=np.zeros((8, 3)), cell=5.0 * np.eye(3), pbc=True)
-        mlip.minimum_number_of_training_environments = lambda: minimum_environments
 
-        assert mlip.minimum_number_of_atomic_structures(structure) == expected_number_of_structures
-        augmented_structures = mlip.augment_configurations(structure, standard_deviation=0.05)
+        seeds = mlip._greedy_augmentation_seeds([structure], {"Si": minimum_environments})
 
-        assert len(augmented_structures) == expected_number_of_structures
-        assert all(len(configuration) == 8 for configuration in augmented_structures)
+        assert len(seeds) == expected_number_of_seeds
+        assert all(seed is structure for seed in seeds)
 
-    def test_default_minimum_number_of_training_environments_is_zero(self, mlip):
-        """With no D-optimality active set, no environments are required."""
-        assert mlip.minimum_number_of_training_environments() == 0
+    def test_greedy_augmentation_picks_the_composition_matching_the_deficit(self, mlip):
+        """The greedy rattles the configuration whose composition best matches the missing-element ratio."""
+        magnesium_rich = Atoms("Mg2", positions=np.zeros((2, 3)), cell=5.0 * np.eye(3), pbc=True)
+        magnesium_hydride = Atoms("MgH4", positions=np.zeros((5, 3)), cell=5.0 * np.eye(3), pbc=True)
+        # have: Mg = 2 + 1 = 3, H = 0 + 4 = 4; floor {Mg: 4, H: 8} -> missing Mg 1, H 4 (ratio 1:4 == MgH4).
+        seeds = mlip._greedy_augmentation_seeds([magnesium_rich, magnesium_hydride], {"Mg": 4, "H": 8})
+
+        # One copy of the H-rich cell covers both floors at once; the pure-Mg cell is never chosen.
+        assert seeds == [magnesium_hydride]
+
+    def test_greedy_augmentation_requires_every_needed_element(self, mlip):
+        """A floor for an element absent from every provided configuration is an immediate, clear error."""
+        silicon = Atoms("Si2", positions=np.zeros((2, 3)), cell=5.0 * np.eye(3), pbc=True)
+        with pytest.raises(ValueError, match="No provided configuration contains 'Ge'"):
+            mlip._greedy_augmentation_seeds([silicon], {"Si": 2, "Ge": 4})
+
+    def test_default_minimum_number_of_training_environments_is_empty(self, mlip):
+        """With no D-optimality active set, no element requires any environments."""
+        assert mlip.minimum_number_of_training_environments() == {}
 
 
 def construct_derived_trainer(mlip_type, structure, list_element_symbols, training_database):
@@ -222,8 +235,8 @@ class TestDerivedMLIP:
         assert mlip.model_file.is_file()
 
     def test_minimum_number_of_training_environments(self, mlip_type, mlip):
-        """FLARE needs no active set (0); a level-6 single-species MTP needs its descriptor-space dimension (22)."""
-        expected_minimum = {"flare": 0, "mtp": 22}[mlip_type]
+        """FLARE needs no active set ({}); a level-6 single-species MTP needs its descriptor-space dimension."""
+        expected_minimum = {"flare": {}, "mtp": {"Si": 22}}[mlip_type]
         assert mlip.minimum_number_of_training_environments() == expected_minimum
 
 

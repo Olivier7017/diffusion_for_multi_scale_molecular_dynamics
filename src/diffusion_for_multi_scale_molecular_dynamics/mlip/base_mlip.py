@@ -23,7 +23,7 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_cal
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
     to_pymatgen_structure
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import (
-    create_perturbed_structures, label_configurations)
+    atoms_per_element, create_perturbed_structures, label_configurations)
 
 
 class BaseMLIP(ABC):
@@ -84,39 +84,64 @@ class BaseMLIP(ABC):
         """Add a labelled structure to the training set."""
         self._trainer.add_labelled_structure(single_point_calculation, active_environment_indices)
 
-    def minimum_number_of_training_environments(self) -> int:
-        """Number of atomic environments the active set needs (the descriptor-space dimension).
+    def minimum_number_of_training_environments(self) -> Dict[str, int]:
+        """Per-element atomic-environment floor the active set needs (element symbol -> environment count).
 
-        The default is 0 (no D-optimality active set, e.g. FLARE); a D-optimality MLIP (MTP, GRACE-FS)
-        redefines this.
+        The default is an empty mapping (no D-optimality active set, e.g. FLARE); a D-optimality MLIP (MTP,
+        GRACE-FS) redefines this. GRACE-FS is genuinely per-element; MTP's single pooled floor is spread over
+        its species.
         """
-        return 0
+        return {}
 
-    def minimum_number_of_atomic_structures(self, structure: Atoms, number_of_existing_environments: int = 0) -> int:
-        """Number of structures of this composition needed to reach the minimum number of training environments."""
-        missing_environments = self.minimum_number_of_training_environments() - number_of_existing_environments
-        if missing_environments <= 0:
-            return 0
-        return int(np.ceil(missing_environments / len(structure)))
-
-    def augment_configurations(
-        self, structure: Atoms, number_of_existing_environments: int = 0, standard_deviation: float = 0.05
+    def _greedy_augmentation_seeds(
+        self, provided_configurations: List[Atoms], minimum_environments_per_element: Dict[str, int]
     ) -> List[Atoms]:
-        """Perturb the structure into enough copies to top the training set up to the D-optimality minimum.
+        """Greedily choose which provided configurations to rattle to reach the per-element active-set floor.
 
-        Args:
-            structure: the seed configuration to perturb.
-            number_of_existing_environments: environments already in the training set.
-            standard_deviation: standard deviation (Angstrom) of the Gaussian displacements.
+        Selection metric - the normalized dot product (cosine similarity) between the number missing per
+        element and the number provided by each configuration, iteratively repeated until every element
+        deficiency is resolved.
 
         Returns:
-            the perturbed configurations sized to reach the minimum (empty if already met).
+            the chosen seed configurations, one entry per rattled copy to create (a configuration may repeat).
         """
-        return create_perturbed_structures(
-            structure,
-            standard_deviation,
-            self.minimum_number_of_atomic_structures(structure, number_of_existing_environments),
+        def cosine_similarity(vector: np.ndarray, other: np.ndarray) -> float:
+            norm_product = float(np.linalg.norm(vector) * np.linalg.norm(other))
+            return 0.0 if norm_product == 0.0 else float(np.dot(vector, other) / norm_product)
+
+        element_order = sorted(minimum_environments_per_element)
+        minimum_per_element = np.array(
+            [minimum_environments_per_element[element] for element in element_order], dtype=float
         )
+        atoms_per_configuration = [
+            atoms_per_element(configuration, element_order) for configuration in provided_configurations
+        ]
+
+        provided_environments = (
+            np.sum(atoms_per_configuration, axis=0) if atoms_per_configuration else np.zeros(len(element_order))
+        )
+        missing = np.maximum(minimum_per_element - provided_environments, 0)
+
+        # Point 2: every still-needed element must be reachable by rattling some provided configuration.
+        for index, element in enumerate(element_order):
+            if missing[index] > 0 and all(counts[index] == 0 for counts in atoms_per_configuration):
+                raise ValueError(
+                    f"No provided configuration contains '{element}', which the active set still needs "
+                    f"({int(missing[index])} more environments). Provide a configuration containing it."
+                )
+
+        selected_seeds: List[Atoms] = []
+        while np.any(missing > 0):
+            best_index = max(
+                range(len(provided_configurations)),
+                key=lambda index: (
+                    cosine_similarity(atoms_per_configuration[index], missing),
+                    -len(provided_configurations[index]),  # tie-break: fewer atoms is cheaper to label
+                ),
+            )
+            selected_seeds.append(provided_configurations[best_index])
+            missing = np.maximum(missing - atoms_per_configuration[best_index], 0)
+        return selected_seeds
 
     def prepare_training_set(
         self,
@@ -140,7 +165,16 @@ class BaseMLIP(ABC):
             the number of augmented (perturbed, oracle-labelled) configurations added beyond the provided ones.
         """
         database = self.training_database
-        if database.number_of_labelled_environments() >= self.minimum_number_of_training_environments():
+        minimum_environments_per_element = self.minimum_number_of_training_environments()
+        element_order = sorted(minimum_environments_per_element)
+        labelled_environments = sum(
+            (atoms_per_element(atoms, element_order) for atoms in database.labelled_atoms),
+            np.zeros(len(element_order)),
+        )
+        minimum_per_element = np.array(
+            [minimum_environments_per_element[element] for element in element_order], dtype=float
+        )
+        if np.all(labelled_environments >= minimum_per_element):
             return 0
 
         training_configurations = self.create_training_configurations(
@@ -180,28 +214,15 @@ class BaseMLIP(ABC):
                 )
 
         training_configurations = list(provided_configurations)
-        number_of_environments = sum(len(configuration) for configuration in provided_configurations)
-        if number_of_environments < self.minimum_number_of_training_environments():
-            perturbed_configurations = self._augment_configurations(
-                provided_configurations, number_of_environments, standard_deviation
-            )
+        seeds_to_rattle = self._greedy_augmentation_seeds(
+            provided_configurations, self.minimum_number_of_training_environments()
+        )
+        if seeds_to_rattle:
+            perturbed_configurations = [
+                create_perturbed_structures(seed, standard_deviation, 1)[0] for seed in seeds_to_rattle
+            ]
             training_configurations += label_configurations(perturbed_configurations, single_point_calculator)
         return training_configurations
-
-    def _augment_configurations(
-        self, provided_configurations: List[Atoms], number_of_existing_environments: int, standard_deviation: float
-    ) -> List[Atoms]:
-        """Perturb the provided configuration(s) into enough (unlabelled) copies to cover the shortfall."""
-        perturbed_configurations = []
-        for seed_configuration in provided_configurations:
-            new_configurations = self.augment_configurations(
-                seed_configuration,
-                number_of_existing_environments=number_of_existing_environments,
-                standard_deviation=standard_deviation,
-            )
-            perturbed_configurations.extend(new_configurations)
-            number_of_existing_environments += sum(len(structure) for structure in new_configurations)
-        return perturbed_configurations
 
     def prepare_mlip_first_round(self, output_directory: Path) -> None:
         """Deploy the pretrained model so it can be run before any training happens this campaign."""

@@ -168,6 +168,12 @@ def compute_distances(
     return distances[distances > 0.0]
 
 
+def atoms_per_element(configuration: Atoms, element_order: List[str]) -> np.ndarray:
+    """Count the atoms of each element in a configuration, ordered by element_order."""
+    chemical_symbols = configuration.get_chemical_symbols()
+    return np.array([chemical_symbols.count(element) for element in element_order], dtype=float)
+
+
 def create_perturbed_structures(
     atoms: Union[Atoms, List[Atoms]], standard_deviation: float, number_of_configurations: int
 ) -> List[Atoms]:

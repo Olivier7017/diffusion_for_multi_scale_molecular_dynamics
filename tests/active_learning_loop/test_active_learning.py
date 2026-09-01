@@ -47,7 +47,7 @@ def _uncertain_atoms() -> Atoms:
 def _stub_mlip():
     mlip = MagicMock()
     mlip.training_metrics.return_value = dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
-    mlip.minimum_number_of_training_environments.return_value = 0  # no precomputation for the stubbed loop
+    mlip.minimum_number_of_training_environments.return_value = {}  # no precomputation for the stubbed loop
     return mlip
 
 
@@ -167,8 +167,8 @@ def test_restart_reloads_the_latest_committed_model(tmp_path):
 
 
 class _PrecomputationStubMLIP(BaseMLIP):
-    """A real BaseMLIP (so augment_configurations/minimum_number_of_atomic_structures run for real) with a
-    fixed environment minimum and a stubbed train/deploy (no LAMMPS)."""
+    """A real BaseMLIP (so the greedy augmentation runs for real) with a fixed per-element environment floor
+    and a stubbed train/deploy (no LAMMPS). The seed configurations are single-species (Si)."""
 
     def __init__(self, minimum_number_of_environments: int):
         super().__init__(trainer=MagicMock(), lammps_runner=MagicMock())
@@ -183,8 +183,8 @@ class _PrecomputationStubMLIP(BaseMLIP):
     def training_database(self):
         return self._attached_training_database
 
-    def minimum_number_of_training_environments(self) -> int:
-        return self._minimum_number_of_environments
+    def minimum_number_of_training_environments(self) -> dict:
+        return {"Si": self._minimum_number_of_environments}
 
     def train(self, output_directory):
         self.trained_model_directories.append(Path(output_directory))
@@ -306,7 +306,7 @@ class TestFullRound:
         dynamic_driver.run.side_effect = [CalculationState.INTERRUPTION, CalculationState.SUCCESS]
         mlip = MagicMock()
         mlip.training_metrics.return_value = dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
-        mlip.minimum_number_of_training_environments.return_value = 0  # no precomputation in this round test
+        mlip.minimum_number_of_training_environments.return_value = {}  # no precomputation in this round test
         mlip.train.side_effect = lambda model_directory: (Path(model_directory) / "model").write_text("model")
 
         active_learning = ActiveLearning(oracle_single_point_calculator=oracle,
