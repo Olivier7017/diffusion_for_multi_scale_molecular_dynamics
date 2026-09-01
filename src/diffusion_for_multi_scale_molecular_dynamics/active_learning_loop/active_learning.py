@@ -298,7 +298,8 @@ class ActiveLearning:
         """
         self._set_log_stage(epoch=0, stage=Stage.TRAIN)  # precomputation is epoch 0, a training stage
         if self.mlip.minimum_number_of_training_environments() == 0:
-            self.mlip.prepare_mlip_first_round(self._working_directory / "initial_mlip")
+            # Deploy the initial (empty) model into precomputation/ so restart's is_model_committed(0) finds it.
+            self.mlip.prepare_mlip_first_round(self._training_database.precomputation_model_directory())
             return
 
         number_of_augmented = self.mlip.prepare_training_set(

@@ -6,6 +6,8 @@ from typing import Dict, Optional, Union
 
 import yaml
 
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.grace import \
+    GracePotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_configuration import \
@@ -76,6 +78,21 @@ class GraceMlip(BaseMLIP):
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
         with open(str(output_path), "w") as file_descriptor:
             yaml.dump(self._state(), file_descriptor)
+
+    def load(self, model_directory: Path) -> None:
+        """Load the committed GRACE-FS model into a runnable potential and restore its '-rl' warm-start seed.
+
+        GRACE-FS refits from the full training database on the next fit, but the seed folder is restored so
+        that fit resumes with gracemaker '-rl': the warm start drastically shortens fitting and must always
+        be used, so it has to survive a restart.
+        """
+        model_directory = Path(model_directory)
+        self._trainer.restore_from_checkpoint(model_directory)
+        self._lammps_potential = GracePotential(
+            model_file_path=model_directory / "model.yaml",
+            active_set_file_path=model_directory / "model.asi",
+        )
+        self._model_file = self.lammps_potential.model_file_path
 
     def minimum_number_of_training_environments(self):
         """Minimum number of atomic environments per element needed for the D-optimality active set.

@@ -88,17 +88,26 @@ class MtpTrainer(BaseMLIPTrainer):
             try:
                 write_mtp_cfg(training_pool, self._configuration.elements, Path("train.cfg"))
 
-                template = Path(f"{self._configuration.level:02d}.almtp")
-                shutil.copy(self._template_path(), template)
-                self._configuration.write_to_file(template)
+                starting_potential_path = Path(f"{self._configuration.level:02d}.almtp")
+                if self._fitted_potential is not None:
+                    # Warm start: resume from the previous fit's coefficients (mlp --init-params='same').
+                    starting_potential_path.write_bytes(self._fitted_potential)
+                else:
+                    # First fit: cold start from the level template, then set its max_dist.
+                    shutil.copy(self._template_path(), starting_potential_path)
+                    self._configuration.write_to_file(starting_potential_path)
 
                 fitted_potential_path = Path("pot.almtp")
-                self._run_mlp_train(template, Path("train.cfg"), fitted_potential_path)
+                self._run_mlp_train(starting_potential_path, Path("train.cfg"), fitted_potential_path)
 
                 self._fitted_potential = fitted_potential_path.read_bytes()
                 self._configuration.read_from_file(fitted_potential_path)
             finally:
                 os.chdir(original_directory)
+
+    def restore_from_checkpoint(self, checkpoint_directory: Path) -> None:
+        """Restore the fitted potential from a committed model directory so the next fit warm-starts from it."""
+        self._fitted_potential = (Path(checkpoint_directory) / "potential.almtp").read_bytes()
 
     def write_checkpoint(self, output_directory: Path) -> MtpPotential:
         """Write the fitted potential into output_directory and return the deployed LAMMPS potential."""

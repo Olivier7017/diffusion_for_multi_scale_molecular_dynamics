@@ -100,9 +100,14 @@ class MtpMlip(BaseMLIP):
         self.write_state_yaml(output_directory / "state.yaml")
 
     def load(self, model_directory: Path) -> None:
-        """Load the committed MTP model (its ``potential.almtp``) from model_directory into a runnable potential."""
+        """Load the committed MTP model into a runnable potential and warm-start the next fit from it.
+
+        The deployed ``potential.almtp`` drives the dynamics; restoring it into the trainer lets the next fit
+        resume from these coefficients (mlp ``--init-params='same'``) rather than the cold level template.
+        """
         self._lammps_potential = MtpPotential(mtp_file_path=Path(model_directory) / "potential.almtp")
         self._model_file = self.lammps_potential.mtp_file_path
+        self._trainer.restore_from_checkpoint(model_directory)
 
     def write_state_yaml(self, output_path: Path) -> None:
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""

@@ -100,6 +100,68 @@ class TestBaseMLIP:
         assert mlip.minimum_number_of_training_environments() == 0
 
 
+def construct_derived_trainer(mlip_type, structure, list_element_symbols, training_database):
+    """Build an (unfitted) trainer of the given type and the labelled structure to fold into it."""
+    if mlip_type == "flare":
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
+            FlareConfiguration
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
+            FlareTrainer
+        trainer = FlareTrainer(FlareConfiguration(cutoff=4.0,
+                                                  elements=list_element_symbols,
+                                                  n_radial=4,
+                                                  lmax=2,
+                                                  variance_type='local'),
+                               training_database=training_database)
+        labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
+                                                    structure=structure,
+                                                    forces=np.random.rand(len(structure), 3),
+                                                    energy=-1.0)
+    elif mlip_type == "mtp":
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
+            MtpConfiguration
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
+            MtpTrainer
+
+        # MTP needs a fixed single-species structure (the level-6 template is single-species).
+        mtp_structure = LammpsData.from_file(str(SI8_STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure
+        trainer = MtpTrainer(MtpConfiguration(
+            elements=["Si"],
+            level=6,
+            max_dist=4.0,
+            training_params=dict(max_iter=100, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
+        ), training_database=training_database)
+        labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
+                                                    structure=mtp_structure,
+                                                    forces=np.zeros((len(mtp_structure), 3)),
+                                                    energy=-26.43783)
+    else:
+        raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
+    return trainer, labelled_structure
+
+
+def construct_derived_mlip(mlip_type, trainer):
+    """Wrap a trainer in its MLIP (a mock LAMMPS runner: these tests never deploy to real LAMMPS)."""
+    if mlip_type == "flare":
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import (
+            FlareHyperparametersOptimizer, FlareOptimizerConfiguration)
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_mlip import \
+            FlareMLIP
+        optimizer = FlareHyperparametersOptimizer(
+            FlareOptimizerConfiguration(max_optimization_iterations=3,
+                                        optimize_sigma=False,
+                                        optimize_sigma_e=True,
+                                        optimize_sigma_f=False,
+                                        optimize_sigma_s=False)
+        )
+        return FlareMLIP(flare_trainer=trainer, hyperparameter_optimizer=optimizer, lammps_runner=MagicMock())
+    if mlip_type == "mtp":
+        from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_mlip import \
+            MtpMlip
+        return MtpMlip(mtp_trainer=trainer, lammps_runner=MagicMock())
+    raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
+
+
 class TestDerivedMLIP:
 
     @pytest.fixture(
@@ -117,42 +179,9 @@ class TestDerivedMLIP:
 
     @pytest.fixture
     def trainer(self, mlip_type, structure, list_element_symbols, training_database):
-        if mlip_type == "flare":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
-                FlareConfiguration
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_trainer import \
-                FlareTrainer
-            trainer = FlareTrainer(FlareConfiguration(cutoff=4.0,
-                                                      elements=list_element_symbols,
-                                                      n_radial=4,
-                                                      lmax=2,
-                                                      variance_type='local'),
-                                   training_database=training_database)
-            labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
-                                                        structure=structure,
-                                                        forces=np.random.rand(len(structure), 3),
-                                                        energy=-1.0)
-        elif mlip_type == "mtp":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
-                MtpConfiguration
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_trainer import \
-                MtpTrainer
-
-            # MTP needs a fixed single-species structure (the level-6 template is single-species).
-            mtp_structure = LammpsData.from_file(str(SI8_STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure
-            trainer = MtpTrainer(MtpConfiguration(
-                elements=["Si"],
-                level=6,
-                max_dist=4.0,
-                training_params=dict(max_iter=100, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
-            ), training_database=training_database)
-            labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
-                                                        structure=mtp_structure,
-                                                        forces=np.zeros((len(mtp_structure), 3)),
-                                                        energy=-26.43783)
-        else:
-            raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
-
+        trainer, labelled_structure = construct_derived_trainer(
+            mlip_type, structure, list_element_symbols, training_database
+        )
         # Mirror the loop: persist the label to the database (stage 2) and fold it into the model (stage 3).
         active_environment_indices = list(range(len(labelled_structure.structure)))
         training_database.write_oracle(1, [labelled_structure.to_atoms(active_environment_indices)])
@@ -162,24 +191,7 @@ class TestDerivedMLIP:
 
     @pytest.fixture
     def mlip(self, mlip_type, trainer):
-        if mlip_type == "flare":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import (
-                FlareHyperparametersOptimizer, FlareOptimizerConfiguration)
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_mlip import \
-                FlareMLIP
-            optimizer = FlareHyperparametersOptimizer(
-                FlareOptimizerConfiguration(max_optimization_iterations=3,
-                                            optimize_sigma=False,
-                                            optimize_sigma_e=True,
-                                            optimize_sigma_f=False,
-                                            optimize_sigma_s=False)
-            )
-            return FlareMLIP(flare_trainer=trainer, hyperparameter_optimizer=optimizer, lammps_runner=MagicMock())
-        if mlip_type == "mtp":
-            from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_mlip import \
-                MtpMlip
-            return MtpMlip(mtp_trainer=trainer, lammps_runner=MagicMock())
-        raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
+        return construct_derived_mlip(mlip_type, trainer)
 
     def test_prepare_mlip_first_round(self, mlip, tmp_path):
         """prepare_mlip_first_round deploys the pretrained model to a runnable potential, without training."""
@@ -252,3 +264,70 @@ class TestGraceMlip:
         assert state["lammps_potential_file"] == str(model_file_path)
         assert state["unc_file"] == str(active_set_file_path)
         assert state["hyperparameters"]["elements"] == ["Si"]
+
+
+def _pretrain_and_deploy(mlip_type, structure, list_element_symbols, database, model_directory):
+    """Fit a 'good' reference model once and deploy it to model_directory (the committed epoch model)."""
+    trainer, labelled_structure = construct_derived_trainer(mlip_type, structure, list_element_symbols, database)
+    active_environment_indices = list(range(len(labelled_structure.structure)))
+    database.write_oracle(1, [labelled_structure.to_atoms(active_environment_indices)])
+    trainer.add_labelled_structure(labelled_structure, active_environment_indices)
+    trainer.fit()  # the single (reference) fitting step
+
+    mlip = construct_derived_mlip(mlip_type, trainer)
+    mlip.prepare_mlip_first_round(model_directory)  # deploy the fitted model, without re-fitting
+    return mlip
+
+
+@pytest.mark.requires_mlp
+def test_mtp_load_warm_starts_from_the_committed_potential(
+    structure, list_element_symbols, tmp_path, tmp_path_factory
+):
+    """MtpMlip.load restores the exact committed coefficients into the trainer, so the next fit warm-starts.
+
+    Restoring the fitted ``potential.almtp`` byte-for-byte means a restarted campaign resumes from that good
+    potential (mlp ``--init-params='same'``) rather than the cold level template.
+    """
+    database = TrainingDatabase(tmp_path_factory.mktemp("reference_database"))
+    model_directory = tmp_path / "committed_model"
+    _pretrain_and_deploy("mtp", structure, list_element_symbols, database, model_directory)
+
+    # A fresh MLIP, as a restarted process would build it: no fitted state yet.
+    fresh_trainer, _ = construct_derived_trainer(
+        "mtp", structure, list_element_symbols, TrainingDatabase(tmp_path_factory.mktemp("fresh_database"))
+    )
+    fresh_mlip = construct_derived_mlip("mtp", fresh_trainer)
+    assert fresh_mlip._trainer._fitted_potential is None  # would otherwise cold-start from the template
+
+    fresh_mlip.load(model_directory)
+
+    assert isinstance(fresh_mlip.lammps_potential, LammpsPotential)  # the deployed potential drives the dynamics
+    assert fresh_mlip._trainer._fitted_potential == (model_directory / "potential.almtp").read_bytes()
+
+
+@pytest.mark.requires_flare
+def test_flare_load_restores_the_sparse_gp(structure, list_element_symbols, tmp_path, tmp_path_factory):
+    """FlareMLIP.load reloads the full sparse GP, so the restarted model predicts exactly as the committed one.
+
+    FLARE folds data incrementally, so a restart that reloaded only the deployed potential would lose the
+    training history; reloading the sparse GP from ``checkpoint.json`` preserves it (same prediction).
+    """
+    from diffusion_for_multi_scale_molecular_dynamics.oracle.flare_single_point_calculator import \
+        FlareSinglePointCalculator
+
+    database = TrainingDatabase(tmp_path_factory.mktemp("reference_database"))
+    model_directory = tmp_path / "committed_model"
+    reference_mlip = _pretrain_and_deploy("flare", structure, list_element_symbols, database, model_directory)
+    reference_energy = FlareSinglePointCalculator(reference_mlip._trainer.sgp_model).calculate(structure).energy
+
+    # A fresh MLIP (empty sparse GP), as a restarted process would build it.
+    fresh_trainer, _ = construct_derived_trainer(
+        "flare", structure, list_element_symbols, TrainingDatabase(tmp_path_factory.mktemp("fresh_database"))
+    )
+    fresh_mlip = construct_derived_mlip("flare", fresh_trainer)
+
+    fresh_mlip.load(model_directory)
+
+    assert isinstance(fresh_mlip.lammps_potential, LammpsPotential)  # the deployed potential drives the dynamics
+    restored_energy = FlareSinglePointCalculator(fresh_mlip._trainer.sgp_model).calculate(structure).energy
+    np.testing.assert_allclose(restored_energy, reference_energy, atol=1e-6)

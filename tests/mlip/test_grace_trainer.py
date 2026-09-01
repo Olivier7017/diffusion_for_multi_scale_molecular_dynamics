@@ -1,16 +1,19 @@
-import shutil
-import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 from pymatgen.io.lammps.data import LammpsData
 
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
+    LammpsPotential
 from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_configuration import \
     GraceConfiguration
+from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_mlip import \
+    GraceMlip
 from diffusion_for_multi_scale_molecular_dynamics.mlip.grace.grace_trainer import \
     GraceTrainer
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
@@ -80,62 +83,45 @@ def train_set_energy_rmse(model_file_path, database):
     return float(np.sqrt(np.mean(np.square(errors))))
 
 
-def ensure_reference_artifacts(reference_files_directory):
-    """Return (database_pkl, pretrained_directory), (re)generating them if missing.
-
-    Generating them runs a full gracemaker fit and is slow, so they are cached under reference_files/mlip and
-    reused across runs; only regenerated when absent.
-    """
-    # Test-specific artifacts live under a directory mirroring this test module.
-    test_reference_directory = reference_files_directory / "mlip" / "grace_trainer"
-    database_pkl = test_reference_directory / "grace_database.pkl.gz"
-    pretrained_directory = test_reference_directory / "grace_pretrained"
-    if database_pkl.exists() and (pretrained_directory / "model.yaml").exists():
-        return database_pkl, pretrained_directory
-
-    test_reference_directory.mkdir(parents=True, exist_ok=True)
-    database = create_database(reference_files_directory, DATABASE_SIZE)
-    trainer = build_fitted_trainer(database, PRETRAINED_UPDATES)
-    trainer.write_checkpoint(pretrained_directory)  # model.yaml + model.asi + seed/
-    # The training .pkl.gz written during the fit is the database pace_activeset consumes.
-    shutil.copy(trainer._fit_directory / "train.pkl.gz", database_pkl)
-    return database_pkl, pretrained_directory
-
-
 @pytest.mark.requires_grace
 @pytest.mark.slow
-class TestGraceTrainer:
+class TestGraceRestart:
+    """The full GRACE-FS restart path in one gracemaker-heavy test (two fits: the cold one, then the warm '-rl')."""
 
-    def test_pace_activeset_builds_active_set(self, reference_files_directory, tmp_path):
-        """pace_activeset builds a non-empty active set from the prefitted model and the premade database."""
-        database_pkl, pretrained_directory = ensure_reference_artifacts(reference_files_directory)
+    def test_reloaded_mlip_warm_starts_from_a_cold_fitted_model(self, reference_files_directory, tmp_path):
+        """Cold-fit and deploy a model, then reload it into a fresh MLIP and warm-start (-rl) a second fit.
 
-        model_copy = tmp_path / "model.yaml"
-        shutil.copy(pretrained_directory / "model.yaml", model_copy)
-        subprocess.run(["pace_activeset", "-d", str(database_pkl.resolve()), str(model_copy.resolve())],
-                       check=True, cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        A single test exercises the whole restart path - the cold fit (with its pace_activeset active set),
+        reloading the committed model into a fresh MLIP, and a resumed fit - and both fittings run while the
+        second demonstrably lowers the train-set RMSE. The cold-fitted model is its own restart reference, so
+        nothing needs to be committed to reference_files.
+        """
+        # 1. Cold-fit an (under-converged) model and deploy it as a committed model directory.
+        reference_database = create_database(reference_files_directory, DATABASE_SIZE, seed=0)
+        reference_trainer = build_fitted_trainer(reference_database, PRETRAINED_UPDATES)
+        assert reference_trainer.exported_model_path.is_file()  # the cold fit produced a model
 
-        active_set_path = model_copy.with_suffix(".asi")
-        assert active_set_path.is_file()
-        assert active_set_path.stat().st_size > 0
+        model_directory = tmp_path / "committed_model"
+        reference_trainer.write_checkpoint(model_directory)  # model.yaml + model.asi (pace_activeset) + seed/
+        assert (model_directory / "model.asi").stat().st_size > 0  # the active set was built
 
-    def test_restart_reduces_error(self, reference_files_directory):
-        """Restarting (-rl) from the copied prefitted seed and fitting further lowers the train-set RMSE."""
-        _, pretrained_directory = ensure_reference_artifacts(reference_files_directory)
-        database = create_database(reference_files_directory, SMALL_DATABASE_SIZE, seed=2)
-        rmse_before = train_set_energy_rmse(pretrained_directory / "model.yaml", database)
+        # 2. A restart database with room to improve, and the pre-restart error on it.
+        restart_database = create_database(reference_files_directory, SMALL_DATABASE_SIZE, seed=2)
+        rmse_before = train_set_energy_rmse(model_directory / "model.yaml", restart_database)
 
-        trainer = GraceTrainer.load_checkpoint(pretrained_directory,
-                                               grace_configuration=build_configuration(RESTART_UPDATES),
-                                               initial_configuration=database[0],
-                                               training_database=build_training_database(database))
-        trainer.fit()  # resumes from the restored seed folder (-rl)
+        # 3. A fresh MLIP, as a restarted process builds it: no fitted state until it loads the model.
+        fresh_trainer = GraceTrainer(build_configuration(RESTART_UPDATES),
+                                     initial_configuration=restart_database[0],
+                                     training_database=build_training_database(restart_database))
+        fresh_mlip = GraceMlip(grace_trainer=fresh_trainer, lammps_runner=MagicMock())  # toolchain on PATH
+        assert not fresh_trainer._has_fitted  # a fresh MLIP would otherwise cold-start
 
-        rmse_after = train_set_energy_rmse(trainer.exported_model_path, database)
+        fresh_mlip.load(model_directory)
+
+        assert isinstance(fresh_mlip.lammps_potential, LammpsPotential)  # the deployed potential drives the dynamics
+        assert fresh_trainer._has_fitted  # the '-rl' seed was restored, so the next fit warm-starts
+
+        # 4. The warm-started (-rl) second fit runs and lowers the error.
+        fresh_trainer.fit()
+        rmse_after = train_set_energy_rmse(fresh_trainer.exported_model_path, restart_database)
         assert rmse_after < rmse_before
-
-    def test_cold_start_runs(self, reference_files_directory):
-        """A GRACE-FS model can be fit from a cold start (no prior potential)."""
-        database = create_database(reference_files_directory, SMALL_DATABASE_SIZE, seed=3)
-        trainer = build_fitted_trainer(database, RESTART_UPDATES)
-        assert trainer.exported_model_path.is_file()
