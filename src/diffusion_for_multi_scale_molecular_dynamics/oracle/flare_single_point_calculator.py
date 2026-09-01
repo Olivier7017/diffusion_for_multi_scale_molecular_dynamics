@@ -13,6 +13,8 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calcu
 class FlareSinglePointCalculator(BaseSinglePointCalculator):
     """Wrapper around the internal FLARE calculator class."""
 
+    name = "FLARE"
+
     def __init__(self, sgp_model: SGP_Wrapper):
         """Init method."""
         super().__init__(self)

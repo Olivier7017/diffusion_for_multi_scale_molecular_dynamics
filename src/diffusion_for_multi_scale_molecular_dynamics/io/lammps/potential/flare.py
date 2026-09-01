@@ -11,6 +11,7 @@ class FlarePotential(LammpsPotential):
     """FLARE mapped potential."""
 
     calculation_type = "flare"
+    name = "FLARE"
 
     def __init__(self, pair_coeff_file_path: Path, mapped_uncertainty_file_path: Path):
         """Init method.

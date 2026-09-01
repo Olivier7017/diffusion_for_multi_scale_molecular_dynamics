@@ -4,7 +4,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from ase import Atoms
 from ase.io.lammpsdata import write_lammps_data
@@ -51,6 +51,11 @@ class DynamicDriver(ABC):
         self._lammps_runner = lammps_runner
         self._lammps_input_filename = LAMMPS_INPUT_FILENAME
 
+    @property
+    def maximum_number_of_steps(self) -> Optional[int]:
+        """The run's step budget, or None when the driver has no fixed maximum (e.g. ARTn)."""
+        return None
+
     def run(self, mlip: BaseMLIP, working_directory: Path, uncertainty_threshold: float) -> CalculationState:
         """Run the dynamics with the MLIP and return the resulting calculation state.
 
@@ -82,7 +87,6 @@ class DynamicDriver(ABC):
         logger = logging.getLogger("dynamic_driver_run")
         configure_logging(experiment_dir=str(working_directory), logger=logger, log_to_console=False)
 
-        logger.info("Write the starting configuration to the working directory.")
         _, _, elements_string = generate_named_elements_blocks(self.initial_configuration)
         with open(working_directory / INITIAL_CONFIGURATION_FILENAME, "w") as file_descriptor:
             # specorder mirrors the (mass-sorted) group/mass blocks so the atom-type integers stay consistent.

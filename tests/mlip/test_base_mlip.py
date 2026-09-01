@@ -36,9 +36,6 @@ class ConcreteMLIP(BaseMLIP):
     def write_state_yaml(self, output_path):
         pass
 
-    def write_logger_info(self, logger):
-        pass
-
     @classmethod
     def load_checkpoint(cls, checkpoint_path):
         pass
@@ -57,7 +54,9 @@ class TestBaseMLIP:
     def test_training_metrics_without_data(self, mlip, trainer):
         """With no training configuration, metrics report zero configurations and no RMSE."""
         trainer.labelled_calculations = []
-        assert mlip.training_metrics() == dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
+        assert mlip.training_metrics() == dict(
+            n_training_conf=0, n_training_atomic_environments=0, rmse_energy=None, rmse_forces=None
+        )
 
     def test_attach_training_database_delegates_to_trainer(self, mlip, trainer):
         """Attaching a database forwards to the trainer, and the property reads it back from there."""
@@ -193,6 +192,11 @@ class TestDerivedMLIP:
         """train fits the model, deploys it and writes a checkpoint."""
         with ExitStack() as stack:
             fit = stack.enter_context(patch.object(trainer, "fit", wraps=trainer.fit))
+            # The state file records training-set RMSE; stub it so writing it needs no real LAMMPS evaluation.
+            stack.enter_context(patch.object(
+                mlip, "training_metrics",
+                return_value=dict(n_training_conf=0, n_training_atomic_environments=0,
+                                  rmse_energy=None, rmse_forces=None)))
             fit_hyperparameters = None
             if mlip_type == "flare":
                 fit_hyperparameters = stack.enter_context(
@@ -229,6 +233,7 @@ class TestGraceMlip:
 
         trainer = MagicMock()
         trainer.write_checkpoint.return_value = potential
+        trainer.training_database = None  # no database -> state file omits the training-set provenance
         trainer.configuration = MagicMock(elements=["Si"], cutoff=3.5, preset="FS",
                                           size="small", seed=1, target_total_updates=500)
 

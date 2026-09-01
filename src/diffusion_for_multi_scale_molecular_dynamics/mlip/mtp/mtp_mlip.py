@@ -1,6 +1,5 @@
 """Moment Tensor Potential machine-learning interatomic potential."""
 
-import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -22,6 +21,9 @@ LAMMPS_MTP_KOKKOS_URL = "https://github.com/RichardZJM/lammps-mtp-kokkos"
 
 class MtpMlip(BaseMLIP):
     """Moment Tensor Potential MLIP: trained with MLIP-3 and run through the lammps-mtp-kokkos pair_style."""
+
+    name = "MTP"
+    training_program_name = "mlp"
 
     def __init__(
         self,
@@ -106,12 +108,6 @@ class MtpMlip(BaseMLIP):
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
         with open(str(output_path), "w") as file_descriptor:
             yaml.dump(self._state(), file_descriptor)
-
-    def write_logger_info(self, logger: logging.Logger) -> None:
-        """Log the current MTP parameters."""
-        logger.info("  The MTP parameters are now:")
-        for name, value in self._mtp_parameters().items():
-            logger.info(f"       {name} = {value}")
 
     def _mtp_parameters(self) -> Dict:
         """The parameters describing the current MTP model."""

@@ -65,6 +65,8 @@ class BaseSinglePointCalculator:
     Here, "single-point" means a single structure, as opposed to, say, a trajectory.
     """
 
+    name = "the oracle"  # human-readable oracle name, used in logs; overridden by each calculator.
+
     def __init__(self, args, **kwargs):
         """Init method."""
         pass

@@ -1,33 +1,29 @@
-"""Active learning example: MTP MLIP, ARTn dynamic driver, Stillinger-Weber oracle, excise-and-random sampler.
+"""Active learning example: MTP MLIP, MD dynamic driver, Stillinger-Weber oracle, no-op sample maker.
 
-This example is self-contained and every create_* function is interchangeable with other activelearning_example
-lists all of its parameters (defaults left explicit) so the available knobs are visible; main() is identical
-across the examples, so switching a component is a copy-paste of the matching create_* function.
+This example is self-contained; every create_* function lists its parameters (defaults left explicit) so the
+available knobs are visible, and main() is identical across the examples, so switching a component is a
+copy-paste of the matching create_* function.
 
 Required packages (beyond the base install):
     - MLIP-3, providing the 'mlp' executable that fits the MTP: https://gitlab.com/ashapeev/mlip-3.git
     - lammps-mtp-kokkos, a LAMMPS with the mtp/extrapolation pair_style (can be built CPU-only):
       https://github.com/RichardZJM/lammps-mtp-kokkos.git
-    - artn-plugin, the compiled ARTn LAMMPS plugin: https://gitlab.com/mammasmias/artn-plugin.git
 
 Notes about this example (the chosen options):
     - MLIP: MTP, started cold (a fresh model). Option B in create_mlip loads a pretrained potential instead.
-    - Dynamic driver: ARTn (activation-relaxation saddle search).
+    - Dynamic driver: NVT molecular dynamics.
     - Oracle: Stillinger-Weber.
-    - Sample maker: excise-and-random, which cuts out the uncertain environments and refills a box at random.
+    - Sample maker: no-op, which labels the uncertain structure itself, without excision or repaint.
 """
 
 from pathlib import Path
 
-from pymatgen.core import Lattice, Structure
-from pymatgen.io.lammps.data import LammpsData
 from ase.build import bulk
-
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
-from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.artn_driver.artn_driver import \
-    ArtnDriver
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.md_driver.md_driver import \
+    MdDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
@@ -40,30 +36,21 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
     SubprocessLammpsRunner
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
-from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.top_k_atom_selector import (
-    TopKAtomSelector, TopKAtomSelectorParameters)
-from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excise_and_random_sample_maker import (
-    ExciseAndRandomSampleMaker, ExciseAndRandomSampleMakerArguments)
-from diffusion_for_multi_scale_molecular_dynamics.sample_maker.excisor.nearest_neighbors_excisor import (
-    NearestNeighborsExcision, NearestNeighborsExcisionArguments)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.atom_selector.threshold_atom_selector import (
     ThresholdAtomSelector, ThresholdAtomSelectorParameters)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.no_op_sample_maker import (
     NoOpSampleMaker, NoOpSampleMakerArguments)
-from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.md_driver.md_driver import \
-    MdDriver
-
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import label_configurations
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
+    label_configurations
 
 # --- User configuration (set these for your machine and task) ---
 ELEMENT_LIST = ["Si"]
 UNCERTAINTY_THRESHOLD = 2.0  # MTP extrapolation grade (gamma); atoms above this are treated as uncertain
 WORKING_DIRECTORY = Path("run")
-REFERENCE_DIRECTORY = Path("reference")  # where the generated initial_configuration.dat is written
-LAMMPS_EXECUTABLE_PATH = Path("/home/olivi/software/lammps/build/lmp")  # your LAMMPS executable (built with mtp/extrapolation and ARTn)
-STILLINGER_WEBER_COEFFICIENTS_FILE_PATH = Path("/home/olivi/Data/Potential/aSi.sw")  # your Stillinger-Weber coefficients file
-MLP_EXECUTABLE_PATH = Path("/home/olivi/software/MLIP-3/mlip-3/bin/mlp")  # the MLIP-3 'mlp' executable (fits the MTP)
-ARTN_LIBRARY_PLUGIN_PATH = Path("/home/olivi/software/artn-plugin/ENGINES/LAMMPS/libartn-lmp.so")  # compiled ARTn plugin (or set ARTN_PLUGIN_PATH)
+LAMMPS_EXECUTABLE_PATH = Path("/path/to/lmp")  # your LAMMPS executable (built with mtp/extrapolation)
+# the Stillinger-Weber coefficients (an example is in tests/reference_files/mlip/aSi.sw):
+STILLINGER_WEBER_COEFFICIENTS_FILE_PATH = Path("/path/to/aSi.sw")
+MLP_EXECUTABLE_PATH = Path("/path/to/mlp")  # the MLIP-3 'mlp' executable (fits the MTP)
 
 
 def main():
@@ -91,7 +78,6 @@ def main():
     dynamic_driver = create_dynamic_driver(initial_configuration)
     mlip = create_mlip()
 
-    print("PROVIDED CONF", provided_configurations)
     provided_configurations = label_configurations(provided_configurations, oracle)
 
     active_learning = ActiveLearning(
@@ -110,7 +96,7 @@ def main():
 
 
 def create_initial_configuration():
-    """Create the starting configuration for the dynamic (432 atoms)."""
+    """Create the (orthogonal) starting configuration for the dynamic driver (512 atoms)."""
     silicon = bulk("Si", "diamond", a=5.43, cubic=True)
     silicon_supercell = silicon.repeat((4, 4, 4))
     return silicon_supercell
@@ -153,9 +139,8 @@ def create_dynamic_driver(initial_configuration):
     lammps_runner = SubprocessLammpsRunner(
         lammps_executable_path=LAMMPS_EXECUTABLE_PATH, mpi_processors=1, openmp_threads=1, mpi_executable="mpirun",
     )
-    dynamic_driver = MdDriver(lammps_runner=lammps_runner, initial_configuration=initial_configuration,
-                        temperature=300.0, timestep=0.001, number_of_steps=1000)
-    return dynamic_driver
+    return MdDriver(lammps_runner=lammps_runner, initial_configuration=initial_configuration,
+                    temperature=300.0, timestep=0.001, number_of_steps=1000)
 
 
 def create_oracle():
@@ -169,7 +154,6 @@ def create_oracle():
     potential = StillingerWeberPotential(sw_coefficients_file_path=STILLINGER_WEBER_COEFFICIENTS_FILE_PATH)
     return LammpsSinglePointCalculator(lammps_potential=potential, lammps_runner=lammps_runner,
                                        with_uncertainty=False)
-
 
 
 def create_sample_maker():

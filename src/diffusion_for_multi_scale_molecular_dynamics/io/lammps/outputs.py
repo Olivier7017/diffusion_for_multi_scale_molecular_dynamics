@@ -53,6 +53,14 @@ def extract_all_fields_from_dump(
     return list_structures, list_forces, list_uncertainties
 
 
+def extract_timesteps_from_dump(lammps_dump_path: Path) -> List[int]:
+    """Return the LAMMPS timestep of each frame in a text dump."""
+    frames = read_ase(str(lammps_dump_path), format="lammps-dump-text", index=":")
+    if not isinstance(frames, list):
+        frames = [frames]
+    return [int(atoms.info["timestep"]) for atoms in frames]
+
+
 def extract_all_fields_from_cfg(
     configuration_output_path: Path,
     uncertainty_field: Union[str, None] = UNCERTAINTY_FIELD,

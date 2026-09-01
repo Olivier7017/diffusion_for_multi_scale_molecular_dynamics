@@ -42,6 +42,11 @@ class MdDriver(DynamicDriver):
         self._timestep = timestep
         self._number_of_steps = number_of_steps
 
+    @property
+    def maximum_number_of_steps(self) -> int:
+        """The NVT run's step budget."""
+        return self._number_of_steps
+
     def _prepare_reference_files(self, working_directory: Path) -> None:
         """MD needs no reference file beyond the starting configuration."""
 

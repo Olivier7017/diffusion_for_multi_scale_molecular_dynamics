@@ -1,6 +1,5 @@
 """Base class for a trainable interatomic potential used in the active learning loop."""
 
-import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -34,6 +33,9 @@ class BaseMLIP(ABC):
     that the trainer exports whenever the model is deployed.
     """
 
+    name = "MLIP"  # human-readable backend name, used in logs; overridden by each concrete MLIP.
+    training_program_name = "the model"  # what the training step launches (log); overridden per backend.
+
     def __init__(
         self,
         trainer: BaseMLIPTrainer,
@@ -49,6 +51,9 @@ class BaseMLIP(ABC):
         self._lammps_runner = lammps_runner
         self._lammps_potential: Optional[LammpsPotential] = None
         self._model_file: Optional[Path] = None
+        # Training-set metrics of the deployed model, computed once and reused (state file + logs); a new
+        # deploy invalidates it.
+        self._cached_training_metrics: Optional[Dict] = None
         # Specific descriptor information; populated by each MLIP subclass.
         self.descriptors: Dict[str, Any] = {}
 
@@ -118,7 +123,7 @@ class BaseMLIP(ABC):
         provided_configurations: List[Atoms],
         single_point_calculator: BaseSinglePointCalculator,
         standard_deviation: float = 0.05,
-    ) -> None:
+    ) -> int:
         """Seed this MLIP's training database from the provided configuration(s) for precomputation.
 
         Assembles the training configurations (augmenting the provided configuration(s) with oracle-labelled
@@ -130,16 +135,20 @@ class BaseMLIP(ABC):
             provided_configurations: the (labelled) seed configurations.
             single_point_calculator: the oracle used to label the perturbed copies.
             standard_deviation: standard deviation (Angstrom) of the Gaussian displacements when augmenting.
+
+        Returns:
+            the number of augmented (perturbed, oracle-labelled) configurations added beyond the provided ones.
         """
         database = self.training_database
         if database.number_of_labelled_environments() >= self.minimum_number_of_training_environments():
-            return
+            return 0
 
         training_configurations = self.create_training_configurations(
             provided_configurations, single_point_calculator, standard_deviation
         )
         database.write_provided_configurations(provided_configurations)
         database.append_training_configurations(training_configurations)
+        return len(training_configurations) - len(provided_configurations)
 
     def create_training_configurations(
         self,
@@ -201,6 +210,7 @@ class BaseMLIP(ABC):
     def _deploy(self, output_directory: Path) -> None:
         """Write the model into output_directory and cache the resulting LAMMPS potential."""
         self._lammps_potential = self._trainer.write_checkpoint(output_directory)
+        self._cached_training_metrics = None  # a new model makes any cached metrics stale
 
     def load(self, model_directory: Path) -> None:
         """Load an already-trained model from model_directory into a runnable potential (no fitting).
@@ -238,19 +248,25 @@ class BaseMLIP(ABC):
         if database is None:
             return {}
         labelled_atoms = database.labelled_atoms
+        metrics = self.training_metrics()
         return dict(
             epoch=database.epoch,
             number_of_training_configurations=len(labelled_atoms),
             number_of_training_atomic_environments=sum(len(atoms) for atoms in labelled_atoms),
+            rmse_energy_meV_per_atom=None if metrics["rmse_energy"] is None else 1000 * metrics["rmse_energy"],
+            rmse_forces_meV_per_angstrom=None if metrics["rmse_forces"] is None else 1000 * metrics["rmse_forces"],
             training_files=[str(path) for path in database.training_trajectory_paths()],
         )
 
     def training_metrics(self, reference_atoms: Optional[List[Atoms]] = None) -> Dict:
-        """Return accuracy metrics (configuration count, energy RMSE, forces RMSE) of the deployed potential.
+        """Return accuracy metrics (configuration count, per-atom energy RMSE, forces RMSE) of the model.
 
-        The metrics are computed over the training set by default; pass reference_atoms to evaluate the
-        potential against a given set of labelled ase.Atoms instead.
+        The metrics are computed over the training set by default (and cached until the next deploy); pass
+        reference_atoms to evaluate the potential against a given set of labelled ase.Atoms instead.
         """
+        if reference_atoms is None and self._cached_training_metrics is not None:
+            return self._cached_training_metrics
+
         if reference_atoms is None:
             calculations = self._trainer.labelled_calculations
         else:
@@ -263,19 +279,29 @@ class BaseMLIP(ABC):
             ]
 
         if not calculations:  # e.g. round 0 of active learning
-            return dict(n_training_conf=0, rmse_energy=None, rmse_forces=None)
+            metrics = dict(n_training_conf=0, n_training_atomic_environments=0,
+                           rmse_energy=None, rmse_forces=None)
+        else:
+            predictions = self.calculate([calculation.structure for calculation in calculations])
 
-        predictions = self.calculate([calculation.structure for calculation in calculations])
+            energy_errors = []
+            force_errors = []
+            for prediction, calculation in zip(predictions, calculations):
+                # Per-atom energy error (atom count = number of force vectors), so the energy RMSE is per atom.
+                number_of_atoms = len(calculation.forces)
+                energy_errors.append((prediction.energy - calculation.energy) / number_of_atoms)
+                force_errors.append((np.asarray(prediction.forces) - np.asarray(calculation.forces)).ravel())
 
-        energy_errors = []
-        force_errors = []
-        for prediction, calculation in zip(predictions, calculations):
-            energy_errors.append(prediction.energy - calculation.energy)
-            force_errors.append((np.asarray(prediction.forces) - np.asarray(calculation.forces)).ravel())
+            metrics = dict(
+                n_training_conf=len(calculations),
+                n_training_atomic_environments=sum(len(calc.forces) for calc in calculations),
+                rmse_energy=float(np.sqrt(np.mean(np.square(energy_errors)))),
+                rmse_forces=float(np.sqrt(np.mean(np.square(np.concatenate(force_errors))))),
+            )
 
-        rmse_energy = float(np.sqrt(np.mean(np.square(energy_errors))))
-        rmse_forces = float(np.sqrt(np.mean(np.square(np.concatenate(force_errors)))))
-        return dict(n_training_conf=len(calculations), rmse_energy=rmse_energy, rmse_forces=rmse_forces)
+        if reference_atoms is None:
+            self._cached_training_metrics = metrics
+        return metrics
 
     @abstractmethod
     def train(self, output_directory: Path) -> None:
@@ -285,11 +311,6 @@ class BaseMLIP(ABC):
     @abstractmethod
     def write_state_yaml(self, output_path: Path) -> None:
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
-        raise NotImplementedError("must be implemented in a child class.")
-
-    @abstractmethod
-    def write_logger_info(self, logger: logging.Logger) -> None:
-        """Log a summary of the current model state."""
         raise NotImplementedError("must be implemented in a child class.")
 
     @classmethod
