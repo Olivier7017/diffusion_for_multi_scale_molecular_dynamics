@@ -11,6 +11,7 @@ class StillingerWeberPotential(LammpsPotential):
     """Stillinger-Weber potential."""
 
     calculation_type = "stillinger_weber"
+    name = "SW"
 
     def __init__(self, sw_coefficients_file_path: Path):
         """Init method.

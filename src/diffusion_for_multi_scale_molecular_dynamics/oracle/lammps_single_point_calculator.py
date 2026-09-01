@@ -48,6 +48,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         self._input_builder = LammpsInputBuilder()
 
         self._calculation_type = lammps_potential.calculation_type
+        self.name = lammps_potential.name  # the oracle's log name is the potential's (e.g. 'SW')
         self._input_file_name = LAMMPS_INPUT_FILENAME
         self._data_filename = CONFIGURATION_FILENAME
 

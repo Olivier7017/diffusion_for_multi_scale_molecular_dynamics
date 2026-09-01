@@ -1,6 +1,5 @@
 """GRACE-FS machine-learning interatomic potential."""
 
-import logging
 import shutil
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -25,6 +24,9 @@ PACE_ACTIVESET_CLONE = "git clone -b feature/grace_fs https://github.com/ICAMS/p
 
 class GraceMlip(BaseMLIP):
     """GRACE-FS MLIP: trained with gracemaker and run through the lammps grace/fs pair_style."""
+
+    name = "GRACE"
+    training_program_name = "gracemaker"
 
     def __init__(
         self,
@@ -74,12 +76,6 @@ class GraceMlip(BaseMLIP):
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
         with open(str(output_path), "w") as file_descriptor:
             yaml.dump(self._state(), file_descriptor)
-
-    def write_logger_info(self, logger: logging.Logger) -> None:
-        """Log the current GRACE-FS parameters."""
-        logger.info("  The GRACE-FS parameters are now:")
-        for name, value in self._grace_parameters().items():
-            logger.info(f"       {name} = {value}")
 
     def minimum_number_of_training_environments(self):
         """Minimum number of atomic environments per element needed for the D-optimality active set.

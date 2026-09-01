@@ -1,6 +1,5 @@
 """FLARE machine-learning interatomic potential."""
 
-import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
 
@@ -18,6 +17,9 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
 
 class FlareMLIP(BaseMLIP):
     """FLARE machine-learning interatomic potential."""
+
+    name = "FLARE"
+    training_program_name = "FLARE"
 
     def __init__(
         self,
@@ -74,12 +76,6 @@ class FlareMLIP(BaseMLIP):
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
         with open(str(output_path), "w") as file_descriptor:
             yaml.dump(self._state(), file_descriptor)
-
-    def write_logger_info(self, logger: logging.Logger) -> None:
-        """Log the current hyperparameters."""
-        logger.info("  The SGP hyperparameters are now:")
-        for name, value in self._flare_hyperparameters().items():
-            logger.info(f"       {name} = {value: 12.8f}")
 
     def _flare_hyperparameters(self) -> Dict:
         """The current SGP hyperparameters (sigma, sigma_e, sigma_f, sigma_s)."""

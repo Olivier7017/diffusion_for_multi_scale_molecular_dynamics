@@ -199,9 +199,6 @@ class _PrecomputationStubMLIP(BaseMLIP):
     def write_state_yaml(self, output_path):
         pass
 
-    def write_logger_info(self, logger):
-        pass
-
     @classmethod
     def load_checkpoint(cls, checkpoint_path):
         pass
@@ -317,7 +314,7 @@ class TestFullRound:
         # Bypass only the LAMMPS-dump reader; feed the uncertain configuration directly.
         monkeypatch.setattr(
             active_learning, "_get_uncertain_structure_and_uncertainties",
-            lambda working_directory, uncertainty_field: (uncertain_structure, uncertainty_per_atom),
+            lambda working_directory, uncertainty_field: (uncertain_structure, uncertainty_per_atom, 42),
         )
 
         active_learning.run_campaign(uncertainty_threshold=0.5, working_directory=tmp_path, provided_configurations=[])

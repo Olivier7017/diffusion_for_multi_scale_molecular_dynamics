@@ -8,6 +8,7 @@ class LammpsPotential(ABC):
     """A potential that writes its own interaction section into a LAMMPS input."""
 
     calculation_type: str = "lammps"
+    name: str = "LAMMPS"  # human-readable potential name, used in logs; overridden by each potential.
 
     @abstractmethod
     def interaction_commands(self, elements_string: str, with_uncertainty: bool = False) -> List[str]:

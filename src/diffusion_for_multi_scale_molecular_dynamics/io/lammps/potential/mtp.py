@@ -11,6 +11,7 @@ class MtpPotential(LammpsPotential):
     """Moment Tensor Potential run through the lammps-mtp-kokkos pair_style."""
 
     calculation_type = "mtp"
+    name = "MTP"
 
     def __init__(self, mtp_file_path: Path, kokkos: bool = False):
         """Init method.

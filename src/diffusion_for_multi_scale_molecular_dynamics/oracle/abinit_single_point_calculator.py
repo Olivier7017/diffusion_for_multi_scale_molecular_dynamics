@@ -17,6 +17,8 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calcu
 class AbinitSinglePointCalculator(BaseSinglePointCalculator):
     """Label a single configuration with Abinit: write the input, run it, and parse the energy and forces."""
 
+    name = "Abinit"
+
     def __init__(
         self,
         parameters: Dict,

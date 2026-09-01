@@ -11,6 +11,7 @@ class GracePotential(LammpsPotential):
     """GRACE-FS potential (trained with gracemaker) run through the LAMMPS grace/fs pair_style."""
 
     calculation_type = "grace"
+    name = "GRACE"
 
     def __init__(self, model_file_path: Path, active_set_file_path: Optional[Path] = None):
         """Init method.
