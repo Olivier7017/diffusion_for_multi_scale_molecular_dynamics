@@ -55,25 +55,28 @@ class MtpMlip(BaseMLIP):
                 f"({LAMMPS_MTP_KOKKOS_URL}); build LAMMPS with it using CPU-only or with Kokkos."
             ) from error
 
-    def minimum_number_of_training_environments(self) -> int:
-        """Minimum number of atomic environments needed for the D-optimality active set.
+    def minimum_number_of_training_environments(self) -> Dict[str, int]:
+        """Per-element atomic-environment floor for the D-optimality active set.
 
-        MTP uncertainty relies on a D-optimality active set: it needs at least n atomic environments to build
-        the maximal-volume n x n matrix (the active set), where n is the dimension of the descriptor space
-        (equivalently, the number of trainable coefficients). n combines the level-determined basis sizes
-        (radial_funcs_count, radial_basis_size, alpha_scalar_moments) with the species count, the radial term
-        scaling as species_count squared:
+        MTP's active set is a single pooled maximal-volume n x n matrix over environments of any species (n is
+        the descriptor-space dimension, i.e. the number of trainable coefficients), so the floor is really the
+        single total n. To fit the per-element interface, n is spread evenly across the potential's species.
+        n combines the level-determined basis sizes (radial_funcs_count, radial_basis_size,
+        alpha_scalar_moments) with the species count, the radial term scaling as species_count squared:
 
             n = species_count**2 * radial_funcs_count * radial_basis_size + alpha_scalar_moments + species_count
 
         Verified against the level templates: L6/1sp = 22, L8/1sp = 26, L16/1sp = 125, L16/3sp = 383.
         """
         descriptors = self.descriptors
-        return (
+        total_environments = (
             descriptors["species_count"] ** 2 * descriptors["radial_funcs_count"] * descriptors["radial_basis_size"]
             + descriptors["alpha_scalar_moments"]
             + descriptors["species_count"]
         )
+        elements = self._trainer.configuration.elements
+        per_element = -(-total_environments // len(elements))  # ceil(n / number of species)
+        return {element: per_element for element in elements}
 
     @classmethod
     def load_checkpoint(

@@ -94,17 +94,20 @@ class GraceMlip(BaseMLIP):
         )
         self._model_file = self.lammps_potential.model_file_path
 
-    def minimum_number_of_training_environments(self):
-        """Minimum number of atomic environments per element needed for the D-optimality active set.
+    def minimum_number_of_training_environments(self) -> Dict[str, int]:
+        """Per-element atomic-environment floor for the D-optimality active set.
 
         GRACE-FS uncertainty relies on a D-optimality active set built per element: MaxVol selects the
         environments that span each element's descriptor space. The floor is therefore per element - the count
         of an element's atoms summed over the training set must be at least n_proj[element], the dimension of
         that element's descriptor space, n_proj = compute_number_of_functions(GRACEFSBasisSet(model)) (scaled
         by the per-species ndensity for the nonlinear .asi). Computing it needs the model architecture (pyace /
-        GRACE python API), so it is left unimplemented for now.
+        GRACE python API), so it is not implemented yet (see roadmap TODO 1).
         """
-        pass
+        raise NotImplementedError(
+            "GRACE-FS needs a per-element active-set floor (n_proj per element) before it can run active "
+            "learning; see roadmap TODO 1 in CLAUDE.md."
+        )
 
     @classmethod
     def load_checkpoint(

@@ -297,7 +297,7 @@ class ActiveLearning:
         2. Fit and deploy the model. A model needing no training environments is simply deployed as-is.
         """
         self._set_log_stage(epoch=0, stage=Stage.TRAIN)  # precomputation is epoch 0, a training stage
-        if self.mlip.minimum_number_of_training_environments() == 0:
+        if not any(self.mlip.minimum_number_of_training_environments().values()):
             # Deploy the initial (empty) model into precomputation/ so restart's is_model_committed(0) finds it.
             self.mlip.prepare_mlip_first_round(self._training_database.precomputation_model_directory())
             return
