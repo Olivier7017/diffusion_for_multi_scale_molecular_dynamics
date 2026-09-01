@@ -160,11 +160,19 @@ class GraceTrainer(BaseMLIPTrainer):
             pace_activeset_executable_path=pace_activeset_executable_path,
             training_database=training_database,
         )
-        checkpoint_seed_directory = Path(checkpoint_path) / "seed"
-        if checkpoint_seed_directory.is_dir():
-            shutil.copytree(checkpoint_seed_directory, trainer._fit_directory / "seed", dirs_exist_ok=True)
-            trainer._has_fitted = True
+        trainer.restore_from_checkpoint(checkpoint_path)
         return trainer
+
+    def restore_from_checkpoint(self, checkpoint_directory: Path) -> None:
+        """Restore the seed folder from a committed model directory so the next fit resumes with '-rl'.
+
+        The '-rl' warm start drastically shortens gracemaker's fitting, so it must survive a restart: the
+        committed model directory carries the seed tree written by ``write_checkpoint``.
+        """
+        checkpoint_seed_directory = Path(checkpoint_directory) / "seed"
+        if checkpoint_seed_directory.is_dir():
+            shutil.copytree(checkpoint_seed_directory, self._fit_directory / "seed", dirs_exist_ok=True)
+            self._has_fitted = True
 
     @staticmethod
     def _resolve_executable(executable_path: Optional[Path], name: str) -> Path:

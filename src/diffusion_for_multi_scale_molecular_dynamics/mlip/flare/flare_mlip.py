@@ -5,6 +5,8 @@ from typing import Dict, Optional, Union
 
 import yaml
 
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
+    FlarePotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_hyperparameter_optimizer import (
@@ -76,6 +78,24 @@ class FlareMLIP(BaseMLIP):
         """Write a yaml with the current model_file, unc_file, lammps_potential_file and hyperparameters."""
         with open(str(output_path), "w") as file_descriptor:
             yaml.dump(self._state(), file_descriptor)
+
+    def load(self, model_directory: Path) -> None:
+        """Reload a committed FLARE model: the full sparse GP state and the deployed potential.
+
+        FLARE folds data into its sparse GP incrementally (it does not refit from the database), so restoring
+        only the deployed potential would lose the training history on a fresh-process restart. The sparse GP
+        is therefore reloaded in full from the epoch's ``checkpoint.json`` so that subsequent folding continues
+        from all prior data.
+        """
+        model_directory = Path(model_directory)
+        self._trainer = FlareTrainer.load_checkpoint(
+            model_directory / "checkpoint.json", training_database=self.training_database
+        )
+        self._lammps_potential = FlarePotential(
+            pair_coeff_file_path=model_directory / "lmp.flare",
+            mapped_uncertainty_file_path=model_directory / "map_unc_lmp.flare",
+        )
+        self._model_file = model_directory / "checkpoint.json"
 
     def _flare_hyperparameters(self) -> Dict:
         """The current SGP hyperparameters (sigma, sigma_e, sigma_f, sigma_s)."""
