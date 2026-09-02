@@ -4,7 +4,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from ase import Atoms
 from ase.io.lammpsdata import write_lammps_data
@@ -55,6 +55,13 @@ class DynamicDriver(ABC):
     def maximum_number_of_steps(self) -> Optional[int]:
         """The run's step budget, or None when the driver has no fixed maximum (e.g. ARTn)."""
         return None
+
+    def summarize_run(self, working_directory: Path, step: int) -> List[str]:
+        """Driver-specific run-summary log lines for the campaign to emit (empty by default; ARTn overrides).
+
+        step is the interrupted LAMMPS step the campaign already extracted from the run's dump.
+        """
+        return []
 
     def run(self, mlip: BaseMLIP, working_directory: Path, uncertainty_threshold: float) -> CalculationState:
         """Run the dynamics with the MLIP and return the resulting calculation state.

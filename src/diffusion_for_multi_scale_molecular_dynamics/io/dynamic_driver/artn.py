@@ -20,6 +20,7 @@ DEFAULT_ARTN_PARAMETERS = {
     "verbose": 2,
     "ninit": 2,
     "lpush_final": True,
+    "nnewchance": 3,
     "nsmooth": 2,
     "forc_thr": 0.01,
     "push_step_size": 0.1,
@@ -31,6 +32,28 @@ DEFAULT_ARTN_PARAMETERS = {
     "eigen_step_size": 0.1,
     "push_over": 2.0,
 }
+
+# Short (~2 word) descriptions of the ARTn macro and micro stages, for the run-summary log lines.
+MACRO_STAGE_DESCRIPTIONS = {
+    "Bstep": "Basin stage",
+    "Sstep": "Saddle stage",
+    "Rstep": "Relaxation stage",
+}
+MICRO_STAGE_DESCRIPTIONS = {
+    "void": "State reset",
+    "init": "Initial push",
+    "perp": "Perp relaxation",
+    "eign": "Eigen climb",
+    "lanc": "Lanczos step",
+    "relx": "FIRE relaxation",
+    "over": "Push over",
+    "smth": "Smooth transition",
+}
+
+# An ARTn step row starts with the step index followed by a macro stage (e.g. '   9   Sstep/smth   ...').
+_ARTN_STEP_ROW_PATTERN = re.compile(r"^\s*\d+\s+(?:Bstep|Sstep|Rstep)\b")
+# The failure footer names the micro stage the run was interrupted at, e.g. '... failed ( 1 ) at perp ***'.
+_ARTN_FAILURE_PATTERN = re.compile(r"ARTn search failed\s*\(\s*\d+\s*\)\s*at\s+(\w+)")
 
 
 def _format_namelist_value(value) -> str:
@@ -120,3 +143,60 @@ def get_saddle_energy(artn_output: str):
     saddle_energy_pattern = r"\|> DEBRIEF\(SADDLE\) \| dE = (?P<energy>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?) eV"
     match = re.search(saddle_energy_pattern, artn_output)
     return float(match.group('energy'))
+
+
+def collect_artn_run_information(working_directory: Union[str, Path]) -> Dict:
+    """Collect an ARTn run summary from its working directory, for logging.
+
+    Reads the last step row of artn.out (the ARTn step, the macro/micro stage, the lowest eigenvalue and its
+    eigenvector stability a1) and, on an interrupted run, the micro stage the failure footer reports; counts
+    the saddle files (sad*.xyz) for the number of transition pathways found. The energy-evaluation count is not
+    read here: the caller already has it as the interrupted LAMMPS step (artn.out's evalf only updates once per
+    ARTn step, so it would undercount).
+    """
+    working_directory = Path(working_directory)
+    artn_output = (working_directory / "artn.out").read_text()
+
+    last_step = _parse_last_artn_step(artn_output)
+    interrupted_micro_stage = _parse_interrupted_micro_stage(artn_output)
+    return dict(
+        artn_step=last_step["artn_step"],
+        macro_stage=last_step["macro_stage"],
+        micro_stage=interrupted_micro_stage or last_step["micro_stage"],
+        lowest_eigenvalue=last_step["lowest_eigenvalue"],
+        eigenvector_stability=last_step["eigenvector_stability"],
+        number_of_transition_pathways=len(list(working_directory.glob("sad*.xyz"))),
+    )
+
+
+def _parse_last_artn_step(artn_output: str) -> Dict:
+    """Parse the last ARTn step row into its step index, macro/micro stage, eigenvalue, a1 and eval count."""
+    step_rows = [line for line in artn_output.splitlines() if _ARTN_STEP_ROW_PATTERN.match(line)]
+    if not step_rows:
+        raise ValueError("No ARTn step rows were found in the artn.out content.")
+    tokens = step_rows[-1].split()
+
+    # The stage is one token when macro/micro share a slash ('Sstep/smth'), two when spaced ('Bstep void').
+    if "/" in tokens[1]:
+        macro_stage, micro_stage = tokens[1].split("/")
+        values = tokens[2:]
+    else:
+        macro_stage, micro_stage = tokens[1], tokens[2]
+        values = tokens[3:]
+
+    # values: Etot, init, eign, perp, lanc, relx, Ftot, Fperp, Fpara, eigval, delr, npart, evalf, a1.
+    eigenvalue_token = values[9]  # written as '**********' until the first Lanczos eigenvalue is available.
+    lowest_eigenvalue = None if set(eigenvalue_token) == {"*"} else float(eigenvalue_token)
+    return dict(
+        artn_step=int(tokens[0]),
+        macro_stage=macro_stage,
+        micro_stage=micro_stage,
+        lowest_eigenvalue=lowest_eigenvalue,
+        eigenvector_stability=float(values[13]),
+    )
+
+
+def _parse_interrupted_micro_stage(artn_output: str) -> Optional[str]:
+    """Return the micro stage named in the ARTn failure footer, or None when there is no failure footer."""
+    match = _ARTN_FAILURE_PATTERN.search(artn_output)
+    return match.group(1) if match else None

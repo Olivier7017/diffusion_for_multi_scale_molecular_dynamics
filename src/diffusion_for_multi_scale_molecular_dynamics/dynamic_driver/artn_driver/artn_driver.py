@@ -9,7 +9,8 @@ from ase import Atoms
 from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
     DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import (
-    build_artn_lammps_tail, get_calculation_state_from_artn_output,
+    MACRO_STAGE_DESCRIPTIONS, MICRO_STAGE_DESCRIPTIONS, build_artn_lammps_tail,
+    collect_artn_run_information, get_calculation_state_from_artn_output,
     write_artn_input_file)
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
@@ -77,13 +78,33 @@ class ArtnDriver(DynamicDriver):
         assert artn_library_plugin_path.is_file(), "The artn library plugin_path is not valid."
         return artn_library_plugin_path
 
+    def summarize_run(self, working_directory: Path, step: int) -> List[str]:
+        """Build the ARTn run-summary log lines from artn.out (step counts, interruption stage, eigenvalue).
+
+        step is the interrupted LAMMPS step the campaign extracted; it is the true energy-evaluation count
+        (artn.out's own evalf only updates once per ARTn step, so it would undercount).
+        """
+        information = collect_artn_run_information(working_directory)
+        macro_stage, micro_stage = information["macro_stage"], information["micro_stage"]
+        macro_description = MACRO_STAGE_DESCRIPTIONS.get(macro_stage, macro_stage)
+        micro_description = MICRO_STAGE_DESCRIPTIONS.get(micro_stage, micro_stage)
+
+        eigenvalue = information["lowest_eigenvalue"]
+        eigenvalue_text = "n/a" if eigenvalue is None else f"{eigenvalue:.4f} eV/A^2"
+        return [
+            f"{information['artn_step']} ARTn step, {step} force evaluation.",
+            f"Interrupted in {macro_stage} {micro_stage} ({macro_description}, {micro_description}).",
+            f"Found {information['number_of_transition_pathways']} transition pathway before interruption.",
+            f"lowest_eigval {eigenvalue_text}, eigenvector stability a1 {information['eigenvector_stability']:.2f}.",
+        ]
+
     def _prepare_reference_files(self, working_directory: Path) -> None:
         """Write the ARTn input file (artn.in) into the working directory."""
         write_artn_input_file(
             working_directory / "artn.in",
             push_ids=self._push_ids,
             push_add_const=self._push_add_const,
-            **self._artn_parameters,
+            artn_parameters=self._artn_parameters,
         )
 
     def _dynamics_block(self) -> str:

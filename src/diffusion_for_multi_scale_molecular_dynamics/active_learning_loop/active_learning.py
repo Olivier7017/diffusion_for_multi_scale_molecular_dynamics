@@ -414,6 +414,8 @@ class ActiveLearning:
         uncertain_structure, uncertainty_per_atom, step = self._get_uncertain_structure_and_uncertainties(
             dynamics_working_directory, self.mlip.lammps_potential.uncertainty_field()
         )
+        for summary_line in self.dynamic_driver.summarize_run(dynamics_working_directory, step):
+            self._logger.info(summary_line)
         number_of_flagged_environments = int(np.sum(uncertainty_per_atom > self._uncertainty_threshold))
         self._logger.info(self._flagged_environments_message(step, number_of_flagged_environments))
 
@@ -424,7 +426,10 @@ class ActiveLearning:
     def _flagged_environments_message(self, step: int, number_of_flagged_environments: int) -> str:
         """Report the step (X/Y when the driver has a step budget, X otherwise) and how many were flagged."""
         maximum_number_of_steps = self.dynamic_driver.maximum_number_of_steps
-        step_label = f"Step {step}" if maximum_number_of_steps is None else f"Step {step}/{maximum_number_of_steps}"
+        step_label = (
+            f"Lammps step {step}" if maximum_number_of_steps is None
+            else f"Lammps step {step}/{maximum_number_of_steps}"
+        )
         return f"{step_label} flagged {number_of_flagged_environments} atomic environments above the threshold."
 
     def oracle_evaluation(self, uncertain_configuration: Atoms, epoch: int) -> List[Atoms]:
