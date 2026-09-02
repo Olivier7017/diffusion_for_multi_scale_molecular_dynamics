@@ -44,6 +44,7 @@ class MtpTrainer(BaseMLIPTrainer):
         self._configuration = mtp_configuration
         self._mlp_executable_path = mlp_executable_path
         self._fitted_potential: Optional[bytes] = None
+        self._training_log: Optional[str] = None  # captured 'mlp train' output of the last fit
 
     @property
     def configuration(self) -> MtpConfiguration:
@@ -120,6 +121,12 @@ class MtpTrainer(BaseMLIPTrainer):
         mtp_file_path.write_bytes(self._fitted_potential)
         return MtpPotential(mtp_file_path=mtp_file_path)
 
+    def write_training_log(self, output_directory: Path) -> None:
+        """Write the captured 'mlp train' output (its progress and per-step metrics) to training.log."""
+        if self._training_log is None:
+            return
+        (Path(output_directory) / "training.log").write_text(self._training_log)
+
     @classmethod
     def load_checkpoint(
         cls,
@@ -175,6 +182,9 @@ class MtpTrainer(BaseMLIPTrainer):
         result = subprocess.run(
             commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
+        self._training_log = result.stdout
+        if result.stderr:
+            self._training_log += f"\n--- stderr ---\n{result.stderr}"
         if result.returncode != 0:
             raise RuntimeError(
                 f"mlp train failed (exit code {result.returncode}). Command: {' '.join(commands)}\n"

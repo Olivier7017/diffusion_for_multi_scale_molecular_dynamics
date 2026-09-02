@@ -98,6 +98,7 @@ class MtpMlip(BaseMLIP):
 
         self._trainer.fit()
         self._deploy(output_directory)  # writes the potential file and caches the MtpPotential
+        self._trainer.write_training_log(output_directory)  # captured 'mlp train' output -> training.log
 
         self._model_file = self.lammps_potential.mtp_file_path
         self.write_state_yaml(output_directory / "state.yaml")
