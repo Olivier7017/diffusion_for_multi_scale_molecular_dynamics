@@ -20,9 +20,10 @@ DEFAULT_ARTN_PARAMETERS = {
     "verbose": 2,
     "ninit": 2,
     "lpush_final": True,
-    "nnewchance": 3,
+    "nnewchance": 10,
     "nsmooth": 2,
     "forc_thr": 0.01,
+    "delr_thr": 0.1,
     "push_step_size": 0.1,
     "push_mode": "list",
     "lanczos_disp": 1e-4,
@@ -54,6 +55,14 @@ MICRO_STAGE_DESCRIPTIONS = {
 _ARTN_STEP_ROW_PATTERN = re.compile(r"^\s*\d+\s+(?:Bstep|Sstep|Rstep)\b")
 # The failure footer names the micro stage the run was interrupted at, e.g. '... failed ( 1 ) at perp ***'.
 _ARTN_FAILURE_PATTERN = re.compile(r"ARTn search failed\s*\(\s*\d+\s*\)\s*at\s+(\w+)")
+
+# The success footer reports the transition energetics (activation energies, reaction dE) and the saddle's
+# participating-atom count; the header echoes the displacement threshold used to count them.
+_ARTN_FORWARD_ACTIVATION_PATTERN = re.compile(r"forward\s+E_act\s*=\s*([-+]?[\d.]+)")
+_ARTN_BACKWARD_ACTIVATION_PATTERN = re.compile(r"backward\s+E_act\s*=\s*([-+]?[\d.]+)")
+_ARTN_REACTION_ENERGY_PATTERN = re.compile(r"reaction\s+dE\s*=\s*([-+]?[\d.]+)")
+_ARTN_SADDLE_NPART_PATTERN = re.compile(r"DEBRIEF\(SADDLE\).*?npart\s*=\s*(\d+)")
+_ARTN_DISPLACEMENT_THRESHOLD_PATTERN = re.compile(r"delr_thr\s*=\s*([\d.]+)")
 
 
 def _format_namelist_value(value) -> str:
@@ -200,3 +209,19 @@ def _parse_interrupted_micro_stage(artn_output: str) -> Optional[str]:
     """Return the micro stage named in the ARTn failure footer, or None when there is no failure footer."""
     match = _ARTN_FAILURE_PATTERN.search(artn_output)
     return match.group(1) if match else None
+
+
+def collect_artn_transition_information(working_directory: Union[str, Path]) -> Dict:
+    """Collect the transition energetics of a successful ARTn run from artn.out, for logging.
+
+    Reads the forward/backward activation energies and the reaction energy from the success footer, the
+    saddle's number of participating atoms, and the displacement threshold those atoms are counted against.
+    """
+    artn_output = (Path(working_directory) / "artn.out").read_text()
+    return dict(
+        forward_activation_energy=float(_ARTN_FORWARD_ACTIVATION_PATTERN.search(artn_output).group(1)),
+        backward_activation_energy=float(_ARTN_BACKWARD_ACTIVATION_PATTERN.search(artn_output).group(1)),
+        reaction_energy=float(_ARTN_REACTION_ENERGY_PATTERN.search(artn_output).group(1)),
+        number_of_participating_atoms=int(_ARTN_SADDLE_NPART_PATTERN.search(artn_output).group(1)),
+        displacement_threshold=float(_ARTN_DISPLACEMENT_THRESHOLD_PATTERN.search(artn_output).group(1)),
+    )

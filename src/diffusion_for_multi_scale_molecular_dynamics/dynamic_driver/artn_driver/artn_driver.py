@@ -10,8 +10,8 @@ from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_dr
     DynamicDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import (
     MACRO_STAGE_DESCRIPTIONS, MICRO_STAGE_DESCRIPTIONS, build_artn_lammps_tail,
-    collect_artn_run_information, get_calculation_state_from_artn_output,
-    write_artn_input_file)
+    collect_artn_run_information, collect_artn_transition_information,
+    get_calculation_state_from_artn_output, write_artn_input_file)
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
@@ -78,8 +78,8 @@ class ArtnDriver(DynamicDriver):
         assert artn_library_plugin_path.is_file(), "The artn library plugin_path is not valid."
         return artn_library_plugin_path
 
-    def summarize_run(self, working_directory: Path, step: int) -> List[str]:
-        """Build the ARTn run-summary log lines from artn.out (step counts, interruption stage, eigenvalue).
+    def summarize_interruption(self, working_directory: Path, step: int) -> List[str]:
+        """Build the ARTn interrupted-run log lines from artn.out (step counts, stage, eigenvalue).
 
         step is the interrupted LAMMPS step the campaign extracted; it is the true energy-evaluation count
         (artn.out's own evalf only updates once per ARTn step, so it would undercount).
@@ -96,6 +96,18 @@ class ArtnDriver(DynamicDriver):
             f"Interrupted in {macro_stage} {micro_stage} ({macro_description}, {micro_description}).",
             f"Found {information['number_of_transition_pathways']} transition pathway before interruption.",
             f"lowest_eigval {eigenvalue_text}, eigenvector stability a1 {information['eigenvector_stability']:.2f}.",
+        ]
+
+    def summarize_success(self, working_directory: Path) -> List[str]:
+        """Build the ARTn success log lines: the transition's activation energies, reaction dE and locality."""
+        information = collect_artn_transition_information(working_directory)
+        return [
+            "ARTn found a new transition pathway (1 saddle, 2 minima).",
+            f"Forward activation energy {information['forward_activation_energy']:+.3f} eV, "
+            f"Backward activation energy {information['backward_activation_energy']:+.3f} eV",
+            f"Reaction delta Energy {information['reaction_energy']:+.3f} eV.",
+            f"{information['number_of_participating_atoms']} atoms displaced by more than "
+            f"{information['displacement_threshold']:g} ang.",
         ]
 
     def _prepare_reference_files(self, working_directory: Path) -> None:
