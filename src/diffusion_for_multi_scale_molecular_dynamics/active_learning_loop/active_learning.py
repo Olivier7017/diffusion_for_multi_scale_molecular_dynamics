@@ -409,12 +409,14 @@ class ActiveLearning:
                 f"The dynamic driver run failed (state ERROR). Review the logs in {dynamics_working_directory}."
             )
         if calculation_state == CalculationState.SUCCESS:
+            for summary_line in self.dynamic_driver.summarize_success(dynamics_working_directory):
+                self._logger.info(summary_line)
             return None
 
         uncertain_structure, uncertainty_per_atom, step = self._get_uncertain_structure_and_uncertainties(
             dynamics_working_directory, self.mlip.lammps_potential.uncertainty_field()
         )
-        for summary_line in self.dynamic_driver.summarize_run(dynamics_working_directory, step):
+        for summary_line in self.dynamic_driver.summarize_interruption(dynamics_working_directory, step):
             self._logger.info(summary_line)
         number_of_flagged_environments = int(np.sum(uncertainty_per_atom > self._uncertainty_threshold))
         self._logger.info(self._flagged_environments_message(step, number_of_flagged_environments))

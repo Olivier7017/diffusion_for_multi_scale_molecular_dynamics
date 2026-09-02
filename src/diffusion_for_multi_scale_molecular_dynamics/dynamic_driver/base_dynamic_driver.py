@@ -56,11 +56,15 @@ class DynamicDriver(ABC):
         """The run's step budget, or None when the driver has no fixed maximum (e.g. ARTn)."""
         return None
 
-    def summarize_run(self, working_directory: Path, step: int) -> List[str]:
-        """Driver-specific run-summary log lines for the campaign to emit (empty by default; ARTn overrides).
+    def summarize_interruption(self, working_directory: Path, step: int) -> List[str]:
+        """Driver-specific log lines for an interrupted run (empty by default; ARTn overrides).
 
         step is the interrupted LAMMPS step the campaign already extracted from the run's dump.
         """
+        return []
+
+    def summarize_success(self, working_directory: Path) -> List[str]:
+        """Driver-specific log lines for a successful run (empty by default; ARTn overrides)."""
         return []
 
     def run(self, mlip: BaseMLIP, working_directory: Path, uncertainty_threshold: float) -> CalculationState:
