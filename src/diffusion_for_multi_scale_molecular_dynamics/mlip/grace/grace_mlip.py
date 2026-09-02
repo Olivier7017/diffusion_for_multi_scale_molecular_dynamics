@@ -95,19 +95,52 @@ class GraceMlip(BaseMLIP):
         self._model_file = self.lammps_potential.model_file_path
 
     def minimum_number_of_training_environments(self) -> Dict[str, int]:
-        """Per-element atomic-environment floor for the D-optimality active set.
+        """Per-element atomic-environment needed for the creation of the D-optimality active set.
 
-        GRACE-FS uncertainty relies on a D-optimality active set built per element: MaxVol selects the
-        environments that span each element's descriptor space. The floor is therefore per element - the count
-        of an element's atoms summed over the training set must be at least n_proj[element], the dimension of
-        that element's descriptor space, n_proj = compute_number_of_functions(GRACEFSBasisSet(model)) (scaled
-        by the per-species ndensity for the nonlinear .asi). Computing it needs the model architecture (pyace /
-        GRACE python API), so it is not implemented yet (see roadmap TODO 1).
+        pace_activeset builds a, per element, square matrix with rows=atomic_environments,
+        columns=descriptor_functions. This algorithm raises an error if there are fewer rows than columns. This
+        function returns a dict of this minimal number of descriptors. The tricky part is, GRACE doesn't have a
+        static basis table: the model is a Tf Graph and the only object giving us access to the per-element
+        number_of_descriptor_functions is the exported GRACEFSBasisSet:
+
+        Step 1. Build the model specifications dict
+        Step 2. get_preset(dict).get_instructions() -> Create the full Directed Acyclic Graph (DAG)
+        Step 3. TPModel(instructions) -> A container that will contain the model's weights.
+        Step 4. model.build -> Allocate those weights randomly (untrained). (Needed for Step 5)
+        Step 5. model.export_to_yaml -> Export to a yaml file
+        Step 6. Reload as a GRACEFSBasisSet, which exposes per-element number_of_descriptor_functions
+
+        From Step 2, we could manually calculate the set, but this would be less robust than this process.
         """
-        raise NotImplementedError(
-            "GRACE-FS needs a per-element active-set floor (n_proj per element) before it can run active "
-            "learning; see roadmap TODO 1 in CLAUDE.md."
+        import copy
+        import os
+        import tempfile
+
+        import tensorflow as tf
+        from pyace.grace_fs import GRACEFSBasisSet
+        from tensorpotential.potentials import get_preset
+        from tensorpotential.tpmodel import TPModel
+
+        configuration = self._trainer.configuration
+        element_map = {element: index for index, element in enumerate(sorted(configuration.elements))}
+        # Step 1: the model specification. Deep-copy model_kwargs - building the model wraps its lists as
+        # TensorFlow ListWrappers, which would corrupt the shared config and break the fit's input.yaml.
+        model_specification = dict(
+            element_map=element_map, rcut=configuration.cutoff, **copy.deepcopy(configuration.model_kwargs)
         )
+        instructions = get_preset(configuration.preset)(**model_specification).get_instructions()
+
+        model = TPModel(instructions)
+        model.build(tf.float64, jit_compile=False)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            untrained_model_path = os.path.join(temporary_directory, "untrained_fs.yaml")
+            model.export_to_yaml(untrained_model_path)
+            basis_set = GRACEFSBasisSet(untrained_model_path)
+            number_of_functions = list(basis_set.nfuncs)
+            element_to_index = dict(basis_set.elements_to_index_map)
+
+        return {element: int(number_of_functions[index]) for element, index in element_to_index.items()}
 
     @classmethod
     def load_checkpoint(
