@@ -3,11 +3,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 import yaml
 from ase import Atoms
 from pymatgen.core import Structure
 
+from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.conversions import (
+    convert_axl_to_structure_in_dict,
+    convert_single_point_calculations_to_dataframe)
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.logging import (
     CAMPAIGN_LOG_CONTEXT, clean_up_campaign_logger, set_up_campaign_logger)
 from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.base_dynamic_driver import \
@@ -27,8 +29,6 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calcu
     get_active_environment_indices)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.base_sample_maker import \
     BaseSampleMaker
-from diffusion_for_multi_scale_molecular_dynamics.sample_maker.namespace import (
-    AXL_STRUCTURE_IN_NEW_BOX, AXL_STRUCTURE_IN_ORIGINAL_BOX)
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
     to_pymatgen_structure
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter import \
@@ -125,7 +125,7 @@ class ActiveLearning:
             for axl_structure in list_sample_axl_structures
         ]
         converted_list_additional_information = [
-            self._convert_axl_to_structure_in_dict(sample_info)
+            convert_axl_to_structure_in_dict(sample_info, self._structure_converter)
             for sample_info in list_sample_additional_information
         ]
         return (
@@ -133,53 +133,6 @@ class ActiveLearning:
             list_active_indices,
             converted_list_additional_information,
         )
-
-    def _convert_axl_to_structure_in_dict(
-        self, sample_additional_information: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Convert AXL elements of an additional information dictionary to pymatgen structure.
-
-        Args:
-            sample_additional_information: additional information about a sample in a dictionary.
-
-        Returns:
-            new_structures: additional information about a sample in a dictionary with AXL as Structure
-        """
-        converted_info = {}
-        for k, v in sample_additional_information.items():
-            if k in [AXL_STRUCTURE_IN_ORIGINAL_BOX, AXL_STRUCTURE_IN_NEW_BOX]:
-                converted_info[k] = self._structure_converter.convert_axl_to_structure(v)
-            else:
-                converted_info[k] = v
-        return converted_info
-
-    def _convert_single_point_calculations_to_dataframe(
-        self,
-        list_single_point_calculations: List[SinglePointCalculation],
-        list_sample_information: List[Dict[str, Any]],
-    ) -> pd.DataFrame:
-        """Convert single point calculations to dataframe."""
-        rows = []
-        for calculation, sample_information in zip(
-            list_single_point_calculations, list_sample_information
-        ):
-
-            constrained_indices = sample_information["constrained_atom_indices"]
-            structure = calculation.structure
-            constraint_mask = np.zeros(len(structure), dtype=int)
-            constraint_mask[constrained_indices] = 1
-            structure.add_site_property('constrained', constraint_mask)
-            structure.add_site_property('forces', calculation.forces)
-
-            row = dict(
-                calculation_type=calculation.calculation_type,
-                structure=structure,
-                energy=calculation.energy,
-            )
-            rows.append(row)
-
-        df = pd.DataFrame(data=rows)
-        return df
 
     def _log_campaign_details(self, campaign_working_directory_path: Path, campaign_details: Dict):
         """Log campaign details."""
@@ -416,7 +369,7 @@ class ActiveLearning:
         uncertain_structure, uncertainty_per_atom, step = self._get_uncertain_structure_and_uncertainties(
             dynamics_working_directory, self.mlip.lammps_potential.uncertainty_field()
         )
-        for summary_line in self.dynamic_driver.summarize_interruption(dynamics_working_directory, step):
+        for summary_line in self.dynamic_driver.summarize_interruption(dynamics_working_directory):
             self._logger.info(summary_line)
         number_of_flagged_environments = int(np.sum(uncertainty_per_atom > self._uncertainty_threshold))
         self._logger.info(self._flagged_environments_message(step, number_of_flagged_environments))
@@ -456,7 +409,7 @@ class ActiveLearning:
             list_single_point_calculations.append(calculation)
         self._logger.info(f"Labelling has finished. Execution Time: {time.time() - start_time:.3e} sec.")
 
-        oracle_dataframe = self._convert_single_point_calculations_to_dataframe(
+        oracle_dataframe = convert_single_point_calculations_to_dataframe(
             list_single_point_calculations, list_sample_information
         )
         oracle_dataframe.to_pickle(oracle_directory / "oracle_single_point_calculations.pkl")
