@@ -4,7 +4,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 
 from ase import Atoms
 from ase.io.lammpsdata import write_lammps_data
@@ -56,11 +56,8 @@ class DynamicDriver(ABC):
         """The run's step budget, or None when the driver has no fixed maximum (e.g. ARTn)."""
         return None
 
-    def summarize_interruption(self, working_directory: Path, step: int) -> List[str]:
-        """Driver-specific log lines for an interrupted run (empty by default; ARTn overrides).
-
-        step is the interrupted LAMMPS step the campaign already extracted from the run's dump.
-        """
+    def summarize_interruption(self, working_directory: Path) -> List[str]:
+        """Driver-specific log lines for an interrupted run (empty by default; ARTn overrides)."""
         return []
 
     def summarize_success(self, working_directory: Path) -> List[str]:
@@ -82,8 +79,15 @@ class DynamicDriver(ABC):
         logger = self._setup_working_directory(working_directory)
         parameters = self._build_lammps_parameters(mlip, uncertainty_threshold)
         self._write_lammps_input(working_directory, parameters)
-        if not self._execute_lammps(working_directory, logger):
+        return self._run_dynamics(working_directory, logger)
+
+    def _run_dynamics(self, working_directory: Path, logger: logging.Logger) -> CalculationState:
+        """Run the dynamics once and classify the result (ARTn overrides this to run several searches)."""
+        logger.info("Launching LAMMPS")
+        execution_time, succeeded = self._execute_lammps(working_directory, logger)
+        if not succeeded:
             return CalculationState.ERROR
+        logger.info(f"LAMMPS execution has finished. Execution Time: {execution_time: 6.3e} sec.")
         return self._get_calculation_state(working_directory)
 
     def _setup_working_directory(self, working_directory: Path) -> logging.Logger:
@@ -128,18 +132,16 @@ class DynamicDriver(ABC):
         with open(working_directory / self._lammps_input_filename, "w") as file_descriptor:
             file_descriptor.write(script_content)
 
-    def _execute_lammps(self, working_directory: Path, logger: logging.Logger) -> bool:
-        """Run LAMMPS in the working directory; return False if it failed, True otherwise."""
-        logger.info("Launching LAMMPS")
+    def _execute_lammps(self, working_directory: Path, logger: logging.Logger) -> Tuple[float, bool]:
+        """Run LAMMPS in the working directory, returning (elapsed_seconds, succeeded); logs a failure."""
         start_time = time.time()
         try:
             self._lammps_runner.run_lammps(working_directory=working_directory,
                                            lammps_input_file_name=self._lammps_input_filename)
         except RuntimeError:
             logger.exception("LAMMPS execution failed.")
-            return False
-        logger.info(f"LAMMPS execution has finished. Execution Time: {time.time() - start_time: 6.3e} sec.")
-        return True
+            return time.time() - start_time, False
+        return time.time() - start_time, True
 
     @abstractmethod
     def _prepare_reference_files(self, working_directory: Path) -> None:

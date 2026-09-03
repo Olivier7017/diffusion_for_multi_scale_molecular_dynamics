@@ -8,6 +8,8 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import yaml
+
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 
@@ -64,6 +66,15 @@ _ARTN_REACTION_ENERGY_PATTERN = re.compile(r"reaction\s+dE\s*=\s*([-+]?[\d.]+)")
 _ARTN_SADDLE_NPART_PATTERN = re.compile(r"DEBRIEF\(SADDLE\).*?npart\s*=\s*(\d+)")
 _ARTN_DISPLACEMENT_THRESHOLD_PATTERN = re.compile(r"delr_thr\s*=\s*([\d.]+)")
 
+# The LAMMPS log updates every energy evaluation (artn.out's evalf only updates once per ARTn step); the
+# uncertainty halt fires at, and names, the last evaluated step.
+LAMMPS_LOG_FILENAME = "log.lammps"
+_LAMMPS_HALT_STEP_PATTERN = re.compile(r"halt condition.*?met on step\s+(\d+)")
+_LAMMPS_THERMO_ROW_PATTERN = re.compile(r"^\s*(\d+)\s+-?\d", re.MULTILINE)
+
+# Per-search records the ARTn driver accumulates over a run, read back for the interruption summary.
+ACCUMULATED_SUMMARY_FILENAME = "accumulated_summary.yaml"
+
 
 def _format_namelist_value(value) -> str:
     """Format a Python value as a Fortran namelist value (bool, string, list, or number)."""
@@ -113,7 +124,7 @@ def build_artn_lammps_tail(artn_library_plugin_path: Union[str, Path]) -> str:
         "timestep 0.001",
         "reset_timestep 0",
         "min_style fire",
-        "minimize 1e-4 1e-5 5000 10000",
+        "minimize 1e-4 1e-5 1000000 1000000",
     ])
 
 
@@ -155,26 +166,26 @@ def get_saddle_energy(artn_output: str):
 
 
 def collect_artn_run_information(working_directory: Union[str, Path]) -> Dict:
-    """Collect an ARTn run summary from its working directory, for logging.
+    """Collect one ARTn search's summary from its working directory (artn.out + log.lammps), for logging.
 
     Reads the last step row of artn.out (the ARTn step, the macro/micro stage, the lowest eigenvalue and its
-    eigenvector stability a1) and, on an interrupted run, the micro stage the failure footer reports; counts
-    the saddle files (sad*.xyz) for the number of transition pathways found. The energy-evaluation count is not
-    read here: the caller already has it as the interrupted LAMMPS step (artn.out's evalf only updates once per
-    ARTn step, so it would undercount).
+    eigenvector stability a1), the micro stage the failure footer reports on an interruption, and the
+    energy-evaluation count from log.lammps (the LAMMPS step; artn.out's evalf only updates once per ARTn step,
+    so it undercounts).
     """
     working_directory = Path(working_directory)
     artn_output = (working_directory / "artn.out").read_text()
+    lammps_log = (working_directory / LAMMPS_LOG_FILENAME).read_text()
 
     last_step = _parse_last_artn_step(artn_output)
     interrupted_micro_stage = _parse_interrupted_micro_stage(artn_output)
     return dict(
         artn_step=last_step["artn_step"],
+        force_evaluations=_parse_lammps_force_evaluations(lammps_log),
         macro_stage=last_step["macro_stage"],
         micro_stage=interrupted_micro_stage or last_step["micro_stage"],
         lowest_eigenvalue=last_step["lowest_eigenvalue"],
         eigenvector_stability=last_step["eigenvector_stability"],
-        number_of_transition_pathways=len(list(working_directory.glob("sad*.xyz"))),
     )
 
 
@@ -209,6 +220,33 @@ def _parse_interrupted_micro_stage(artn_output: str) -> Optional[str]:
     """Return the micro stage named in the ARTn failure footer, or None when there is no failure footer."""
     match = _ARTN_FAILURE_PATTERN.search(artn_output)
     return match.group(1) if match else None
+
+
+def _parse_lammps_force_evaluations(lammps_log: str) -> Optional[int]:
+    """Number of energy evaluations from log.lammps: the step the uncertainty halt fired at (or the last one)."""
+    halt_match = _LAMMPS_HALT_STEP_PATTERN.search(lammps_log)
+    if halt_match:
+        return int(halt_match.group(1))
+    thermo_steps = _LAMMPS_THERMO_ROW_PATTERN.findall(lammps_log)
+    return int(thermo_steps[-1]) if thermo_steps else None
+
+
+def append_artn_search_summary(working_directory: Union[str, Path], record: Dict) -> None:
+    """Append one search's record to the accumulated-summary YAML in working_directory (created if absent)."""
+    summary_path = Path(working_directory) / ACCUMULATED_SUMMARY_FILENAME
+    summaries = read_artn_search_summaries(working_directory)
+    summaries.append(record)
+    with open(summary_path, "w") as file_descriptor:
+        yaml.safe_dump(summaries, file_descriptor, sort_keys=False)
+
+
+def read_artn_search_summaries(working_directory: Union[str, Path]) -> List[Dict]:
+    """Read the accumulated per-search records written this run, or an empty list when none exist yet."""
+    summary_path = Path(working_directory) / ACCUMULATED_SUMMARY_FILENAME
+    if not summary_path.is_file():
+        return []
+    with open(summary_path) as file_descriptor:
+        return yaml.safe_load(file_descriptor) or []
 
 
 def collect_artn_transition_information(working_directory: Union[str, Path]) -> Dict:
