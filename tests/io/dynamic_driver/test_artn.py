@@ -5,6 +5,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import 
     INTERRUPTION_MESSAGE, SUCCESS_MESSAGE, build_artn_lammps_tail,
     get_calculation_state_from_artn_output, get_saddle_energy,
     write_artn_input_file)
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn_input_configuration import \
+    ArtnInputConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from tests.fake_data_utils import generate_random_string
@@ -68,7 +70,8 @@ def test_get_saddle_energy(artn_output, saddle_energy):
 
 def test_write_artn_input_file(tmp_path):
     """The namelist is written with the task-specific push variables and the typed defaults."""
-    path = write_artn_input_file(tmp_path / "artn.in", push_ids=441, push_add_const=[1.0, -1.0, -1.0, 20])
+    configuration = ArtnInputConfiguration(push_ids=441, push_add_const=[1.0, -1.0, -1.0, 20])
+    path = write_artn_input_file(tmp_path / "artn.in", configuration)
     content = path.read_text()
 
     assert content.startswith("&ARTN_PARAMETERS")
@@ -80,9 +83,9 @@ def test_write_artn_input_file(tmp_path):
 
 
 def test_write_artn_input_file_overrides_defaults(tmp_path):
-    """A defaulted method variable can be overridden through artn_parameters."""
-    path = write_artn_input_file(tmp_path / "artn.in", push_ids=1, push_add_const=[1, 0, 0, 10],
-                                 artn_parameters={"forc_thr": 0.05})
+    """A non-default field on the configuration overrides the typed default in the namelist."""
+    configuration = ArtnInputConfiguration(push_ids=1, push_add_const=[1, 0, 0, 10], forc_thr=0.05)
+    path = write_artn_input_file(tmp_path / "artn.in", configuration)
     assert "forc_thr = 0.05" in path.read_text()
 
 

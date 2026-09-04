@@ -6,8 +6,8 @@ halt (dumping the structure) when it crosses the threshold -- and appends the dr
 tail (the ARTn or MD commands).
 """
 
-from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    DUMP_FILENAME, UNCERTAIN_DUMP_FILENAME)
+from diffusion_for_multi_scale_molecular_dynamics.namespace import \
+    UNCERTAIN_DUMP_FILENAME
 
 
 def build_dynamic_driver_lammps_inputs(
@@ -20,6 +20,7 @@ def build_dynamic_driver_lammps_inputs(
     mass_block: str,
     elements_string: str,
     dynamics_block: str,
+    trajectory_dump_block: str,
 ) -> str:
     """Return the full LAMMPS input script for a dynamic-driver run, with the dynamics tail appended."""
     return f"""# LAMMPS input script for a dynamic-driver (ARTn or MD) run.
@@ -71,9 +72,7 @@ fix extreme_extrapolation all halt 1 v_continue_run != 1
 
 
 # ----------- OUTPUT DUMP
-dump dump_id all custom 1 {DUMP_FILENAME} {dump_fields}
-dump_modify dump_id element {elements_string}
-
+{trajectory_dump_block}
 thermo 1
 thermo_style custom step pe v_max_unc
 

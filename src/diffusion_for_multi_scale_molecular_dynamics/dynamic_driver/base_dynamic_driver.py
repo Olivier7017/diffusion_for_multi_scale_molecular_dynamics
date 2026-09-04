@@ -18,7 +18,7 @@ from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    INITIAL_CONFIGURATION_FILENAME, LAMMPS_INPUT_FILENAME)
+    DUMP_FILENAME, INITIAL_CONFIGURATION_FILENAME, LAMMPS_INPUT_FILENAME)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.utils.logging_utils import \
@@ -48,6 +48,7 @@ class DynamicDriver(ABC):
         """
         assert_orthogonal_cell(initial_configuration)
         self.initial_configuration = initial_configuration
+        self._current_configuration = initial_configuration  # the initial configuration for the next launch
         self._lammps_runner = lammps_runner
         self._lammps_input_filename = LAMMPS_INPUT_FILENAME
 
@@ -102,29 +103,42 @@ class DynamicDriver(ABC):
         logger = logging.getLogger("dynamic_driver_run")
         configure_logging(experiment_dir=str(working_directory), logger=logger, log_to_console=False)
 
-        _, _, elements_string = generate_named_elements_blocks(self.initial_configuration)
-        with open(working_directory / INITIAL_CONFIGURATION_FILENAME, "w") as file_descriptor:
-            # specorder mirrors the (mass-sorted) group/mass blocks so the atom-type integers stay consistent.
-            write_lammps_data(file_descriptor, self.initial_configuration, atom_style="atomic",
-                              specorder=elements_string.split(), masses=True)
+        self._write_configuration(self._current_configuration, working_directory)
         self._prepare_reference_files(working_directory)
         return logger
+
+    def _write_configuration(self, configuration: Atoms, working_directory: Path) -> None:
+        """Write a configuration to the LAMMPS data file the dynamics reads (initial_configuration.dat)."""
+        _, _, elements_string = generate_named_elements_blocks(configuration)
+        with open(working_directory / INITIAL_CONFIGURATION_FILENAME, "w") as file_descriptor:
+            # specorder mirrors the (mass-sorted) group/mass blocks so the atom-type integers stay consistent.
+            write_lammps_data(file_descriptor, configuration, atom_style="atomic",
+                              specorder=elements_string.split(), masses=True)
 
     def _build_lammps_parameters(self, mlip: BaseMLIP, uncertainty_threshold: float) -> dict:
         """Assemble the template substitution parameters from the MLIP potential and the dynamics block."""
         potential = mlip.lammps_potential
         group_block, mass_block, elements_string = generate_named_elements_blocks(self.initial_configuration)
+        dump_fields = " ".join(potential.dump_fields(with_uncertainty=True))
         return dict(
             configuration_file_path=INITIAL_CONFIGURATION_FILENAME,
             interaction_commands="\n".join(potential.interaction_commands(elements_string, with_uncertainty=True)),
             uncertainty_field=potential.uncertainty_field(),
-            dump_fields=" ".join(potential.dump_fields(with_uncertainty=True)),
+            dump_fields=dump_fields,
             uncertainty_threshold=f"{uncertainty_threshold:.12f}",
             group_block=group_block,
             mass_block=mass_block,
             elements_string=elements_string,
             dynamics_block=self._dynamics_block(),
+            trajectory_dump_block=self._trajectory_dump_block(elements_string, dump_fields),
         )
+
+    def _trajectory_dump_block(self, elements_string: str, dump_fields: str) -> str:
+        """LAMMPS commands dumping the full trajectory (overridden to '' by drivers that do not want it)."""
+        return "\n".join([
+            f"dump dump_id all custom 1 {DUMP_FILENAME} {dump_fields}",
+            f"dump_modify dump_id element {elements_string}",
+        ])
 
     def _write_lammps_input(self, working_directory: Path, parameters: dict) -> None:
         """Build the shared LAMMPS input script from the parameters and write it to the working directory."""

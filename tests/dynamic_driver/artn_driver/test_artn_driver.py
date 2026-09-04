@@ -1,17 +1,24 @@
 """Tests for the ARTn dynamic driver (unit-level generation/parsing + an end-to-end LAMMPS+ARTn run)."""
 
+import shutil
 from unittest.mock import MagicMock
 
 import pytest
 
 from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.artn_driver.artn_driver import \
     ArtnDriver
-from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import \
-    INTERRUPTION_MESSAGE
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn import (
+    INTERRUPTION_MESSAGE, read_artn_xyz)
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn_input_configuration import \
+    ArtnInputConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import \
     SubprocessLammpsRunner
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
+    configurations_are_equivalent
+
+SPECORDER = ["Si", "Ge"]
 
 PUSH_IDS = 1
 PUSH_ADD_CONST = [1.0, -1.0, -1.0, 20]
@@ -31,8 +38,7 @@ def artn_driver(initial_configuration, fake_plugin_path):
     return ArtnDriver(
         lammps_runner=MagicMock(),
         initial_configuration=initial_configuration,
-        push_ids=PUSH_IDS,
-        push_add_const=PUSH_ADD_CONST,
+        artn_input_configuration=ArtnInputConfiguration(push_ids=PUSH_IDS, push_add_const=PUSH_ADD_CONST),
         artn_library_plugin_path=fake_plugin_path,
     )
 
@@ -68,6 +74,42 @@ class TestUnit:
         assert artn_driver._get_calculation_state(tmp_path) == CalculationState.INTERRUPTION
 
 
+@pytest.fixture
+def hopping_driver(reference_files_directory, fake_plugin_path):
+    """An ARTn driver whose current configuration is the committed Si3Ge reference (restart_from_new_min on)."""
+    initial_configuration = read_artn_xyz(reference_files_directory / "artn" / "Si3Ge_conf.xyz", SPECORDER)
+    return ArtnDriver(
+        lammps_runner=MagicMock(),
+        initial_configuration=initial_configuration,
+        artn_input_configuration=ArtnInputConfiguration(push_ids=PUSH_IDS, push_add_const=PUSH_ADD_CONST),
+        artn_library_plugin_path=fake_plugin_path,
+        restart_from_new_min=True,
+    )
+
+
+class TestRestartFromNewMinimum:
+    @pytest.mark.parametrize("min1_name, min2_name", [
+        ("Si3Ge_smalldiff.xyz", "Si3Ge_bigdiff.xyz"),  # min1 is the basin we came from -> hop to min2
+        ("Si3Ge_bigdiff.xyz", "Si3Ge_smalldiff.xyz"),  # min1 is the new minimum -> hop to min1
+    ])
+    def test_hops_to_the_minimum_that_differs_from_the_current(
+        self, hopping_driver, reference_files_directory, tmp_path, min1_name, min2_name
+    ):
+        """The hop restarts from the minimum that differs from the current configuration, not the basin."""
+        artn_directory = reference_files_directory / "artn"
+        shutil.copy(artn_directory / min1_name, tmp_path / "min1.xyz")
+        shutil.copy(artn_directory / min2_name, tmp_path / "min2.xyz")
+        new_minimum = read_artn_xyz(artn_directory / "Si3Ge_bigdiff.xyz", SPECORDER)
+        initial_configuration = read_artn_xyz(artn_directory / "Si3Ge_conf.xyz", SPECORDER)
+
+        hopping_driver._hop_to_new_minimum(tmp_path)
+
+        assert configurations_are_equivalent(hopping_driver._current_configuration, new_minimum)
+        assert not configurations_are_equivalent(hopping_driver._current_configuration, initial_configuration)
+        # the deployed data file the next search reads must have been rewritten with the new minimum
+        assert (tmp_path / "initial_configuration.dat").stat().st_size > 0
+
+
 @pytest.mark.requires_lammps_bin
 class TestEndToEnd:
     def test_runs_and_returns_a_state(self, lammps_executable_path, initial_configuration, stub_mlip, tmp_path):
@@ -77,7 +119,8 @@ class TestEndToEnd:
         driver from the ARTN_PLUGIN_PATH environment variable (ArtnDriver raises if it is not set).
         """
         runner = SubprocessLammpsRunner(lammps_executable_path=lammps_executable_path, mpi_processors=1)
-        driver = ArtnDriver(lammps_runner=runner, initial_configuration=initial_configuration,
-                            push_ids=PUSH_IDS, push_add_const=PUSH_ADD_CONST)
+        driver = ArtnDriver(
+            lammps_runner=runner, initial_configuration=initial_configuration,
+            artn_input_configuration=ArtnInputConfiguration(push_ids=PUSH_IDS, push_add_const=PUSH_ADD_CONST))
         state = driver.run(stub_mlip, tmp_path / "work", uncertainty_threshold=1.0e9)
         assert isinstance(state, CalculationState)
