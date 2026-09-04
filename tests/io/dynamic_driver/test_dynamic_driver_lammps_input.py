@@ -16,10 +16,12 @@ def test_build_dynamic_driver_lammps_inputs():
         mass_block="mass 1 28.0855",
         elements_string="Si",
         dynamics_block="run 5",
+        trajectory_dump_block="dump dump_id all custom 1 dump.yaml id x y z",
     )
 
     assert "$" not in script  # fully built, no leftover placeholders
     assert "variable threshold equal 0.500000000000" in script
     assert "pair_style lj/cut 6.0" in script
     assert "compute max_unc_all all reduce max c_pe_atom" in script
+    assert "dump dump_id all custom 1 dump.yaml id x y z" in script
     assert script.rstrip().endswith("run 5")  # the dynamics tail is appended last

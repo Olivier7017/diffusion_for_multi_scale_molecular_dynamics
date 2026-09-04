@@ -4,37 +4,23 @@ The ARTn 'artn.in' file (a Fortran ``&ARTN_PARAMETERS`` namelist) and the ARTn L
 generated here from parameters, so no template file or user-supplied artn.in is needed.
 """
 
+import io
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+import ase.io
 import yaml
+from ase import Atoms
 
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn_input_configuration import \
+    ArtnInputConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.calculation_state import \
     CalculationState
 
 INTERRUPTION_MESSAGE = "Failure message: ARTn RESEARCH STOP BEFORE THE END"
 SUCCESS_MESSAGE = r"!> CLEANING ARTn \| Fail: 0"
-
-# Typical ARTn method variables; override any of them through the write_artn_input_file 'artn_parameters'.
-DEFAULT_ARTN_PARAMETERS = {
-    "engine_units": "lammps/metal",
-    "verbose": 2,
-    "ninit": 2,
-    "lpush_final": True,
-    "nnewchance": 10,
-    "nsmooth": 2,
-    "forc_thr": 0.01,
-    "delr_thr": 0.1,
-    "push_step_size": 0.1,
-    "push_mode": "list",
-    "lanczos_disp": 1e-4,
-    "lanczos_max_size": 10,
-    "lanczos_min_size": 3,
-    "lanczos_eval_conv_thr": 1e-2,
-    "eigen_step_size": 0.1,
-    "push_over": 2.0,
-}
+EIGENVALUE_LOST_MESSAGE = "EIGENVALUE LOST"
 
 # Short (~2 word) descriptions of the ARTn macro and micro stages, for the run-summary log lines.
 MACRO_STAGE_DESCRIPTIONS = {
@@ -57,6 +43,8 @@ MICRO_STAGE_DESCRIPTIONS = {
 _ARTN_STEP_ROW_PATTERN = re.compile(r"^\s*\d+\s+(?:Bstep|Sstep|Rstep)\b")
 # The failure footer names the micro stage the run was interrupted at, e.g. '... failed ( 1 ) at perp ***'.
 _ARTN_FAILURE_PATTERN = re.compile(r"ARTn search failed\s*\(\s*\d+\s*\)\s*at\s+(\w+)")
+# The 'Failure message:' line carries the reason the run stopped (e.g. 'EIGENVALUE LOST, try to increase ...').
+_ARTN_FAILURE_MESSAGE_PATTERN = re.compile(r"Failure message:\s*(.+)")
 
 # The success footer reports the transition energetics (activation energies, reaction dE) and the saddle's
 # participating-atom count; the header echoes the displacement threshold used to count them.
@@ -87,28 +75,10 @@ def _format_namelist_value(value) -> str:
     return str(value)
 
 
-def write_artn_input_file(
-    path: Union[str, Path],
-    push_ids: int,
-    push_add_const: List[float],
-    artn_parameters: Optional[Dict] = None,
-) -> Path:
-    """Write the ARTn '&ARTN_PARAMETERS' namelist to path, returning the written path.
-
-    push_ids selects the atom ARTn pushes to escape the initial basin, and push_add_const is its
-    four-component push constraint (written as the Fortran array line 'push_add_const(:,<push_ids>) = ...').
-    artn_parameters overrides DEFAULT_ARTN_PARAMETERS and may add any other ARTn variable (see the
-    ARTn documentation for the variables).
-    """
-    namelist = dict(DEFAULT_ARTN_PARAMETERS)
-    if artn_parameters is not None:
-        namelist.update(artn_parameters)
-
-    namelist["push_ids"] = push_ids
-    namelist[f"push_add_const(:,{push_ids})"] = push_add_const
-
+def write_artn_input_file(path: Union[str, Path], configuration: ArtnInputConfiguration) -> Path:
+    """Write the given ARTn input configuration as an '&ARTN_PARAMETERS' namelist to path."""
     lines = ["&ARTN_PARAMETERS"]
-    lines += [f"  {key} = {_format_namelist_value(value)}" for key, value in namelist.items()]
+    lines += [f"  {key} = {_format_namelist_value(value)}" for key, value in configuration.to_namelist().items()]
     lines += ["/"]
 
     path = Path(path)
@@ -124,7 +94,7 @@ def build_artn_lammps_tail(artn_library_plugin_path: Union[str, Path]) -> str:
         "timestep 0.001",
         "reset_timestep 0",
         "min_style fire",
-        "minimize 1e-4 1e-5 1000000 1000000",
+        "minimize 1e-4 1e-5 50000 50000",
     ])
 
 
@@ -222,6 +192,12 @@ def _parse_interrupted_micro_stage(artn_output: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def parse_artn_failure_message(artn_output: str) -> Optional[str]:
+    """Return the text of the ARTn 'Failure message:' line, or None when the run reported no failure."""
+    match = _ARTN_FAILURE_MESSAGE_PATTERN.search(artn_output)
+    return match.group(1).strip() if match else None
+
+
 def _parse_lammps_force_evaluations(lammps_log: str) -> Optional[int]:
     """Number of energy evaluations from log.lammps: the step the uncertainty halt fired at (or the last one)."""
     halt_match = _LAMMPS_HALT_STEP_PATTERN.search(lammps_log)
@@ -247,6 +223,27 @@ def read_artn_search_summaries(working_directory: Union[str, Path]) -> List[Dict
         return []
     with open(summary_path) as file_descriptor:
         return yaml.safe_load(file_descriptor) or []
+
+
+def read_artn_xyz(xyz_path: Union[str, Path], specorder: List[str]) -> Atoms:
+    """Read an ARTn extended-XYZ configuration, mapping its integer species column to chemical symbols.
+
+    ARTn writes the species column as the LAMMPS atom-type index (1-based), not a chemical symbol; each index
+    k is replaced by specorder[k - 1] (the mass-sorted element order the LAMMPS data was written with), and the
+    'species:I' property is switched to 'species:S', so ASE reads correct elements.
+    """
+    lines = Path(xyz_path).read_text().splitlines()
+    fixed_lines = [lines[0], lines[1].replace("species:I:1", "species:S:1")]
+    for line in lines[2:]:
+        if not line.strip():
+            continue
+        tokens = line.split()
+        tokens[0] = specorder[int(tokens[0]) - 1]
+        fixed_lines.append(" ".join(tokens))
+
+    atoms = ase.io.read(io.StringIO("\n".join(fixed_lines) + "\n"), format="extxyz")
+    atoms.pbc = True
+    return atoms
 
 
 def collect_artn_transition_information(working_directory: Union[str, Path]) -> Dict:

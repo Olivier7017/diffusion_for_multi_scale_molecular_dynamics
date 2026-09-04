@@ -26,6 +26,8 @@ from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_le
     ActiveLearning
 from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.artn_driver.artn_driver import \
     ArtnDriver
+from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn_input_configuration import \
+    ArtnInputConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
@@ -143,20 +145,21 @@ def create_dynamic_driver(initial_configuration):
     lammps_runner = SubprocessLammpsRunner(
         lammps_executable_path=LAMMPS_EXECUTABLE_PATH, mpi_processors=1, openmp_threads=1, mpi_executable="mpirun",
     )
-    # The ARTn method parameters (the &ARTN_PARAMETERS namelist); see the ARTn documentation for each variable.
-    artn_parameters = dict(
-        engine_units="lammps/metal", verbose=2, ninit=2, lpush_final=True, nnewchance=3, nsmooth=2,
-        forc_thr=0.01, push_step_size=0.1, push_mode="list",
-        lanczos_disp=0.0001, lanczos_max_size=10, lanczos_min_size=3, lanczos_eval_conv_thr=0.01,
+    # The parameters written to artn.in (the &ARTN_PARAMETERS namelist and the push); see the ARTn
+    # documentation for each variable. push_ids=None picks a random atom each launch; push_add_const is unused
+    # in the radial push mode. Unset fields keep the ArtnInputConfiguration defaults.
+    artn_input_configuration = ArtnInputConfiguration(
+        push_ids=None, engine_units="lammps/metal", verbose=2, ninit=2, nevalf_max=50000,
+        nperp_limitation=[4, 8, 12, 16, 32], lpush_final=True, nnewchance=10, nsmooth=5,
+        forc_thr=0.01, push_step_size=0.25, push_dist_thr=3.0, push_mode="rad",
+        lanczos_disp=0.0001, lanczos_max_size=16, lanczos_min_size=3, lanczos_eval_conv_thr=0.01,
         eigen_step_size=0.1, push_over=2.0,
     )
-    # push_ids is the (1-based) atom ARTn pushes to escape the initial basin; push_add_const is its
-    # four-component push constraint.
     return ArtnDriver(
         lammps_runner=lammps_runner, initial_configuration=initial_configuration,
-        push_ids=441, push_add_const=[1.0, -1.0, -1.0, 20],
+        artn_input_configuration=artn_input_configuration,
         artn_library_plugin_path=ARTN_LIBRARY_PLUGIN_PATH,  # or None to read the ARTN_PLUGIN_PATH env var
-        **artn_parameters,
+        number_of_requested_saddles=1, restart_from_new_min=True, max_eigenvalue_lost_retries=50,
     )
 
 

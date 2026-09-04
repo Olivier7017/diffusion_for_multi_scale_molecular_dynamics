@@ -3,6 +3,7 @@ from typing import List, Union
 import numpy as np
 import torch
 from ase import Atoms
+from ase.geometry import find_mic
 from pykeops.torch import LazyTensor
 from pymatgen.core import Lattice, Structure
 
@@ -172,6 +173,21 @@ def atoms_per_element(configuration: Atoms, element_order: List[str]) -> np.ndar
     """Count the atoms of each element in a configuration, ordered by element_order."""
     chemical_symbols = configuration.get_chemical_symbols()
     return np.array([chemical_symbols.count(element) for element in element_order], dtype=float)
+
+
+def configurations_are_equivalent(
+    atoms_a: Atoms, atoms_b: Atoms, position_tolerance: float = 0.1
+) -> bool:
+    """Whether two configurations (same atom ordering) match within a per-atom position and cell tolerance.
+
+    Compares the cells and the minimum-image per-atom displacement; True when the cells match and the largest
+    displacement is below position_tolerance (Ang).
+    """
+    if not np.allclose(atoms_a.cell.array, atoms_b.cell.array, atol=position_tolerance):
+        return False
+    displacement = atoms_b.get_positions() - atoms_a.get_positions()
+    _, distances = find_mic(displacement, atoms_a.cell, atoms_a.pbc)
+    return float(distances.max()) < position_tolerance
 
 
 def create_perturbed_structures(
