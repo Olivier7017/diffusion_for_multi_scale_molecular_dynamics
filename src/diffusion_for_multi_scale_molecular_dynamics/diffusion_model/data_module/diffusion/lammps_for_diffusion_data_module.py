@@ -152,9 +152,10 @@ class LammpsForDiffusionDataModule(pl.LightningDataModule):
             element_ids
         ).long()  # size: (batchsize, max atom)
 
-        transformed_x["potential_energy"] = torch.as_tensor(
-            x["potential_energy"]
-        )  # size: (batchsize, )
+        if "potential_energy" in x:
+            transformed_x["potential_energy"] = torch.as_tensor(
+                x["potential_energy"]
+            )  # size: (batchsize, )
 
         return transformed_x
 

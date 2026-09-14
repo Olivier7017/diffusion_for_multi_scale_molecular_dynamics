@@ -552,6 +552,10 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             return output
 
         if self.draw_samples and self.metrics_parameters.compute_energies:
+            assert "potential_energy" in batch, (
+                "compute_energies is True but the batch has no 'potential_energy' key; the dataset must provide "
+                "reference energies (eg, via a calculator on the source ase.Atoms) to compute this metric."
+            )
             reference_energies = batch["potential_energy"]
             self.energy_ks_metric.register_reference_samples(reference_energies.cpu())
 
