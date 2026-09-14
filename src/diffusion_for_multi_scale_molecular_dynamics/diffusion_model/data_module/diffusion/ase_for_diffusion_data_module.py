@@ -29,6 +29,22 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.element_types import (
 logger = logging.getLogger(__name__)
 
 
+class ComposedTransform:
+    """Transformation from raw data to training data.
+
+    Composes two transformations: traj -> AXL formatting, then adding a random amount of noise to the AXL.
+    Defined at module level so that its qualname is resolvable by pickle, which is required for DataLoader
+    workers under the spawn start method (Mac/Windows).
+    """
+
+    def __init__(self, formatting_transform, noising_transform):
+        self.formatting_transform = formatting_transform
+        self.noising_transform = noising_transform
+
+    def __call__(self, batch: Dict) -> Dict:
+        return self.noising_transform(self.formatting_transform(batch))
+
+
 @dataclass(kw_only=True)
 class ASEForDiffusionDataModuleParameters(DataModuleParameters):
     """Hyper-Parameters for a data module."""
@@ -219,11 +235,7 @@ class ASEForDiffusionDataModule(pl.LightningDataModule):
 
         noising_transform = self.noising_transform.transform
 
-        def composed_transform(batch: Dict) -> Dict:
-            """Chained transforms."""
-            return noising_transform(formatting_transform(batch))
-
-        return composed_transform
+        return ComposedTransform(formatting_transform, noising_transform)
 
     def setup(self, stage: Optional[str] = None):
         """Parse and split all samples across the train/valid/test parsers."""
