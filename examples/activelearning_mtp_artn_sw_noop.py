@@ -125,7 +125,7 @@ def create_mlip():
     mtp_configuration = MtpConfiguration(
         elements=ELEMENT_LIST, level=6, max_dist=5.0,
         energy_weight=1.0, force_weight=0.01, stress_weight=0.0, site_en_weight=0.0,
-        training_params=dict(max_iter=1000, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
+        training_params=dict(max_iter=1000, init_params="same", scale_by_force=0.0, bfgs_conv_tol=5e-2),
     )
     mtp_trainer = MtpTrainer(mtp_configuration=mtp_configuration, mlp_executable_path=MLP_EXECUTABLE_PATH)
     return MtpMlip(mtp_trainer=mtp_trainer, lammps_runner=lammps_runner)
@@ -159,7 +159,7 @@ def create_dynamic_driver(initial_configuration):
         lammps_runner=lammps_runner, initial_configuration=initial_configuration,
         artn_input_configuration=artn_input_configuration,
         artn_library_plugin_path=ARTN_LIBRARY_PLUGIN_PATH,  # or None to read the ARTN_PLUGIN_PATH env var
-        number_of_requested_saddles=1, restart_from_new_min=True, max_eigenvalue_lost_retries=50,
+        number_of_requested_saddles=50, restart_from_new_min=True, max_eigenvalue_lost_retries=50,
     )
 
 

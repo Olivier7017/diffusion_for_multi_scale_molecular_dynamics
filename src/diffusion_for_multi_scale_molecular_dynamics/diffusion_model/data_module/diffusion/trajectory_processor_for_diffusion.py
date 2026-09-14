@@ -209,16 +209,16 @@ class TrajectoryProcessorForDiffusion:
                 "natom": len(atoms),
                 "box": atoms.get_cell().lengths(),
                 "element": atoms.get_chemical_symbols(),
-                "potential_energy": atoms.get_potential_energy(),
                 CARTESIAN_POSITIONS: atoms.get_positions().reshape(-1),
                 RELATIVE_COORDINATES: atoms.get_scaled_positions().reshape(-1),
                 LATTICE_PARAMETERS: lattice_parameters,
             }
-            try:
-                forces = atoms.get_forces()
-                row[CARTESIAN_FORCES] = forces.reshape(-1)
-            except ASEPropertyNotImplementedError:
-                pass
+            if atoms.calc is not None:
+                try:
+                    row["potential_energy"] = atoms.get_potential_energy()
+                    row[CARTESIAN_FORCES] = atoms.get_forces().reshape(-1)
+                except ASEPropertyNotImplementedError:
+                    pass
             rows.append(row)
         return pd.DataFrame.from_records(rows)
 
