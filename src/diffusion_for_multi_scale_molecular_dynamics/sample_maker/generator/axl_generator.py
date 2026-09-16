@@ -42,7 +42,7 @@ class SamplingParameters:
             assert (
                 self.cell_dimensions is not None
             ), "If use_fixed_lattice_parameters is True, then cell_dimensions must be provided."
-            cell_dimensions = torch.tensor(self.cell_dimensions)
+            cell_dimensions = torch.tensor(self.cell_dimensions, dtype=torch.float32)
             if (
                 cell_dimensions.dim() == 1
             ):  # if we provide a list of floats, we assume the vectors are orthogonal

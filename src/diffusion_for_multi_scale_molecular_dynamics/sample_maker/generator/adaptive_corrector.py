@@ -36,7 +36,7 @@ class AdaptiveCorrectorGenerator(LangevinGenerator):
             axl_network=axl_network,
             trajectory_initializer=trajectory_initializer,
         )
-        self.corrector_r = noise_parameters.corrector_r
+        self.corrector_r = sampling_parameters.corrector_r
 
     def _relative_coordinates_update_predictor_step(
         self,

@@ -30,6 +30,11 @@ class PredictorCorrectorSamplingParameters(SamplingParameters):
     atom_type_transition_in_corrector: bool = False
     progress_bar: bool = True
 
+    # Step size scaling for the Adaptive Corrector Generator. Default value comes from github implementation
+    # https: // github.com / yang - song / score_sde / blob / main / configs / default_celeba_configs.py
+    # for the celeba dataset. Note the suggested value for CIFAR10 is 0.16 in that repo.
+    corrector_r: float = 0.17
+
 
 class PredictorCorrectorAXLGenerator(AXLGenerator):
     """Defines the interface for predictor-corrector AXL (atom types, relative coordinates and lattice) generators."""
