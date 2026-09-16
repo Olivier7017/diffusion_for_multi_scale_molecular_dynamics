@@ -21,7 +21,6 @@ class TestAdaptiveCorrectorGenerator(TestLangevinGenerator):
             total_time_steps=total_time_steps,
             time_delta=0.1,
             sigma_min_cart=0.15,
-            corrector_r=0.15,
         )
         return noise_parameters
 
