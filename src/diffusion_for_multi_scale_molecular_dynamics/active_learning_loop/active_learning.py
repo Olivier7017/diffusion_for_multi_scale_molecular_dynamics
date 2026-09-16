@@ -35,6 +35,8 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter impo
     StructureConverter
 
 UNCERTAINTY_INFO_KEY = "uncertainty"
+ACTIVE_INDICES_INFO_KEY = "active_indices"
+CONSTRAINED_ATOM_INDICES_INFO_KEY = "constrained_atom_indices"
 
 
 class ActiveLearning:
@@ -50,8 +52,9 @@ class ActiveLearning:
                 - SUCCESS if no encountered structure has an uncertainty above the threshold; exit.
                 - INTERRUPTION otherwise (an uncertain structure was found).
             * collect the uncertain structure
-            * use the Oracle to evaluate the uncertain structure
-            * add the uncertain structure to the MLIP's training database
+            * generate structures to be evaluated by the Oracle
+            * use the Oracle to evaluate the samples
+            * add the labelled samples to the MLIP's training database
             * retrain the MLIP
     """
 
@@ -160,8 +163,8 @@ class ActiveLearning:
             working_directory: top directory where all the campaign artifacts are written.
             provided_configurations: the labelled starting configuration(s)
             maximum_number_of_rounds: maximum number of active learning rounds (guards against infinite loops).
-            restart_from_stage: 'auto' resumes from what is on disk (or starts clean); 'driver'/'oracle'/'train'
-                force the resume stage of the latest epoch.
+            restart_from_stage: 'auto' resumes from what is on disk (or starts clean); 'driver'/'generate'/
+                'oracle'/'train' force the resume stage of the latest epoch.
             initial_perturbation_standard_deviation: standard deviation (Angstrom) of the Gaussian
                 displacements used to augment the seed during precomputation.
         """
@@ -306,15 +309,16 @@ class ActiveLearning:
     def _run_round(self, epoch: int, entry_stage: Stage) -> bool:
         """Run one round from entry_stage (skipping already-committed stages); return True when complete.
 
-        A round is made of the following 6 steps, grouped into the 3 stages that also act as the restart
+        A round is made of the following 6 steps, grouped into the 4 stages that also act as the restart
         indicators (a resume re-enters at a stage and reads the earlier stages' artifacts back from the
         database instead of recomputing them):
             Stage.DRIVER (run_dynamic_driver):
                 1. Run the dynamic driver (ARTn or MD) with the MLIP.
                 2. Extract the uncertainty per atom.
+            Stage.GENERATE (generate_samples):
+                3. Generate structures to be evaluated by the Oracle.
             Stage.ORACLE (oracle_evaluation):
-                3. Excise environments and repaint samples.
-                4. Evaluate the repainted samples with the Oracle.
+                4. Evaluate the samples with the Oracle.
                 5. Commit the labelled structures to the training database.
             Stage.TRAIN (_retrain):
                 6. Fold the labelled structures into the model and retrain the MLIP.
@@ -328,12 +332,20 @@ class ActiveLearning:
             if uncertain_configuration is None:  # SUCCESS: no uncertain structure was found.
                 return True
             self._training_database.write_dynamic(epoch, uncertain_configuration)
+            current_stage = Stage.GENERATE
+
+        if current_stage == Stage.GENERATE:
+            self._set_log_stage(epoch, Stage.GENERATE)
+            uncertain_configuration = self._training_database.read_dynamic(epoch)
+            generated_samples = self.generate_samples(uncertain_configuration, epoch)
+            generate_trajectory_path = self._training_database.write_generate(epoch, generated_samples)
+            self._logger.info(f"Writing {len(generated_samples)} generated samples to {generate_trajectory_path}.")
             current_stage = Stage.ORACLE
 
         if current_stage == Stage.ORACLE:
             self._set_log_stage(epoch, Stage.ORACLE)
-            uncertain_configuration = self._training_database.read_dynamic(epoch)
-            training_configurations = self.oracle_evaluation(uncertain_configuration, epoch)
+            generated_samples = self._training_database.read_generate(epoch)
+            training_configurations = self.oracle_evaluation(generated_samples, epoch)
             oracle_trajectory_path = self._training_database.write_oracle(epoch, training_configurations)
             self._logger.info(f"Writing the labelled configurations to {oracle_trajectory_path}.")
             current_stage = Stage.TRAIN
@@ -386,8 +398,8 @@ class ActiveLearning:
         )
         return f"{step_label} flagged {number_of_flagged_environments} atomic environments above the threshold."
 
-    def oracle_evaluation(self, uncertain_configuration: Atoms, epoch: int) -> List[Atoms]:
-        """Stage ORACLE (steps 3-5): excise/repaint around the uncertain configuration and label it."""
+    def generate_samples(self, uncertain_configuration: Atoms, epoch: int) -> List[Atoms]:
+        """Stage GENERATE (step 3): generate structures to be evaluated by the Oracle."""
         uncertain_structure = to_pymatgen_structure(uncertain_configuration)
         uncertainty_per_atom = uncertain_configuration.info[UNCERTAINTY_INFO_KEY]
 
@@ -396,15 +408,35 @@ class ActiveLearning:
             uncertain_structure, uncertainty_per_atom
         )
 
+        list_generated_samples = []
+        for structure, active_indices, sample_information in zip(
+            list_sample_structures, list_active_indices, list_sample_information
+        ):
+            atoms = to_ase_atoms(structure)
+            atoms.info[ACTIVE_INDICES_INFO_KEY] = np.asarray(active_indices)
+            atoms.info[CONSTRAINED_ATOM_INDICES_INFO_KEY] = np.asarray(
+                sample_information["constrained_atom_indices"]
+            )
+            list_generated_samples.append(atoms)
+        return list_generated_samples
+
+    def oracle_evaluation(self, generated_samples: List[Atoms], epoch: int) -> List[Atoms]:
+        """Stage ORACLE (steps 4-5): evaluate the generated samples with the Oracle and label them."""
+        list_active_indices = [atoms.info[ACTIVE_INDICES_INFO_KEY] for atoms in generated_samples]
+        list_sample_information = [
+            {"constrained_atom_indices": atoms.info[CONSTRAINED_ATOM_INDICES_INFO_KEY]}
+            for atoms in generated_samples
+        ]
+
         self._logger.info(
-            f"Labelling {len(list_sample_structures)} new configurations with {self.oracle_calculator.name}."
+            f"Labelling {len(generated_samples)} new configurations with {self.oracle_calculator.name}."
         )
         oracle_directory = self._training_database.oracle_directory(epoch)
         start_time = time.time()
         list_single_point_calculations = []
-        for index, structure in enumerate(list_sample_structures):
+        for index, atoms in enumerate(generated_samples):
             results_path = oracle_directory / numbered_filename(DUMP_FILENAME, index)
-            calculation = self.oracle_calculator.calculate(to_ase_atoms(structure), results_path=results_path)
+            calculation = self.oracle_calculator.calculate(atoms, results_path=results_path)
             list_single_point_calculations.append(calculation)
         self._logger.info(f"Labelling has finished. Execution Time: {time.time() - start_time:.3e} sec.")
 

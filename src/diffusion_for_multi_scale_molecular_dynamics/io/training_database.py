@@ -19,9 +19,10 @@ Layout (the working directory itself)::
     epoch_1/
       dynamic/       dynamic driver working directory
       dynamic.traj   stage 1 commit: the uncertain configuration (+ per-atom 'uncertainty')
+      generate.traj  stage 2 commit: the generated samples (+ per-atom 'active_indices'/'constrained_atom_indices')
       oracle/        oracle working directory
-      oracle.traj    stage 2 commit: the labelled configurations (energy + forces)
-      model/         stage 3 commit: the deployed MLIP checkpoint
+      oracle.traj    stage 3 commit: the labelled configurations (energy + forces)
+      model/         stage 4 commit: the deployed MLIP checkpoint
     epoch_2/ ...
 """
 
@@ -40,11 +41,12 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
 class Stage(Enum):
     """The first step of a round still left to run; where a (re)start re-enters the loop.
 
-    A round always runs DRIVER -> ORACLE -> TRAIN, so resuming at a stage means the earlier stages are
-    already done on disk and only this stage onward needs to run.
+    A round always runs DRIVER -> GENERATE -> ORACLE -> TRAIN, so resuming at a stage means the earlier
+    stages are already done on disk and only this stage onward needs to run.
     """
 
     DRIVER = auto()
+    GENERATE = auto()
     ORACLE = auto()
     TRAIN = auto()
 
@@ -105,6 +107,9 @@ class TrainingDatabase:
 
     def _dynamic_trajectory_path(self, epoch: int) -> Path:
         return self._root / f"epoch_{epoch}" / "dynamic.traj"
+
+    def _generate_trajectory_path(self, epoch: int) -> Path:
+        return self._root / f"epoch_{epoch}" / "generate.traj"
 
     def _oracle_trajectory_path(self, epoch: int) -> Path:
         return self._root / f"epoch_{epoch}" / "oracle.traj"
@@ -180,8 +185,12 @@ class TrainingDatabase:
         """Whether the epoch's dynamic (stage 1) artifact has been written."""
         return self._dynamic_trajectory_path(epoch).is_file()
 
+    def is_generate_committed(self, epoch: int) -> bool:
+        """Whether the epoch's generate (stage 2) artifact has been written."""
+        return self._generate_trajectory_path(epoch).is_file()
+
     def is_oracle_committed(self, epoch: int) -> bool:
-        """Whether the epoch's oracle (stage 2) artifact has been written."""
+        """Whether the epoch's oracle (stage 3) artifact has been written."""
         return self._oracle_trajectory_path(epoch).is_file()
 
     def is_model_committed(self, epoch: int) -> bool:
@@ -195,13 +204,21 @@ class TrainingDatabase:
         """Write the epoch's uncertain configuration (stage 1) to ``dynamic.traj``."""
         return write_atoms_trajectory([uncertain_configuration], self._dynamic_trajectory_path(epoch))
 
+    def write_generate(self, epoch: int, generated_samples: List) -> Path:
+        """Write the epoch's generated samples (stage 2) to ``generate.traj``."""
+        return write_atoms_trajectory(generated_samples, self._generate_trajectory_path(epoch))
+
     def write_oracle(self, epoch: int, labelled_configurations: List) -> Path:
-        """Write the epoch's labelled configurations (stage 2) to ``oracle.traj``."""
+        """Write the epoch's labelled configurations (stage 3) to ``oracle.traj``."""
         return write_atoms_trajectory(labelled_configurations, self._oracle_trajectory_path(epoch))
 
     def read_dynamic(self, epoch: int):
         """Read back the epoch's uncertain configuration."""
         return read_atoms_trajectory(self._dynamic_trajectory_path(epoch))[0]
+
+    def read_generate(self, epoch: int) -> List:
+        """Read back the epoch's generated samples."""
+        return read_atoms_trajectory(self._generate_trajectory_path(epoch))
 
     def read_oracle(self, epoch: int) -> List:
         """Read back the epoch's labelled configurations."""
@@ -257,8 +274,9 @@ class TrainingDatabase:
         ``reset_epoch_to_stage`` so the artifacts of the discarded stages are cleared before rerunning.
 
         Args:
-            restart_from_stage: 'auto' (infer from what is on disk) or an explicit 'driver'/'oracle'/'train'
-                override that forces the stage on the latest epoch (validating its prerequisites exist).
+            restart_from_stage: 'auto' (infer from what is on disk) or an explicit 'driver'/'generate'/
+                'oracle'/'train' override that forces the stage on the latest epoch (validating its
+                prerequisites exist).
 
         Returns:
             (epoch, stage): the epoch number and the stage to start executing.
@@ -288,8 +306,10 @@ class TrainingDatabase:
             return self._driver_resume_stage()
         if self.is_oracle_committed(latest):
             return latest, Stage.TRAIN
-        if self.is_dynamic_committed(latest):
+        if self.is_generate_committed(latest):
             return latest, Stage.ORACLE
+        if self.is_dynamic_committed(latest):
+            return latest, Stage.GENERATE
         return self._driver_resume_stage()
 
     def _forced_resume_stage(self, restart_from_stage: str) -> Tuple[int, Stage]:
@@ -302,10 +322,16 @@ class TrainingDatabase:
             raise ValueError(
                 f"Cannot restart from '{restart_from_stage}': the database has no epoch to resume."
             )
-        if restart_from_stage == "oracle":
+        if restart_from_stage == "generate":
             if not self.is_dynamic_committed(latest):
                 raise ValueError(
-                    f"Cannot restart from 'oracle': epoch {latest} has no committed 'dynamic.traj'."
+                    f"Cannot restart from 'generate': epoch {latest} has no committed 'dynamic.traj'."
+                )
+            return latest, Stage.GENERATE
+        if restart_from_stage == "oracle":
+            if not self.is_generate_committed(latest):
+                raise ValueError(
+                    f"Cannot restart from 'oracle': epoch {latest} has no committed 'generate.traj'."
                 )
             return latest, Stage.ORACLE
         if restart_from_stage == "train":
@@ -315,13 +341,15 @@ class TrainingDatabase:
                 )
             return latest, Stage.TRAIN
         raise ValueError(
-            f"Unknown restart_from_stage '{restart_from_stage}'; expected 'auto', 'driver', 'oracle' or 'train'."
+            f"Unknown restart_from_stage '{restart_from_stage}'; expected 'auto', 'driver', 'generate', "
+            "'oracle' or 'train'."
         )
 
     def reset_epoch_to_stage(self, epoch: int, stage: Stage) -> None:
         """Delete the artifacts at or after ``stage`` for ``epoch`` so a forced restart reruns them cleanly."""
         artifacts_from_stage = {
-            Stage.DRIVER: ["dynamic", "dynamic.traj", "oracle", "oracle.traj", "model"],
+            Stage.DRIVER: ["dynamic", "dynamic.traj", "generate.traj", "oracle", "oracle.traj", "model"],
+            Stage.GENERATE: ["generate.traj", "oracle", "oracle.traj", "model"],
             Stage.ORACLE: ["oracle", "oracle.traj", "model"],
             Stage.TRAIN: ["model"],
         }

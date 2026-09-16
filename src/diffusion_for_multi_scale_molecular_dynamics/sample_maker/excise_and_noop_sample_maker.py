@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
@@ -36,6 +37,9 @@ class ExciseAndNoOpSampleMaker(BaseExciseSampleMaker):
                 atom at the center of the excised region.
             list_info: list of samples additional information.
         """
+        logging.info(
+            f"Generating a structure of {len(substructure.X)} atoms from {len(substructure.X)} excised atoms."
+        )
         list_samples = num_samples * [substructure]
         list_active_atom_indices = num_samples * [active_atom_index]
         list_info = [self._create_sample_info_dictionary(substructure) for _ in range(num_samples)]
