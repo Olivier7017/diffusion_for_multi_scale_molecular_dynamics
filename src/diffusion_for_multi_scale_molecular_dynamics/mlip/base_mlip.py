@@ -21,7 +21,7 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
-    to_pymatgen_structure
+    to_ase_atoms
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import (
     atoms_per_element, create_perturbed_structures, label_configurations)
 
@@ -258,7 +258,7 @@ class BaseMLIP(ABC):
         calculator = LammpsSinglePointCalculator(
             lammps_potential=self.lammps_potential, lammps_runner=self._lammps_runner
         )
-        return [calculator.calculate(to_pymatgen_structure(configuration)) for configuration in configurations]
+        return [calculator.calculate(to_ase_atoms(configuration)) for configuration in configurations]
 
     def training_set_state(self) -> Dict:
         """Training-set provenance for the state file: the source trajectories, the epoch and the counts.
@@ -293,7 +293,7 @@ class BaseMLIP(ABC):
         else:
             calculations = [
                 SinglePointCalculation(calculation_type="reference",
-                                       structure=to_pymatgen_structure(atoms),
+                                       atoms=atoms,
                                        forces=atoms.get_forces(),
                                        energy=atoms.get_potential_energy())
                 for atoms in reference_atoms
@@ -303,7 +303,7 @@ class BaseMLIP(ABC):
             metrics = dict(n_training_conf=0, n_training_atomic_environments=0,
                            rmse_energy=None, rmse_forces=None)
         else:
-            predictions = self.calculate([calculation.structure for calculation in calculations])
+            predictions = self.calculate([calculation.atoms for calculation in calculations])
 
             energy_errors = []
             force_errors = []

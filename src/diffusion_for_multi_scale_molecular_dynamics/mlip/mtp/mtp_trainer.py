@@ -18,6 +18,8 @@ from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration imp
     MtpConfiguration
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
     SinglePointCalculation
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
 
 
 class MtpTrainer(BaseMLIPTrainer):
@@ -75,7 +77,7 @@ class MtpTrainer(BaseMLIPTrainer):
         if not labelled_calculations:
             raise RuntimeError("Cannot fit an MTP with no labelled structures.")
 
-        structures = [calculation.structure for calculation in labelled_calculations]
+        structures = [to_pymatgen_structure(calculation.atoms) for calculation in labelled_calculations]
         forces = [np.asarray(calculation.forces) for calculation in labelled_calculations]
         energies = [calculation.energy for calculation in labelled_calculations]
         checked_structures, checked_forces, _ = check_structures_forces_stresses(

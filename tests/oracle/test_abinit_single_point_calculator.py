@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from pymatgen.core import Lattice, Structure
+from ase import Atoms
 
 from diffusion_for_multi_scale_molecular_dynamics.oracle.abinit_runner import \
     AbinitRunner
@@ -43,12 +43,12 @@ class TestOrchestration:
     def test_calculate_writes_input_runs_reads_and_cleans(self, abinit_reference_directory,
                                                           pseudopotentials, tmp_path):
         """calculate() writes the input, runs, parses the energy/forces, keeps outputs, and drops the WFK."""
-        structure = Structure(Lattice.cubic(6.0), ["Mg", "H", "H"],
-                              [[0.0, 0.0, 0.0], [0.25, 0.25, 0.25], [0.5, 0.5, 0.5]])
+        atoms = Atoms("MgHH", scaled_positions=[[0.0, 0.0, 0.0], [0.25, 0.25, 0.25], [0.5, 0.5, 0.5]],
+                      cell=6.0 * np.eye(3), pbc=True)
         runner = _StubRunner(abinit_reference_directory / "abinit.abo")
         calculator = AbinitSinglePointCalculator({"ecut": 300}, pseudopotentials, runner)
 
-        result = calculator.calculate(structure, results_path=tmp_path / "dump_0.yaml")
+        result = calculator.calculate(atoms, results_path=tmp_path / "dump_0.yaml")
 
         assert result.calculation_type == "abinit"
         assert result.energy == pytest.approx(-26375.690423376)
@@ -69,13 +69,13 @@ class TestEndToEnd:
 
         The parameters are a minimal smoke configuration; tune them for your Abinit build if needed.
         """
-        structure = Structure(Lattice.cubic(4.0), ["Mg", "H", "H"],
-                              [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [0.25, 0.25, 0.25]])
+        atoms = Atoms("MgHH", scaled_positions=[[0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [0.25, 0.25, 0.25]],
+                      cell=4.0 * np.eye(3), pbc=True)
         parameters = {"ecut": 200, "nstep": 5, "toldfe": 1e-4,
                       "ngkpt": [1, 1, 1], "nshiftk": 1, "shiftk": [0.0, 0.0, 0.0]}
         calculator = AbinitSinglePointCalculator(parameters, pseudopotentials, AbinitRunner())
 
-        result = calculator.calculate(structure, results_path=tmp_path / "dump_0.yaml")
+        result = calculator.calculate(atoms, results_path=tmp_path / "dump_0.yaml")
 
         assert result.calculation_type == "abinit"
         assert np.isfinite(result.energy)

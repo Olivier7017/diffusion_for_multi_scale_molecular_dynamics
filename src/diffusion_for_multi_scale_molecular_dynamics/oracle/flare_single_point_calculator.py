@@ -2,9 +2,9 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from ase import Atoms
 from flare.bffs.sgp import SGP_Wrapper
 from flare.bffs.sgp.calculator import SGP_Calculator
-from pymatgen.core import Structure
 
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation)
@@ -35,21 +35,20 @@ class FlareSinglePointCalculator(BaseSinglePointCalculator):
                 )
 
     def calculate(
-        self, structure: Structure, results_path: Optional[Path] = None
+        self, atoms: Atoms, results_path: Optional[Path] = None
     ) -> SinglePointCalculation:
         """Calculate.
 
         Drive the sparse Gaussian Process calculation.
 
         Args:
-            structure: pymatgen structure.
+            atoms: the configuration to evaluate.
             results_path: Should be None
 
         Returns:
             calculation_results: the calculation result.
         """
         assert results_path is None, "The FLARE model has no file results artifact."
-        atoms = structure.to_ase_atoms()
         self._flare_calculator.calculate(
             atoms=atoms, properties=self._calculation_properties
         )
@@ -73,7 +72,7 @@ class FlareSinglePointCalculator(BaseSinglePointCalculator):
 
         return SinglePointCalculation(
             calculation_type=self._calculation_type,
-            structure=structure,
+            atoms=atoms,
             energy=energy,
             forces=forces,
             uncertainties=uncertainties,

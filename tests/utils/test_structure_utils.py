@@ -129,10 +129,10 @@ def test_label_configurations_labels_via_the_single_point_calculator():
     """label_configurations returns the configurations carrying the calculator's energy and forces."""
     configuration = Atoms("Si2", positions=[[0.0, 0.0, 0.0], [1.35, 1.35, 1.35]], cell=5.43 * np.eye(3), pbc=True)
     single_point_calculator = MagicMock()
-    single_point_calculator.calculate_many.side_effect = lambda structures: [
-        SinglePointCalculation(calculation_type="stub", structure=structure,
-                               forces=np.zeros((len(structure), 3)), energy=-1.5)
-        for structure in structures
+    single_point_calculator.calculate_many.side_effect = lambda list_atoms: [
+        SinglePointCalculation(calculation_type="stub", atoms=atoms,
+                               forces=np.zeros((len(atoms), 3)), energy=-1.5)
+        for atoms in list_atoms
     ]
 
     labelled_configurations = label_configurations([configuration], single_point_calculator)

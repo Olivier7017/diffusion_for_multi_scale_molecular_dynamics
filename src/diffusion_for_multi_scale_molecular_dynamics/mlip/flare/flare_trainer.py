@@ -88,7 +88,7 @@ class FlareTrainer(BaseMLIPTrainer):
         assert single_point_calculation.uncertainties is None, \
             "Uncertainties are not None! Only ground truth single-point calculation is supported should be added."
 
-        self.sgp_model.update_db(structure=single_point_calculation.structure.to_ase_atoms(),
+        self.sgp_model.update_db(structure=single_point_calculation.atoms,
                                  forces=single_point_calculation.forces,
                                  energy=single_point_calculation.energy,
                                  mode="specific",
