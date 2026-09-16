@@ -239,17 +239,32 @@ class ASEForDiffusionDataModule(pl.LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         """Parse and split all samples across the train/valid/test parsers."""
-        # here, we will actually assign train/val datasets for use in dataloaders
-        processed_data = TrajectoryProcessorForDiffusion(train_trajectory_list=self.train_trajectory_list,
-                                                         validation_trajectory_list=self.validation_trajectory_list,
-                                                         processed_data_dir=self.processed_dataset_dir)
+        if self.trainer is not None:
+            global_rank, world_size = self.trainer.global_rank, self.trainer.world_size
+        else:
+            global_rank, world_size = 0, 1
+
+        TrajectoryProcessorForDiffusion(
+            train_trajectory_list=self.train_trajectory_list[global_rank::world_size],
+            validation_trajectory_list=self.validation_trajectory_list[global_rank::world_size],
+            processed_data_dir=self.processed_dataset_dir,
+        )
+        if world_size > 1:
+            self.trainer.strategy.barrier()
+
+        train_files = TrajectoryProcessorForDiffusion.get_paths_to_parquet_data_files(
+            self.processed_dataset_dir, mode="train"
+        )
+        valid_files = TrajectoryProcessorForDiffusion.get_paths_to_parquet_data_files(
+            self.processed_dataset_dir, mode="valid"
+        )
 
         if stage == "fit" or stage is None:
             self.train_dataset = datasets.Dataset.from_parquet(
-                processed_data.train_files, cache_dir=self.working_cache_dir
+                train_files, cache_dir=self.working_cache_dir
             )
             self.valid_dataset = datasets.Dataset.from_parquet(
-                processed_data.valid_files, cache_dir=self.working_cache_dir
+                valid_files, cache_dir=self.working_cache_dir
             )
             # TODO QoL valid dataset is labelled as train split by Datasets. Find a way to rename.
         else:

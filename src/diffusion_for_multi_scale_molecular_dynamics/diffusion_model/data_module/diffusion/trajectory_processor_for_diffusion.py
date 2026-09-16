@@ -41,8 +41,7 @@ class TrajectoryProcessorForDiffusion:
         self.validation_trajectory_list = validation_trajectory_list
         self.data_dir = str(processed_data_dir)
 
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
+        os.makedirs(self.data_dir, exist_ok=True)
 
         # If there are raw data files in the raw_data_dir directory, turn them into parquet files.
         self.create_parquet_data_files(self.train_trajectory_list, mode="train")
@@ -53,7 +52,8 @@ class TrajectoryProcessorForDiffusion:
         self.train_files = self.get_paths_to_parquet_data_files(self.data_dir, mode="train")
         self.valid_files = self.get_paths_to_parquet_data_files(self.data_dir, mode="valid")
 
-    def get_paths_to_parquet_data_files(self, data_dir: str, mode: str = "train") -> List[str]:
+    @staticmethod
+    def get_paths_to_parquet_data_files(data_dir: str, mode: str = "train") -> List[str]:
         """Read data in raw_data_dir and write to a parquet file for Datasets.
 
         Args:
