@@ -31,6 +31,13 @@ def _uncertain_atoms() -> Atoms:
     return atoms
 
 
+def _generated_atoms() -> Atoms:
+    atoms = Atoms("Si2", positions=[[0.0, 0.0, 0.0], [1.2, 1.2, 1.2]], cell=[5.0, 5.0, 5.0], pbc=True)
+    atoms.info["active_indices"] = np.array([0])
+    atoms.info["constrained_atom_indices"] = np.array([1])
+    return atoms
+
+
 def _mark_model_committed(database: TrainingDatabase, epoch: int) -> None:
     (database.model_directory(epoch) / "checkpoint").write_text("model")
 
@@ -141,9 +148,15 @@ class TestAutoResume:
         (database.precomputation_model_directory() / "model").write_text("model")
         assert database.resume_point("auto") == (1, Stage.DRIVER)
 
-    def test_only_dynamic_resumes_at_oracle(self, database):
-        """A committed dynamic but no oracle resumes at the oracle of that epoch."""
+    def test_only_dynamic_resumes_at_generate(self, database):
+        """A committed dynamic but no generate resumes at the generate of that epoch."""
         database.write_dynamic(1, _uncertain_atoms())
+        assert database.resume_point("auto") == (1, Stage.GENERATE)
+
+    def test_dynamic_and_generate_resumes_at_oracle(self, database):
+        """Committed dynamic + generate but no oracle resumes at the oracle of that epoch."""
+        database.write_dynamic(1, _uncertain_atoms())
+        database.write_generate(1, [_generated_atoms()])
         assert database.resume_point("auto") == (1, Stage.ORACLE)
 
     def test_dynamic_and_oracle_resumes_at_train(self, database):
@@ -186,10 +199,16 @@ class TestForcedResume:
         assert not database.is_dynamic_committed(1)
         assert not partial_log.exists()  # the whole dynamic/ working folder is cleared, not just dynamic.traj
 
-    def test_oracle_requires_dynamic(self, database):
-        """Forcing oracle without a committed dynamic is an error."""
+    def test_generate_requires_dynamic(self, database):
+        """Forcing generate without a committed dynamic is an error."""
         database.epoch_directory(1)
         with pytest.raises(ValueError, match="dynamic.traj"):
+            database.resume_point("generate")
+
+    def test_oracle_requires_generate(self, database):
+        """Forcing oracle without a committed generate is an error."""
+        database.write_dynamic(1, _uncertain_atoms())
+        with pytest.raises(ValueError, match="generate.traj"):
             database.resume_point("oracle")
 
     def test_train_requires_oracle(self, database):
@@ -206,26 +225,44 @@ class TestForcedResume:
 
 class TestResetAndRollback:
     def test_reset_to_driver_clears_all_stage_artifacts(self, database):
-        """Resetting to driver clears dynamic, oracle and model of the epoch."""
+        """Resetting to driver clears dynamic, generate, oracle and model of the epoch."""
         database.write_dynamic(6, _uncertain_atoms())
+        database.write_generate(6, [_generated_atoms()])
         database.write_oracle(6, [_labelled_atoms()])
         _mark_model_committed(database, 6)
 
         database.reset_epoch_to_stage(6, Stage.DRIVER)
 
         assert not database.is_dynamic_committed(6)
+        assert not database.is_generate_committed(6)
         assert not database.is_oracle_committed(6)
         assert not database.is_model_committed(6)
 
-    def test_reset_to_oracle_keeps_dynamic(self, database):
-        """Resetting to oracle wipes the model and oracle folders while keeping the uncertain config."""
+    def test_reset_to_generate_keeps_dynamic(self, database):
+        """Resetting to generate wipes the model, oracle and generate artifacts, keeping the uncertain config."""
         database.write_dynamic(6, _uncertain_atoms())
+        database.write_generate(6, [_generated_atoms()])
+        database.write_oracle(6, [_labelled_atoms()])
+        _mark_model_committed(database, 6)
+
+        database.reset_epoch_to_stage(6, Stage.GENERATE)
+
+        assert database.is_dynamic_committed(6)
+        assert not database.is_generate_committed(6)
+        assert not database.is_oracle_committed(6)
+        assert not (database._root / "epoch_6" / "model").exists()
+
+    def test_reset_to_oracle_keeps_dynamic_and_generate(self, database):
+        """Resetting to oracle wipes the model and oracle folders while keeping the generated samples."""
+        database.write_dynamic(6, _uncertain_atoms())
+        database.write_generate(6, [_generated_atoms()])
         database.write_oracle(6, [_labelled_atoms()])
         _mark_model_committed(database, 6)
 
         database.reset_epoch_to_stage(6, Stage.ORACLE)
 
         assert database.is_dynamic_committed(6)
+        assert database.is_generate_committed(6)
         assert not database.is_oracle_committed(6)
         assert not (database._root / "epoch_6" / "oracle").exists()
         assert not (database._root / "epoch_6" / "model").exists()
@@ -233,12 +270,14 @@ class TestResetAndRollback:
     def test_reset_to_train_keeps_dynamic_and_oracle(self, database):
         """Resetting to train wipes the model directory entirely, keeping the labelled data and config."""
         database.write_dynamic(6, _uncertain_atoms())
+        database.write_generate(6, [_generated_atoms()])
         database.write_oracle(6, [_labelled_atoms()])
         _mark_model_committed(database, 6)
 
         database.reset_epoch_to_stage(6, Stage.TRAIN)
 
         assert database.is_dynamic_committed(6)
+        assert database.is_generate_committed(6)
         assert database.is_oracle_committed(6)
         # the model directory is removed wholesale so no stale checkpoint can corrupt the retrain.
         assert not (database._root / "epoch_6" / "model").exists()

@@ -79,7 +79,11 @@ class RecordingActiveLearning(ActiveLearning):
             return None  # SUCCESS: no uncertain structure found.
         return _uncertain_atoms()
 
-    def oracle_evaluation(self, uncertain_configuration, epoch):
+    def generate_samples(self, uncertain_configuration, epoch):
+        self.calls.append(("generate", epoch))
+        return [_uncertain_atoms()]
+
+    def oracle_evaluation(self, generated_samples, epoch):
         self.calls.append(("oracle", epoch))
         return [_labelled_atoms(energy=float(epoch))]
 
@@ -93,12 +97,13 @@ def test_fresh_run_completes_and_commits_each_epoch(tmp_path):
     active_learning = RecordingActiveLearning(success_at_epoch=3)
     active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])
 
-    assert active_learning.calls == [("driver", 1), ("oracle", 1), ("train", 1),
-                                     ("driver", 2), ("oracle", 2), ("train", 2),
+    assert active_learning.calls == [("driver", 1), ("generate", 1), ("oracle", 1), ("train", 1),
+                                     ("driver", 2), ("generate", 2), ("oracle", 2), ("train", 2),
                                      ("driver", 3)]
     database = active_learning._training_database
     for epoch in (1, 2):
         assert database.is_dynamic_committed(epoch)
+        assert database.is_generate_committed(epoch)
         assert database.is_oracle_committed(epoch)
         assert database.is_model_committed(epoch)
 
@@ -112,10 +117,22 @@ def test_training_set_accumulates_across_epochs(tmp_path):
     assert energies == [1.0, 2.0]
 
 
-def test_resume_at_oracle_skips_the_driver(tmp_path):
-    """A crash after the driver resumes at the oracle: the driver is not re-run for that epoch."""
+def test_resume_at_generate_skips_the_driver(tmp_path):
+    """A crash after the driver resumes at generate: the driver is not re-run for that epoch."""
     database = TrainingDatabase(tmp_path)
     database.write_dynamic(1, _uncertain_atoms())  # epoch 1 crashed after the driver committed.
+
+    active_learning = RecordingActiveLearning(success_at_epoch=2)
+    active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])
+
+    assert active_learning.calls == [("generate", 1), ("oracle", 1), ("train", 1), ("driver", 2)]
+
+
+def test_resume_at_oracle_skips_driver_and_generate(tmp_path):
+    """A crash after generate resumes at the oracle: neither the driver nor generate re-run for that epoch."""
+    database = TrainingDatabase(tmp_path)
+    database.write_dynamic(1, _uncertain_atoms())
+    database.write_generate(1, [_uncertain_atoms()])  # epoch 1 crashed after generate committed.
 
     active_learning = RecordingActiveLearning(success_at_epoch=2)
     active_learning.run_campaign(uncertainty_threshold=0.1, working_directory=tmp_path, provided_configurations=[])

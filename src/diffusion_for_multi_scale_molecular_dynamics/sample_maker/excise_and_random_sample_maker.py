@@ -349,6 +349,10 @@ class ExciseAndRandomSampleMaker(BaseExciseSampleMaker):
                 atom at the center of the excised region.
             list_info: list of samples additional information.
         """
+        logging.info(
+            f"Generating a structure of {self.arguments.total_number_of_atoms} atoms "
+            f"from {len(substructure.X)} excised atoms."
+        )
         list_sample_structures = []
         list_active_atom_indices = []
         additional_information_on_new_structures = []

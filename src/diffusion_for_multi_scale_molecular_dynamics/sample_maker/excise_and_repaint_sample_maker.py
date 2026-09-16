@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -159,6 +160,10 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
             ("The active atom index is larger than the number of constrained atoms: "
              "this should be impossible, something is wrong. Review code!")
 
+        logging.info(
+            f"Generating a structure of {self.sampling_parameters.number_of_atoms} atoms "
+            f"from {number_of_constrained_atoms} excised atoms."
+        )
         sampling_constraints = self.create_sampling_constraints(substructure)
         generator = ConstrainedLangevinGenerator(
             noise_parameters=self.sample_noise_parameters,
