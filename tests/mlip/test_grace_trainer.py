@@ -2,10 +2,10 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import ase.io
 import numpy as np
 import pytest
 from ase import Atoms
-from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
@@ -35,17 +35,16 @@ def create_database(reference_files_directory, number_of_configurations, perturb
     """Build randomly-perturbed Si4Ge4 configurations with varied mock energies (two-element environments)."""
     random_generator = np.random.default_rng(seed)
     structure_file = reference_files_directory / "structure" / "Si8.in"
-    base_structure = LammpsData.from_file(str(structure_file), atom_style="atomic", sort_id=True).structure
-    for index in range(len(base_structure) // 2, len(base_structure)):
-        base_structure.replace(index, "Ge")  # relabel half the Si sites to Ge -> Si4Ge4
+    base_atoms = ase.io.read(str(structure_file), format="lammps-data", atom_style="atomic")
+    base_atoms.symbols[len(base_atoms) // 2:] = "Ge"  # relabel half the Si sites to Ge -> Si4Ge4
 
     database = []
     for _ in range(number_of_configurations):
-        structure = base_structure.copy()
-        structure.perturb(perturbation)
+        atoms = base_atoms.copy()
+        atoms.rattle(stdev=perturbation, rng=random_generator)
         energy = MOCK_ENERGY_CENTER + float(random_generator.uniform(-1.0, 1.0))
-        database.append(SinglePointCalculation(calculation_type="grace", structure=structure,
-                                               forces=np.zeros((len(structure), 3)), energy=energy))
+        database.append(SinglePointCalculation(calculation_type="grace", atoms=atoms,
+                                               forces=np.zeros((len(atoms), 3)), energy=energy))
     return database
 
 
@@ -60,7 +59,7 @@ def build_training_database(database):
     """Write the labelled configurations into a fresh TrainingDatabase (in a temp directory)."""
     training_database = TrainingDatabase(Path(tempfile.mkdtemp()) / "database")
     training_database.write_oracle(
-        1, [calculation.to_atoms(list(range(len(calculation.structure)))) for calculation in database]
+        1, [calculation.to_atoms(list(range(len(calculation.atoms)))) for calculation in database]
     )
     return training_database
 
@@ -79,7 +78,7 @@ def train_set_energy_rmse(model_file_path, database):
     calculator = PyGRACEFSCalculator(str(model_file_path))
     errors = []
     for calculation in database:
-        atoms = calculation.structure.to_ase_atoms()
+        atoms = calculation.atoms
         atoms.calc = calculator
         errors.append(atoms.get_potential_energy() - calculation.energy)
     return float(np.sqrt(np.mean(np.square(errors))))

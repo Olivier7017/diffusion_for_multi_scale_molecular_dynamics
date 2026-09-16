@@ -50,11 +50,11 @@ class FakeSinglePointCalculator(BaseSinglePointCalculator):
     def __init__(self):
         pass
 
-    def calculate(self, structure, results_path=None) -> SinglePointCalculation:
+    def calculate(self, atoms, results_path=None) -> SinglePointCalculation:
         return SinglePointCalculation(
             calculation_type="fake",
-            structure=structure,
-            forces=np.random.rand(len(structure), 3),
+            atoms=atoms,
+            forces=np.random.rand(len(atoms), 3),
             energy=float(np.random.rand()),
         )
 

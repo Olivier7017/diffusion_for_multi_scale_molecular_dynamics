@@ -4,9 +4,11 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Union
 
-from pymatgen.core import Structure
-from pymatgen.io.lammps.data import LammpsData
+from ase import Atoms
+from ase.io.lammpsdata import write_lammps_data
 
+from diffusion_for_multi_scale_molecular_dynamics.io.lammps.inputs import \
+    sort_atoms_elements_by_atomic_mass
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
     extract_all_fields
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
@@ -57,18 +59,18 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
     ) -> SinglePointCalculation:
         lammps_dump_path = Path(working_directory) / dump_filename
 
-        list_structures, list_forces, list_uncertainties = (
+        list_atoms, list_forces, list_uncertainties = (
             extract_all_fields(lammps_dump_path, uncertainty_field=self._potential.uncertainty_field())
         )
         assert (
-            len(list_structures) == 1
+            len(list_atoms) == 1
         ), "There is more than one frame in the dump file. This is not 'single point'!"
 
         energy = float((Path(working_directory) / energy_filename).read_text().strip())
 
         result = SinglePointCalculation(
             calculation_type=self._calculation_type,
-            structure=list_structures[0],
+            atoms=list_atoms[0],
             forces=list_forces[0],
             energy=energy,
             uncertainties=list_uncertainties[0],
@@ -76,24 +78,30 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
 
         return result
 
-    def _build_input(self, structure: Structure) -> str:
+    @staticmethod
+    def _write_lammps_data(atoms: Atoms, path: Path) -> None:
+        """Write an ase.Atoms to a LAMMPS data file, with a mass-sorted species order."""
+        specorder = [symbol for symbol, _ in sort_atoms_elements_by_atomic_mass(atoms)]
+        write_lammps_data(str(path), atoms, atom_style="atomic", specorder=specorder)
+
+    def _build_input(self, atoms: Atoms) -> str:
         """Build the LAMMPS input script for a single-point calculation."""
         return self._input_builder.build_single_point(
-            structure,
+            atoms,
             self._potential,
             with_uncertainty=self._with_uncertainty,
             configuration_filename=self._data_filename,
         )
 
     def calculate_in_work_directory(
-        self, structure: Structure, work_directory: Union[Path, str]
+        self, atoms: Atoms, work_directory: Union[Path, str]
     ) -> SinglePointCalculation:
         """Calculate in work directory.
 
         Drive LAMMPS execution in a given working directory.
 
         Args:
-            structure: pymatgen structure.
+            atoms: the configuration to evaluate.
             work_directory: work directory where inputs and outputs will be recorded.
 
         Returns:
@@ -102,10 +110,9 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         work_directory = Path(work_directory)
         work_directory.mkdir(parents=True, exist_ok=True)
 
-        lammps_data = LammpsData.from_structure(structure, atom_style="atomic")
-        lammps_data.write_file(str(work_directory / self._data_filename))
+        self._write_lammps_data(atoms, work_directory / self._data_filename)
 
-        input_content = self._build_input(structure)
+        input_content = self._build_input(atoms)
         write_lammps_input(input_content, work_directory / self._input_file_name)
 
         self._lammps_runner.run_lammps(working_directory=work_directory,
@@ -113,13 +120,13 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
 
         return self._extract_calculation_results(str(work_directory))
 
-    def calculate(self, structure: Structure, results_path: Optional[Path] = None) -> SinglePointCalculation:
+    def calculate(self, atoms: Atoms, results_path: Optional[Path] = None) -> SinglePointCalculation:
         """Calculate.
 
         Drive LAMMPS execution.
 
         Args:
-            structure: pymatgen structure.
+            atoms: the configuration to evaluate.
             results_path: (Optional) if present, the text dump file produced by the LAMMPS calculation will
                 be moved to this location.
 
@@ -127,7 +134,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
             calculation_results: the parsed LAMMPS output.
         """
         with tempfile.TemporaryDirectory() as tmp_work_dir:
-            calculation_result = self.calculate_in_work_directory(structure, tmp_work_dir)
+            calculation_result = self.calculate_in_work_directory(atoms, tmp_work_dir)
             if results_path is not None:
                 src = os.path.join(tmp_work_dir, DUMP_FILENAME)
                 dst = str(results_path)
@@ -136,7 +143,7 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         return calculation_result
 
     def calculate_many_in_work_directory(
-        self, structures: List[Structure], work_directory: Union[Path, str]
+        self, list_atoms: List[Atoms], work_directory: Union[Path, str]
     ) -> List[SinglePointCalculation]:
         """Evaluate several configurations with a single LAMMPS run in a given working directory.
 
@@ -144,25 +151,24 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         launched only once (one process for the subprocess runner, one instance for the in-process runner).
 
         Args:
-            structures: the configurations to evaluate, in order.
+            list_atoms: the configurations to evaluate, in order.
             work_directory: work directory where inputs and outputs will be recorded.
 
         Returns:
-            calculation_results: the parsed LAMMPS output, one per structure (in the same order).
+            calculation_results: the parsed LAMMPS output, one per configuration (in the same order).
         """
         work_directory = Path(work_directory)
         work_directory.mkdir(parents=True, exist_ok=True)
 
-        configuration_filenames = [numbered_filename(CONFIGURATION_FILENAME, index) for index in range(len(structures))]
-        dump_filenames = [numbered_filename(DUMP_FILENAME, index) for index in range(len(structures))]
-        energy_filenames = [numbered_filename(ENERGY_FILENAME, index) for index in range(len(structures))]
+        configuration_filenames = [numbered_filename(CONFIGURATION_FILENAME, index) for index in range(len(list_atoms))]
+        dump_filenames = [numbered_filename(DUMP_FILENAME, index) for index in range(len(list_atoms))]
+        energy_filenames = [numbered_filename(ENERGY_FILENAME, index) for index in range(len(list_atoms))]
 
-        for structure, configuration_filename in zip(structures, configuration_filenames):
-            lammps_data = LammpsData.from_structure(structure, atom_style="atomic")
-            lammps_data.write_file(str(work_directory / configuration_filename))
+        for atoms, configuration_filename in zip(list_atoms, configuration_filenames):
+            self._write_lammps_data(atoms, work_directory / configuration_filename)
 
         input_content = self._input_builder.build_looping_single_point(
-            structures, self._potential, configuration_filenames, dump_filenames, energy_filenames,
+            list_atoms, self._potential, configuration_filenames, dump_filenames, energy_filenames,
             with_uncertainty=self._with_uncertainty,
         )
         write_lammps_input(input_content, work_directory / self._input_file_name)
@@ -173,9 +179,9 @@ class LammpsSinglePointCalculator(BaseSinglePointCalculator):
         return [self._extract_calculation_results(str(work_directory), dump_filename, energy_filename)
                 for dump_filename, energy_filename in zip(dump_filenames, energy_filenames)]
 
-    def calculate_many(self, structures: List[Structure]) -> List[SinglePointCalculation]:
+    def calculate_many(self, list_atoms: List[Atoms]) -> List[SinglePointCalculation]:
         """Evaluate several configurations with a single LAMMPS run (see ``calculate_many_in_work_directory``)."""
-        if not structures:
+        if not list_atoms:
             return []
         with tempfile.TemporaryDirectory() as tmp_work_dir:
-            return self.calculate_many_in_work_directory(structures, tmp_work_dir)
+            return self.calculate_many_in_work_directory(list_atoms, tmp_work_dir)

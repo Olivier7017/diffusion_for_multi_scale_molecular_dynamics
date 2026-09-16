@@ -18,9 +18,9 @@ import os
 from pathlib import Path
 
 import numpy as np
+from ase import Atoms
 from flare.bffs.sgp.calculator import SGP_Calculator
 from flare.utils import NumpyEncoder
-from pymatgen.core import Lattice, Structure
 
 from diffusion_for_multi_scale_molecular_dynamics.mlip.flare.flare_configuration import \
     FlareConfiguration
@@ -51,23 +51,23 @@ TRAINING_LABEL = "crystalline_Si8"
 
 def main():
     """Train the reference FLARE model and write its files into this directory."""
-    structure = Structure(
-        lattice=Lattice.cubic(LATTICE_CONSTANT),
-        species=["Si"] * len(CARTESIAN_POSITIONS),
-        coords=CARTESIAN_POSITIONS,
-        coords_are_cartesian=True,
+    atoms = Atoms(
+        symbols=["Si"] * len(CARTESIAN_POSITIONS),
+        positions=CARTESIAN_POSITIONS,
+        cell=LATTICE_CONSTANT * np.eye(3),
+        pbc=True,
     )
     labelled_structure = SinglePointCalculation(
         calculation_type="reference",
-        structure=structure,
-        forces=np.zeros((len(structure), 3)),
+        atoms=atoms,
+        forces=np.zeros((len(atoms), 3)),
         energy=ENERGY,
     )
 
     trainer = FlareTrainer(
         FlareConfiguration(cutoff=5.0, elements=["Si"], n_radial=8, lmax=3, variance_type="local")
     )
-    trainer.add_labelled_structure(labelled_structure, active_environment_indices=list(range(len(structure))))
+    trainer.add_labelled_structure(labelled_structure, active_environment_indices=list(range(len(atoms))))
     trainer.fit()
 
     # Write every file into this directory. build_map writes into the current directory, so we run from here.

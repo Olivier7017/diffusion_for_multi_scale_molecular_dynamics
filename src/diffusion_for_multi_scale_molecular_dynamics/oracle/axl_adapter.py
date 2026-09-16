@@ -2,7 +2,7 @@
 
 The diffusion model evaluates batches of generated structures expressed in the AXL representation. These
 functions bridge that batched AXL format to the per-structure ``BaseSinglePointCalculator`` API: they build
-a pymatgen ``Structure`` per sample and delegate to ``calculate_many``.
+an ``ase.Atoms`` per sample and delegate to ``calculate_many``.
 """
 
 import logging
@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
-from pymatgen.core import Lattice, Structure
+from ase import Atoms
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
@@ -29,13 +29,13 @@ logger = logging.getLogger(__name__)
 MINIMUM_BOX_SIDE_LENGTH = 3.0
 
 
-def _get_structure_from_axl_configuration(
+def _get_atoms_from_axl_configuration(
     relative_coordinates: torch.Tensor,
     lattice_parameters: torch.Tensor,
     atom_types: torch.Tensor,
     element_types: ElementTypes,
-) -> Optional[Structure]:
-    """Convert a single AXL configuration to a pymatgen Structure, or None if its box is too small for LAMMPS."""
+) -> Optional[Atoms]:
+    """Convert a single AXL configuration to an ase.Atoms, or None if its box is too small for LAMMPS."""
     spatial_dimension = relative_coordinates.shape[-1]
 
     lattice_parameters = lattice_parameters.clone()
@@ -63,11 +63,11 @@ def _get_structure_from_axl_configuration(
         return None
 
     species = [element_types.get_element(int(atom_type)) for atom_type in atom_types]
-    return Structure(
-        lattice=Lattice(matrix=basis_vectors, pbc=(True, True, True)),
-        species=species,
-        coords=cartesian_positions,
-        coords_are_cartesian=True,
+    return Atoms(
+        symbols=species,
+        positions=cartesian_positions,
+        cell=basis_vectors,
+        pbc=True,
     )
 
 
@@ -78,7 +78,7 @@ def compute_axl_energies_and_forces(
 ) -> Tuple[Union[torch.Tensor, np.ndarray], Union[torch.Tensor, np.ndarray]]:
     """Compute energies and forces for a batch of AXL samples.
 
-    Each sample is turned into a pymatgen ``Structure`` and evaluated by the injected single-point
+    Each sample is turned into an ``ase.Atoms`` and evaluated by the injected single-point
     calculator (via ``calculate_many``). Samples whose box is too small for LAMMPS are skipped and reported
     as zero energy and forces. The output type mirrors the AXL input (torch or numpy).
 
@@ -102,17 +102,17 @@ def compute_axl_energies_and_forces(
         batched_relative_coordinates.shape
     )
     assert spatial_dimension == 3, (
-        "The single-point calculators build pymatgen structures, so labelling AXL samples is only "
+        "The single-point calculators build ase.Atoms, so labelling AXL samples is only "
         f"supported in 3 spatial dimensions (got {spatial_dimension})."
     )
 
-    # Build one structure per (non-degenerate) sample, remembering which batch index it came from.
+    # Build one configuration per (non-degenerate) sample, remembering which batch index it came from.
     list_energy: List[float] = [0.0] * number_of_samples
     list_forces: List[np.ndarray] = [
         np.zeros((number_of_atoms, spatial_dimension)) for _ in range(number_of_samples)
     ]
-    structures: List[Structure] = []
-    structure_batch_indices: List[int] = []
+    list_atoms: List[Atoms] = []
+    atoms_batch_indices: List[int] = []
 
     for batch_index, (
         relative_coordinates,
@@ -123,15 +123,15 @@ def compute_axl_energies_and_forces(
             batched_relative_coordinates, batched_lattice_parameters, batched_atom_types
         )
     ):
-        structure = _get_structure_from_axl_configuration(
+        atoms = _get_atoms_from_axl_configuration(
             relative_coordinates, lattice_parameters, atom_types, element_types
         )
-        if structure is not None:
-            structures.append(structure)
-            structure_batch_indices.append(batch_index)
+        if atoms is not None:
+            list_atoms.append(atoms)
+            atoms_batch_indices.append(batch_index)
 
-    calculations = single_point_calculator.calculate_many(structures)
-    for batch_index, calculation in zip(structure_batch_indices, calculations):
+    calculations = single_point_calculator.calculate_many(list_atoms)
+    for batch_index, calculation in zip(atoms_batch_indices, calculations):
         list_energy[batch_index] = calculation.energy
         list_forces[batch_index] = calculation.forces
 

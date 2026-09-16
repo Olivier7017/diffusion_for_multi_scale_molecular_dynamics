@@ -4,11 +4,11 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import ase.io
 import numpy as np
 import pytest
 from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
-from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
@@ -213,10 +213,10 @@ def test_run_campaign_precomputation_doubles_a_single_configuration(tmp_path):
     provided_configurations = [_labelled_atoms(energy=0.0)]  # a single seed config
 
     oracle = MagicMock()
-    oracle.calculate_many.side_effect = lambda structures: [
-        SinglePointCalculation(calculation_type="stub", structure=structure,
-                               forces=np.zeros((len(structure), 3)), energy=-1.0)
-        for structure in structures
+    oracle.calculate_many.side_effect = lambda list_atoms: [
+        SinglePointCalculation(calculation_type="stub", atoms=atoms,
+                               forces=np.zeros((len(atoms), 3)), energy=-1.0)
+        for atoms in list_atoms
     ]
     mlip = _PrecomputationStubMLIP(minimum_number_of_environments=4)  # 2-atom seed -> 2 structures (doubled)
 
@@ -283,9 +283,9 @@ class TestFullRound:
 
     def test_one_real_round_wires_every_stage(self, tmp_path, monkeypatch):
         """A full round drives the uncertain config through the real oracle stage and into the model."""
-        uncertain_structure = LammpsData.from_file(
-            str(self.REFERENCE_FILES / "structure" / "Si8.in"), atom_style="atomic", sort_id=True
-        ).structure
+        uncertain_structure = ase.io.read(
+            str(self.REFERENCE_FILES / "structure" / "Si8.in"), format="lammps-data", atom_style="atomic"
+        )
         uncertainty_per_atom = np.linspace(0.1, 1.0, len(uncertain_structure))
 
         # Real collaborators: a Stillinger-Weber oracle and a lightweight no-op sample maker.

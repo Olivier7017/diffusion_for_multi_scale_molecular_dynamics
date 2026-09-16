@@ -29,8 +29,8 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calcu
     get_active_environment_indices)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.base_sample_maker import \
     BaseSampleMaker
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
-    to_pymatgen_structure
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import (
+    to_ase_atoms, to_pymatgen_structure)
 from diffusion_for_multi_scale_molecular_dynamics.utils.structure_converter import \
     StructureConverter
 
@@ -78,11 +78,11 @@ class ActiveLearning:
 
     def _get_uncertain_structure_and_uncertainties(
         self, dynamics_working_directory: Path, uncertainty_field: str
-    ) -> Tuple[Structure, np.ndarray, int]:
-        """Get the uncertain structure, its per-atom uncertainties and the step it was found at.
+    ) -> Tuple[Atoms, np.ndarray, int]:
+        """Get the uncertain configuration, its per-atom uncertainties and the step it was found at.
 
         This method assumes the CONVENTION that the dynamic driver's LAMMPS run produces a file
-        named 'uncertain_dump.dump' that contains the uncertain structure.
+        named 'uncertain_dump.dump' that contains the uncertain configuration.
 
         Args:
             dynamics_working_directory: directory holding the dynamic driver's 'uncertain_dump.dump'.
@@ -91,11 +91,11 @@ class ActiveLearning:
         lammps_dump_path = dynamics_working_directory / UNCERTAIN_DUMP_FILENAME
         assert lammps_dump_path.is_file(), f"The file {lammps_dump_path} is missing."
 
-        list_structures, _, list_uncertainties = extract_all_fields_from_dump(
+        list_atoms, _, list_uncertainties = extract_all_fields_from_dump(
             lammps_dump_path, uncertainty_field=uncertainty_field
         )
         step = extract_timesteps_from_dump(lammps_dump_path)[0]
-        return list_structures[0], list_uncertainties[0], step
+        return list_atoms[0], list_uncertainties[0], step
 
     def _make_samples(
         self, structure: Structure, uncertainty_per_atom: np.ndarray
@@ -366,7 +366,7 @@ class ActiveLearning:
                 self._logger.info(summary_line)
             return None
 
-        uncertain_structure, uncertainty_per_atom, step = self._get_uncertain_structure_and_uncertainties(
+        uncertain_configuration, uncertainty_per_atom, step = self._get_uncertain_structure_and_uncertainties(
             dynamics_working_directory, self.mlip.lammps_potential.uncertainty_field()
         )
         for summary_line in self.dynamic_driver.summarize_interruption(dynamics_working_directory):
@@ -374,7 +374,6 @@ class ActiveLearning:
         number_of_flagged_environments = int(np.sum(uncertainty_per_atom > self._uncertainty_threshold))
         self._logger.info(self._flagged_environments_message(step, number_of_flagged_environments))
 
-        uncertain_configuration = uncertain_structure.to_ase_atoms()
         uncertain_configuration.info[UNCERTAINTY_INFO_KEY] = np.asarray(uncertainty_per_atom, dtype=float)
         return uncertain_configuration
 
@@ -405,7 +404,7 @@ class ActiveLearning:
         list_single_point_calculations = []
         for index, structure in enumerate(list_sample_structures):
             results_path = oracle_directory / numbered_filename(DUMP_FILENAME, index)
-            calculation = self.oracle_calculator.calculate(structure, results_path=results_path)
+            calculation = self.oracle_calculator.calculate(to_ase_atoms(structure), results_path=results_path)
             list_single_point_calculations.append(calculation)
         self._logger.info(f"Labelling has finished. Execution Time: {time.time() - start_time:.3e} sec.")
 

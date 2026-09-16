@@ -1,9 +1,9 @@
 import tempfile
 from pathlib import Path
 
+import ase.io
 import numpy as np
 import pytest
-from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
@@ -11,6 +11,8 @@ from diffusion_for_multi_scale_molecular_dynamics.io.training_database import \
     TrainingDatabase
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import \
     SinglePointCalculation  # noqa
+from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
+    to_pymatgen_structure
 
 
 def stage_labelled_structure(training_database, trainer, labelled_structure, active_environment_indices):
@@ -33,8 +35,8 @@ MTP_EXPECTED_ALPHA_SCALAR_MOMENTS = 5
 MTP_EXPECTED_SPECIES_COUNT = 1
 
 
-def predict_mtp_energy(trainer, structure):
-    """Predict a structure's energy with the fitted MTP through 'mlp calculate_efs'."""
+def predict_mtp_energy(trainer, atoms):
+    """Predict a configuration's energy with the fitted MTP through 'mlp calculate_efs'."""
     import glob
     import os
     import subprocess
@@ -44,6 +46,7 @@ def predict_mtp_energy(trainer, structure):
     from diffusion_for_multi_scale_molecular_dynamics.io.mlip import \
         write_mtp_cfg
 
+    structure = to_pymatgen_structure(atoms)
     work_directory = Path(tempfile.mkdtemp())
     potential = trainer.write_checkpoint(work_directory)
     checked_structures, checked_forces, _ = check_structures_forces_stresses(
@@ -72,7 +75,7 @@ def verify_fitted_model(trainer_type, trainer, labelled_structure):
     if trainer_type == "flare":
         from diffusion_for_multi_scale_molecular_dynamics.oracle.flare_single_point_calculator import \
             FlareSinglePointCalculator
-        predicted_energy = FlareSinglePointCalculator(trainer.sgp_model).calculate(labelled_structure.structure).energy
+        predicted_energy = FlareSinglePointCalculator(trainer.sgp_model).calculate(labelled_structure.atoms).energy
         np.testing.assert_allclose(predicted_energy, labelled_structure.energy, atol=1e-1)
     elif trainer_type == "mtp":
         configuration = trainer.configuration
@@ -80,7 +83,7 @@ def verify_fitted_model(trainer_type, trainer, labelled_structure):
         assert configuration.alpha_scalar_moments == MTP_EXPECTED_ALPHA_SCALAR_MOMENTS
         assert configuration.species_count == MTP_EXPECTED_SPECIES_COUNT
         assert configuration.number_of_adjustable_parameters == 14
-        predicted_energy = predict_mtp_energy(trainer, labelled_structure.structure)
+        predicted_energy = predict_mtp_energy(trainer, labelled_structure.atoms)
         np.testing.assert_allclose(predicted_energy, labelled_structure.energy, atol=1e-1)
     else:
         raise ValueError(f"Unknown trainer type '{trainer_type}'.")
@@ -123,8 +126,8 @@ class TestMLIPTrainer:
     def training_structure(self, trainer_type, structure):
         # MTP needs a fixed single-species structure so the fitted parameters are deterministic.
         if trainer_type == "mtp":
-            return LammpsData.from_file(str(SI8_STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure
-        return structure
+            return ase.io.read(str(SI8_STRUCTURE_FILE), format="lammps-data", atom_style="atomic")
+        return structure.to_ase_atoms()
 
     @pytest.fixture
     def training_database(self, tmp_path):
@@ -163,7 +166,7 @@ class TestMLIPTrainer:
         # We drop the forces (train on energy only) so the fitted model can reproduce its label.
         number_of_atoms = len(training_structure)
         return SinglePointCalculation(calculation_type='dummy_test',
-                                      structure=training_structure,
+                                      atoms=training_structure,
                                       forces=np.zeros((number_of_atoms, 3)),
                                       energy=MOCK_ENERGY)
 

@@ -34,15 +34,15 @@ def convert_single_point_calculations_to_dataframe(
     rows = []
     for calculation, sample_information in zip(list_single_point_calculations, list_sample_information):
         constrained_indices = sample_information["constrained_atom_indices"]
-        structure = calculation.structure
-        constraint_mask = np.zeros(len(structure), dtype=int)
+        atoms = calculation.atoms
+        constraint_mask = np.zeros(len(atoms), dtype=int)
         constraint_mask[constrained_indices] = 1
-        structure.add_site_property('constrained', constraint_mask)
-        structure.add_site_property('forces', calculation.forces)
+        atoms.info['constrained'] = constraint_mask
+        atoms.info['forces'] = calculation.forces
 
         rows.append(dict(
             calculation_type=calculation.calculation_type,
-            structure=structure,
+            atoms=atoms,
             energy=calculation.energy,
         ))
     return pd.DataFrame(data=rows)

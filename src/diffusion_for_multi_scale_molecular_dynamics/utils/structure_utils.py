@@ -14,8 +14,6 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
 from diffusion_for_multi_scale_molecular_dynamics.utils.neighbors import (
     _get_shifted_positions, get_periodic_adjacency_information,
     get_positions_from_coordinates)
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
-    to_pymatgen_structure
 
 
 def create_structure(
@@ -231,10 +229,8 @@ def label_configurations(
     Returns:
         the configurations as labelled ase.Atoms (energy and forces on their calculator).
     """
-    calculations = single_point_calculator.calculate_many(
-        [to_pymatgen_structure(atoms) for atoms in configurations]
-    )
-    return [calculation.to_atoms(list(range(len(calculation.structure)))) for calculation in calculations]
+    calculations = single_point_calculator.calculate_many(configurations)
+    return [calculation.to_atoms(list(range(len(calculation.atoms)))) for calculation in calculations]
 
 
 def assert_orthogonal_cell(atoms: Atoms, angle_tolerance: float = 1e-3) -> None:

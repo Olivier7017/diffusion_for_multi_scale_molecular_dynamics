@@ -1,10 +1,10 @@
 import shutil
 from pathlib import Path
 
+import ase.io
 import numpy as np
 import pytest
 from ase.build import bulk
-from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.flare import \
     FlarePotential
@@ -18,8 +18,6 @@ from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_runner import (
     InProcessLammpsRunner, SubprocessLammpsRunner)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.lammps_single_point_calculator import \
     LammpsSinglePointCalculator
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
-    to_pymatgen_structure
 
 REFERENCE_FILES_DIR = Path(__file__).parent.parent / "reference_files"
 STRUCTURE_FILE = REFERENCE_FILES_DIR / "structure" / "Si8.in"
@@ -78,7 +76,7 @@ class BaseTestLammpsSinglePointCalculator:
 
     @pytest.fixture()
     def structure(self):
-        return LammpsData.from_file(str(STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure
+        return ase.io.read(str(STRUCTURE_FILE), format="lammps-data", atom_style="atomic")
 
     @pytest.mark.parametrize("potential_id, potential_factory, with_uncertainty", POTENTIAL_CASES)
     def test_single_point(self, lammps_runner, structure, potential_id, potential_factory, with_uncertainty):
@@ -103,7 +101,7 @@ class BaseTestLammpsSinglePointCalculator:
         structures = []
         for scale in (1.0, 1.03, 1.06):
             scaled_structure = structure.copy()
-            scaled_structure.scale_lattice(scaled_structure.volume * scale)
+            scaled_structure.set_cell(scaled_structure.cell * scale ** (1 / 3), scale_atoms=True)
             structures.append(scaled_structure)
         calculator = LammpsSinglePointCalculator(_stillinger_weber_potential(), lammps_runner)
 
@@ -126,17 +124,19 @@ class BaseTestLammpsSinglePointCalculator:
         This guards the LAMMPS-dump box parser: a tilted box must not be silently misread as orthogonal.
         """
         # ase's diamond primitive cell has 60-degree angles, so the repeated cell is genuinely triclinic.
-        input_structure = to_pymatgen_structure(bulk("Si", "diamond", a=5.43).repeat((2, 2, 2)))
-        assert not np.allclose(input_structure.lattice.angles, 90.0)
+        input_structure = bulk("Si", "diamond", a=5.43).repeat((2, 2, 2))
+        assert not np.allclose(input_structure.cell.angles(), 90.0)
 
         calculator = LammpsSinglePointCalculator(_stillinger_weber_potential(), lammps_runner)
-        output_structure = calculator.calculate(input_structure).structure
+        output_structure = calculator.calculate(input_structure).atoms
 
         # Same cell (rotation-invariant lattice parameters) and same atoms (fractional coordinates, mod 1).
         np.testing.assert_allclose(
-            output_structure.lattice.parameters, input_structure.lattice.parameters, atol=1e-4
+            output_structure.cell.cellpar(), input_structure.cell.cellpar(), atol=1e-4
         )
-        fractional_difference = (output_structure.frac_coords - input_structure.frac_coords + 0.5) % 1.0 - 0.5
+        fractional_difference = (
+            output_structure.get_scaled_positions() - input_structure.get_scaled_positions() + 0.5
+        ) % 1.0 - 0.5
         np.testing.assert_allclose(fractional_difference, 0.0, atol=1e-4)
 
     @pytest.mark.requires_flare

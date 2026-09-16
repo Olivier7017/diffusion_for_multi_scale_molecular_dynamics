@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import yaml
+import ase.io
 from ase import Atoms
-from pymatgen.io.lammps.data import LammpsData
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.potential import \
     LammpsPotential
@@ -22,7 +22,7 @@ SI8_STRUCTURE_FILE = Path(__file__).parent.parent / "reference_files" / "structu
 
 def make_calculation(energy, forces):
     return SinglePointCalculation(calculation_type="dummy_test",
-                                  structure=MagicMock(),
+                                  atoms=MagicMock(),
                                   forces=np.asarray(forces, dtype=float),
                                   energy=energy)
 
@@ -127,7 +127,7 @@ def construct_derived_trainer(mlip_type, structure, list_element_symbols, traini
                                                   variance_type='local'),
                                training_database=training_database)
         labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
-                                                    structure=structure,
+                                                    atoms=structure.to_ase_atoms(),
                                                     forces=np.random.rand(len(structure), 3),
                                                     energy=-1.0)
     elif mlip_type == "mtp":
@@ -137,7 +137,7 @@ def construct_derived_trainer(mlip_type, structure, list_element_symbols, traini
             MtpTrainer
 
         # MTP needs a fixed single-species structure (the level-6 template is single-species).
-        mtp_structure = LammpsData.from_file(str(SI8_STRUCTURE_FILE), atom_style="atomic", sort_id=True).structure
+        mtp_atoms = ase.io.read(str(SI8_STRUCTURE_FILE), format="lammps-data", atom_style="atomic")
         trainer = MtpTrainer(MtpConfiguration(
             elements=["Si"],
             level=6,
@@ -145,8 +145,8 @@ def construct_derived_trainer(mlip_type, structure, list_element_symbols, traini
             training_params=dict(max_iter=100, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
         ), training_database=training_database)
         labelled_structure = SinglePointCalculation(calculation_type="dummy_test",
-                                                    structure=mtp_structure,
-                                                    forces=np.zeros((len(mtp_structure), 3)),
+                                                    atoms=mtp_atoms,
+                                                    forces=np.zeros((len(mtp_atoms), 3)),
                                                     energy=-26.43783)
     else:
         raise ValueError(f"Unknown MLIP type '{mlip_type}'.")
@@ -196,7 +196,7 @@ class TestDerivedMLIP:
             mlip_type, structure, list_element_symbols, training_database
         )
         # Mirror the loop: persist the label to the database (stage 2) and fold it into the model (stage 3).
-        active_environment_indices = list(range(len(labelled_structure.structure)))
+        active_environment_indices = list(range(len(labelled_structure.atoms)))
         training_database.write_oracle(1, [labelled_structure.to_atoms(active_environment_indices)])
         trainer.add_labelled_structure(labelled_structure, active_environment_indices)
         trainer.fit()  # a pretrained model, ready to deploy
@@ -282,7 +282,7 @@ class TestGraceMlip:
 def _pretrain_and_deploy(mlip_type, structure, list_element_symbols, database, model_directory):
     """Fit a 'good' reference model once and deploy it to model_directory (the committed epoch model)."""
     trainer, labelled_structure = construct_derived_trainer(mlip_type, structure, list_element_symbols, database)
-    active_environment_indices = list(range(len(labelled_structure.structure)))
+    active_environment_indices = list(range(len(labelled_structure.atoms)))
     database.write_oracle(1, [labelled_structure.to_atoms(active_environment_indices)])
     trainer.add_labelled_structure(labelled_structure, active_environment_indices)
     trainer.fit()  # the single (reference) fitting step
@@ -331,7 +331,9 @@ def test_flare_load_restores_the_sparse_gp(structure, list_element_symbols, tmp_
     database = TrainingDatabase(tmp_path_factory.mktemp("reference_database"))
     model_directory = tmp_path / "committed_model"
     reference_mlip = _pretrain_and_deploy("flare", structure, list_element_symbols, database, model_directory)
-    reference_energy = FlareSinglePointCalculator(reference_mlip._trainer.sgp_model).calculate(structure).energy
+    reference_energy = FlareSinglePointCalculator(reference_mlip._trainer.sgp_model).calculate(
+        structure.to_ase_atoms()
+    ).energy
 
     # A fresh MLIP (empty sparse GP), as a restarted process would build it.
     fresh_trainer, _ = construct_derived_trainer(
@@ -342,5 +344,7 @@ def test_flare_load_restores_the_sparse_gp(structure, list_element_symbols, tmp_
     fresh_mlip.load(model_directory)
 
     assert isinstance(fresh_mlip.lammps_potential, LammpsPotential)  # the deployed potential drives the dynamics
-    restored_energy = FlareSinglePointCalculator(fresh_mlip._trainer.sgp_model).calculate(structure).energy
+    restored_energy = FlareSinglePointCalculator(fresh_mlip._trainer.sgp_model).calculate(
+        structure.to_ase_atoms()
+    ).energy
     np.testing.assert_allclose(restored_energy, reference_energy, atol=1e-6)

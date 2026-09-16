@@ -6,10 +6,6 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from ase import Atoms
 from ase.calculators.singlepoint import SinglePointCalculator
-from pymatgen.core import Structure
-
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
-    to_pymatgen_structure
 
 CALCULATION_TYPE_KEY = "calculation_type"
 ACTIVE_ENVIRONMENT_INDICES_KEY = "active_environment_indices"
@@ -20,19 +16,19 @@ class SinglePointCalculation:
     """A data structure to hold the output of a single point calculator."""
 
     calculation_type: str
-    structure: Structure
+    atoms: Atoms
     forces: np.ndarray
     energy: float
     uncertainties: Optional[np.ndarray] = None
     additional_information: Optional[Dict[str, Any]] = None
 
     def to_atoms(self, active_environment_indices: Optional[List[int]] = None) -> Atoms:
-        """Convert to an ase.Atoms carrying the energy/forces (on a calculator) and the metadata in info.
+        """Return an ase.Atoms carrying the energy/forces (on a calculator) and the metadata in info.
 
         The training database stores only ase.Atoms, so the calculation type and the optional FLARE
         active-environment indices travel in ``atoms.info``.
         """
-        atoms = self.structure.to_ase_atoms()
+        atoms = self.atoms
         atoms.calc = SinglePointCalculator(
             atoms, energy=float(self.energy), forces=np.asarray(self.forces, dtype=float)
         )
@@ -46,7 +42,7 @@ class SinglePointCalculation:
         """Rebuild a SinglePointCalculation from a labelled ase.Atoms (energy + forces on its calculator)."""
         return cls(
             calculation_type=atoms.info.get(CALCULATION_TYPE_KEY, "labelled"),
-            structure=to_pymatgen_structure(atoms),
+            atoms=atoms,
             forces=np.asarray(atoms.get_forces(), dtype=float),
             energy=float(atoms.get_potential_energy()),
         )
@@ -73,15 +69,15 @@ class BaseSinglePointCalculator:
 
     @abstractmethod
     def calculate(
-        self, structure: Structure, results_path: Optional[Path] = None
+        self, atoms: Atoms, results_path: Optional[Path] = None
     ) -> SinglePointCalculation:
         """This method just defines the API."""
         raise NotImplementedError("This method must be implemented in a child class.")
 
-    def calculate_many(self, structures: List[Structure]) -> List[SinglePointCalculation]:
-        """Calculate several structures at once.
+    def calculate_many(self, list_atoms: List[Atoms]) -> List[SinglePointCalculation]:
+        """Calculate several configurations at once.
 
         The default loops over ``calculate``; subclasses may override it with a faster batched
         implementation (e.g. a single looping LAMMPS input).
         """
-        return [self.calculate(structure) for structure in structures]
+        return [self.calculate(atoms) for atoms in list_atoms]

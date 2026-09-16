@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from pymatgen.core import Structure
+from ase import Atoms
 
 from diffusion_for_multi_scale_molecular_dynamics.io.abinit import (
     read_abinit_output, write_abinit_input)
@@ -43,13 +43,12 @@ class AbinitSinglePointCalculator(BaseSinglePointCalculator):
         self._calculation_type = "abinit"
 
     def calculate_in_work_directory(
-        self, structure: Structure, work_directory: Union[Path, str]
+        self, atoms: Atoms, work_directory: Union[Path, str]
     ) -> SinglePointCalculation:
         """Write the Abinit input, run it in work_directory, and parse the resulting energy and forces."""
         work_directory = Path(work_directory)
         work_directory.mkdir(parents=True, exist_ok=True)
 
-        atoms = structure.to_ase_atoms()
         write_abinit_input(atoms, self._parameters, self._pseudopotentials, work_directory)
         self._abinit_runner.run(work_directory)
         energy, forces, _ = read_abinit_output(work_directory)
@@ -57,7 +56,7 @@ class AbinitSinglePointCalculator(BaseSinglePointCalculator):
 
         return SinglePointCalculation(
             calculation_type=self._calculation_type,
-            structure=structure,
+            atoms=atoms,
             forces=forces,
             energy=energy,
         )
@@ -68,11 +67,11 @@ class AbinitSinglePointCalculator(BaseSinglePointCalculator):
             if path.is_file() and any(extension in path.name for extension in self._excluded_output_extensions):
                 path.unlink()
 
-    def calculate(self, structure: Structure, results_path: Optional[Path] = None) -> SinglePointCalculation:
+    def calculate(self, atoms: Atoms, results_path: Optional[Path] = None) -> SinglePointCalculation:
         """Label a configuration with Abinit.
 
         Args:
-            structure: the pymatgen structure to compute.
+            atoms: the configuration to compute.
             results_path: (Optional) selects the working directory where Abinit runs and keeps all its
                 outputs, as ``results_path.parent / results_path.stem``. When None, a temporary directory
                 is used and discarded.
@@ -83,7 +82,7 @@ class AbinitSinglePointCalculator(BaseSinglePointCalculator):
         if results_path is not None:
             results_path = Path(results_path)
             work_directory = results_path.parent / results_path.stem
-            return self.calculate_in_work_directory(structure, work_directory)
+            return self.calculate_in_work_directory(atoms, work_directory)
 
         with tempfile.TemporaryDirectory() as temporary_directory:
-            return self.calculate_in_work_directory(structure, Path(temporary_directory))
+            return self.calculate_in_work_directory(atoms, Path(temporary_directory))

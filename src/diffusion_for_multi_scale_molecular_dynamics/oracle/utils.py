@@ -12,9 +12,7 @@ def compute_errors_and_uncertainties(single_point_calculator, list_labelled_stru
     list_energy_errors_per_structure = []
 
     for labelled_structure in list_labelled_structures:
-        result = single_point_calculator.calculate(
-            structure=labelled_structure.structure
-        )
+        result = single_point_calculator.calculate(labelled_structure.atoms)
 
         force_errors = np.linalg.norm(result.forces - labelled_structure.forces, axis=1)
         list_all_force_errors.append(force_errors)

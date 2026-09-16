@@ -11,41 +11,41 @@ from ase.build import bulk
 
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.outputs import \
     extract_all_fields_from_dump
-from diffusion_for_multi_scale_molecular_dynamics.utils.structure_conversion import \
-    to_pymatgen_structure
 
 REFERENCE_DIRECTORY = Path(__file__).parents[2] / "reference_files" / "lammps"
 TRICLINIC_DUMP = REFERENCE_DIRECTORY / "triclinic_single_point.dump"
 ORTHOGONAL_DUMP = REFERENCE_DIRECTORY / "orthogonal_single_point.dump"
 
 
-def _expected_triclinic_structure():
-    """The exact structure the triclinic reference dump was generated from."""
-    return to_pymatgen_structure(bulk("Si", "diamond", a=5.43).repeat((2, 2, 2)))
+def _expected_triclinic_atoms():
+    """The exact configuration the triclinic reference dump was generated from."""
+    return bulk("Si", "diamond", a=5.43).repeat((2, 2, 2))
 
 
 def test_reader_recovers_the_triclinic_structure():
     """The dump reads back to the known triclinic structure: cell, positions and species all match."""
-    expected_structure = _expected_triclinic_structure()
+    expected_atoms = _expected_triclinic_atoms()
 
-    list_structures, _, _ = extract_all_fields_from_dump(TRICLINIC_DUMP)
+    list_atoms, _, _ = extract_all_fields_from_dump(TRICLINIC_DUMP)
 
-    assert len(list_structures) == 1
-    structure = list_structures[0]
+    assert len(list_atoms) == 1
+    atoms = list_atoms[0]
 
     # The box is triclinic (all angles 60 degrees) and must be read as such, not collapsed to orthogonal.
-    np.testing.assert_allclose(structure.lattice.angles, 60.0, atol=1e-4)
-    np.testing.assert_allclose(structure.lattice.parameters, expected_structure.lattice.parameters, atol=1e-4)
+    np.testing.assert_allclose(atoms.cell.angles(), 60.0, atol=1e-4)
+    np.testing.assert_allclose(atoms.cell.cellpar(), expected_atoms.cell.cellpar(), atol=1e-4)
 
     # Same atoms: species and (minimum-image) fractional coordinates.
-    assert [str(site.specie) for site in structure.sites] == ["Si"] * len(expected_structure)
-    fractional_difference = (structure.frac_coords - expected_structure.frac_coords + 0.5) % 1.0 - 0.5
+    assert atoms.get_chemical_symbols() == ["Si"] * len(expected_atoms)
+    fractional_difference = (
+        atoms.get_scaled_positions() - expected_atoms.get_scaled_positions() + 0.5
+    ) % 1.0 - 0.5
     np.testing.assert_allclose(fractional_difference, 0.0, atol=1e-4)
 
 
 def test_reader_recovers_forces_and_uncertainties():
     """Forces and the per-atom uncertainty column are read with the right shape and finite values."""
-    number_of_atoms = len(_expected_triclinic_structure())
+    number_of_atoms = len(_expected_triclinic_atoms())
     _, list_forces, list_uncertainties = extract_all_fields_from_dump(TRICLINIC_DUMP)
 
     assert list_forces[0].shape == (number_of_atoms, 3)
