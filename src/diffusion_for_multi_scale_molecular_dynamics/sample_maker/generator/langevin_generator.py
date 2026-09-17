@@ -271,8 +271,10 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
             updated_coordinates: relative coordinates after the corrector step, wrapped to [0, 1).
                 Shape [samples, atoms, spatial_dim].
         """
-        score_weight = eps / lattice_diagonals[:, None, :]
-        noise_weight = sqrt_2eps / lattice_diagonals[:, None, :]
+        score_weight = eps * lattice_diagonals[:, None, :]
+        noise_weight = sqrt_2eps
+        # score_weight = eps / lattice_diagonals[:, None, :]  # DEBUG
+        # noise_weight = sqrt_2eps / lattice_diagonals[:, None, :]  # DEBUG
         return self._relative_coordinates_update(
             relative_coordinates,
             sigma_normalized_scores,

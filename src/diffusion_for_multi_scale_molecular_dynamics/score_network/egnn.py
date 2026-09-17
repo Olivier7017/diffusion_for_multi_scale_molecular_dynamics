@@ -280,9 +280,9 @@ class E_GCL(nn.Module):
         row, col = edge_index[:, 0].long(), edge_index[:, 1].long()
         # compute distances between nodes (atoms)
 
-        _, coord_diff = self.coord2radial(edge_index, coord)
-
-        radial = edge_index[:, 2].unsqueeze(1)  # cartesian distance in Å
+        radial, coord_diff = self.coord2radial(edge_index, coord)
+        # _, coord_diff = self.coord2radial(edge_index, coord)  # CARTESIAN
+        # radial = edge_index[:, 2].unsqueeze(1)  # cartesian distance in Å  # CARTESIAN
 
         messages = self.message_model(h[row], h[col], radial)  # compute m_{ij}
         coord = self.coord_model(coord, edge_index, coord_diff, messages)  # update x_i
