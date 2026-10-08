@@ -103,7 +103,7 @@ def get_score_network(
         )
 
     elif architecture == "egnn":
-        score_network = dict(architecture="egnn", num_atom_types=num_atom_types)
+        score_network = dict(architecture="egnn", num_atom_types=num_atom_types, radial_cutoff=3.0)
     else:
         raise NotImplementedError("This score network is not implemented")
     return score_network
@@ -140,6 +140,8 @@ def get_config(
         num_atom_types=num_atom_types,
         number_of_samples=2,
         record_samples=True,
+        use_fixed_lattice_parameters=True,
+        cell_dimensions=[10., 10., 10.],
     )
     if sampling_algorithm == "predictor_corrector":
         sampling_dict["number_of_corrector_steps"] = 1

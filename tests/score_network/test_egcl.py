@@ -25,6 +25,7 @@ class TestEGCL:
             node_hidden_dimensions_size=4,
             coordinate_n_hidden_dimensions=1,
             coordinate_hidden_dimensions_size=4,
+            radial_cutoff=5.0,
             output_size=node_features_size)
         return hps
 
@@ -36,7 +37,7 @@ class TestEGCL:
 
     @pytest.fixture(scope="class")
     def single_edge(self):
-        return torch.Tensor([1, 0]).unsqueeze(0).long()
+        return torch.Tensor([1, 0, 0, 0, 0]).unsqueeze(0)
 
     @pytest.fixture(scope="class")
     def fixed_distance(self):

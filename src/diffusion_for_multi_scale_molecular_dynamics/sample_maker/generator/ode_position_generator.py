@@ -82,6 +82,8 @@ class ExplodingVarianceODEAXLGenerator(AXLGenerator):
         self.absolute_solver_tolerance = sampling_parameters.absolute_solver_tolerance
         self.relative_solver_tolerance = sampling_parameters.relative_solver_tolerance
         self.record = sampling_parameters.record_samples
+        self.use_fixed_lattice_parameters = sampling_parameters.use_fixed_lattice_parameters
+        self.fixed_lattice_parameters = sampling_parameters.fixed_lattice_parameters
 
         if self.record:
             self.sample_trajectory_recorder = SampleTrajectory()
@@ -310,10 +312,13 @@ class ExplodingVarianceODEAXLGenerator(AXLGenerator):
         atom_types = (
             torch.zeros(number_of_samples, self.number_of_atoms).long().to(device)
         )
-        lattice_parameters = torch.randn(
-            number_of_samples,
-            get_number_of_lattice_parameters(self.spatial_dimension),
-        ).to(device)
+        if self.use_fixed_lattice_parameters:
+            lattice_parameters = self.fixed_lattice_parameters.repeat(number_of_samples, 1).to(device)
+        else:
+            lattice_parameters = torch.randn(
+                number_of_samples,
+                get_number_of_lattice_parameters(self.spatial_dimension),
+            ).to(device)
         init_composition = AXL(
             A=atom_types, X=relative_coordinates, L=lattice_parameters
         )

@@ -547,13 +547,11 @@ class TestEquivarianceEGNN(BaseTestScoreEquivariance):
     def nbloch(self, request):
         return request.param
 
-    @pytest.fixture(params=[("fully_connected", None), ("radial_cutoff", 3.0)])
-    def score_network_parameters(self, request, num_atom_types, normalize, nbloch):
-        edges, radial_cutoff = request.param
+    @pytest.fixture()
+    def score_network_parameters(self, num_atom_types, normalize, nbloch):
         return EGNNScoreNetworkParameters(
             number_of_bloch_wave_shells=nbloch,
-            edges=edges,
-            radial_cutoff=radial_cutoff,
+            radial_cutoff=3.0,
             num_atom_types=num_atom_types,
             normalize=normalize,
         )

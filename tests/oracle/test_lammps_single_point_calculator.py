@@ -31,7 +31,7 @@ GRACE_ASI_FILE = MLIP_DIR / "grace_unc.asi"
 
 
 def _stillinger_weber_potential():
-    return StillingerWeberPotential(sw_coefficients_file_path=MLIP_DIR / "aSi.sw")
+    return StillingerWeberPotential(sw_coefficients_file_path=REFERENCE_FILES_DIR / "aSi.sw")
 
 
 def _flare_potential():
@@ -199,6 +199,6 @@ def test_calculate_many_empty_returns_empty():
 
 
 def test_stillinger_weber_potential_rejects_uncertainty():
-    potential = StillingerWeberPotential(sw_coefficients_file_path=MLIP_DIR / "aSi.sw")
+    potential = StillingerWeberPotential(sw_coefficients_file_path=REFERENCE_FILES_DIR / "aSi.sw")
     with pytest.raises(ValueError):
         potential.interaction_commands("Si", with_uncertainty=True)

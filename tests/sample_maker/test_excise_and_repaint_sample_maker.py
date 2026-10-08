@@ -37,7 +37,6 @@ class TestExciseAndRepaintSampleMaker(BaseTestExciseSampleMaker):
     def score_network_parameters(self, num_atom_types):
         return EGNNScoreNetworkParameters(
             number_of_bloch_wave_shells=1,
-            edges="radial_cutoff",
             radial_cutoff=5.0,
             num_atom_types=num_atom_types,
             normalize=False,

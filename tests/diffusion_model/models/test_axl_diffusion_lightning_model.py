@@ -461,7 +461,6 @@ class TestPositionDiffusionLightningModel:
 
 
 @pytest.mark.parametrize("num_atom_types", [1, 2])
-@pytest.mark.parametrize("edges_connection", ["radial_cutoff", "fully_connected"])
 class TestAXLDiffusionLightningModelWithPadding:
     """Tests for _generic_step correctness under variable-natom padding."""
 
@@ -481,25 +480,13 @@ class TestAXLDiffusionLightningModelWithPadding:
     def optimizer_parameters(self):
         return OptimizerParameters(name="adam", learning_rate=0.001, weight_decay=0.0)
 
-    @pytest.fixture(params=["radial_cutoff", "fully_connected"])
-    def edges_connection(self, request):
-        return request.param
-
     @pytest.fixture()
-    def hyper_params(self, num_atom_types, spatial_dimension, loss_parameters, optimizer_parameters, edges_connection):
-        if edges_connection == "radial_cutoff":
-            score_network_parameters = EGNNScoreNetworkParameters(
-                num_atom_types=num_atom_types,
-                spatial_dimension=spatial_dimension,
-                edges="radial_cutoff",
-                radial_cutoff=3.0,
-            )
-        elif edges_connection == "fully_connected":
-            score_network_parameters = EGNNScoreNetworkParameters(
-                num_atom_types=num_atom_types,
-                spatial_dimension=spatial_dimension,
-                edges="fully_connected",
-            )
+    def hyper_params(self, num_atom_types, spatial_dimension, loss_parameters, optimizer_parameters):
+        score_network_parameters = EGNNScoreNetworkParameters(
+            num_atom_types=num_atom_types,
+            spatial_dimension=spatial_dimension,
+            radial_cutoff=3.0,
+        )
         return AXLDiffusionParameters(
             score_network_parameters=score_network_parameters,
             loss_parameters=loss_parameters,

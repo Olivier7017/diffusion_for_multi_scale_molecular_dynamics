@@ -310,7 +310,7 @@ class TestFullRound:
             lammps_executable_path=Path(shutil.which("lmp") or shutil.which("lammps")), mpi_processors=1
         )
         oracle = LammpsSinglePointCalculator(
-            StillingerWeberPotential(sw_coefficients_file_path=self.REFERENCE_FILES / "mlip" / "aSi.sw"),
+            StillingerWeberPotential(sw_coefficients_file_path=self.REFERENCE_FILES / "aSi.sw"),
             lammps_runner,
         )
         sample_maker = NoOpSampleMaker(

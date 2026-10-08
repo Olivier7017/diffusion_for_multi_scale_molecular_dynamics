@@ -393,7 +393,6 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             coords_agg="mean",
             message_agg="mean",
             n_layers=4,
-            edges="radial_cutoff",
             radial_cutoff=5.)
         return score_network_parameters
 

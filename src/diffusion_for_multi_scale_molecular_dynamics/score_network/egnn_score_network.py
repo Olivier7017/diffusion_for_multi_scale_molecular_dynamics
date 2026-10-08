@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import AnyStr, Dict, Union
+from typing import AnyStr, Dict
 
 import einops
 import torch
@@ -10,12 +10,10 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network import \
     ScoreNetworkParameters
 from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import \
     EGNN
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_utils import (
-    get_edges_batch, get_edges_with_radial_cutoff)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.score_network import \
     ScoreNetwork
-from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
-    map_lattice_parameters_to_unit_cell_vectors
+from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
+    get_positions_from_coordinates, map_lattice_parameters_to_unit_cell_vectors)
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
     class_index_to_onehot
 from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
@@ -41,8 +39,9 @@ class EGNNScoreNetworkParameters(ScoreNetworkParameters):
     coords_agg: str = "mean"
     message_agg: str = "mean"
     n_layers: int = 4
-    edges: str = "fully_connected"
-    radial_cutoff: Union[float, None] = None
+    radial_cutoff: float
+    smooth_cutoff: bool = True
+    rebuild_edges_every_layer: bool = True
     supports_variable_natoms: bool = True
 
 
@@ -91,22 +90,10 @@ class EGNNScoreNetwork(ScoreNetwork):
             torch.nn.Parameter(projection_matrices, requires_grad=False),
         )
 
-        self.edges = hyper_params.edges
-        assert self.edges in [
-            "fully_connected",
-            "radial_cutoff",
-        ], f"Edges type should be fully_connected or radial_cutoff. Got {self.edges}"
-
+        assert (
+            type(hyper_params.radial_cutoff) is float
+        ), "A floating point value is needed for radial_cutoff."
         self.radial_cutoff = hyper_params.radial_cutoff
-
-        if self.edges == "fully_connected":
-            assert (
-                self.radial_cutoff is None
-            ), "Specifying a radial cutoff is inconsistent with edges=fully_connected."
-        else:
-            assert (
-                type(self.radial_cutoff) is float
-            ), "A floating point value for the radial cutoff is needed for edges=radial_cutoff."
 
         self.egnn = EGNN(
             input_size=self.number_of_features_per_node,
@@ -116,6 +103,7 @@ class EGNNScoreNetwork(ScoreNetwork):
             node_hidden_dimensions_size=hyper_params.node_hidden_dimensions_size,
             coordinate_n_hidden_dimensions=hyper_params.coordinate_n_hidden_dimensions,
             coordinate_hidden_dimensions_size=hyper_params.coordinate_hidden_dimensions_size,
+            radial_cutoff=self.radial_cutoff,
             residual=hyper_params.residual,
             attention=hyper_params.attention,
             normalize=hyper_params.normalize,
@@ -123,6 +111,8 @@ class EGNNScoreNetwork(ScoreNetwork):
             coords_agg=hyper_params.coords_agg,
             message_agg=hyper_params.message_agg,
             n_layers=hyper_params.n_layers,
+            smooth_cutoff=hyper_params.smooth_cutoff,
+            rebuild_edges_every_layer=hyper_params.rebuild_edges_every_layer,
             num_classes=self.num_atom_types + 1,
         )
 
@@ -229,58 +219,28 @@ class EGNNScoreNetwork(ScoreNetwork):
         batch_size, max_atoms, spatial_dimension = reduced_coordinates.shape
         natoms = batch[NUMBER_OF_ATOMS]
 
-        if self.edges == "fully_connected":
-            lattice_parameters = batch[NOISY_AXL_COMPOSITION].L
-            lattice_parameters[:, spatial_dimension:] = 0  # TODO force orthogonal cell
-            unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
-            edges = get_edges_batch(n_nodes=max_atoms, batch_size=batch_size,
-                                    reduced_coordinates=reduced_coordinates,
-                                    unit_cell=unit_cell, natoms=natoms)
-        else:
-            lattice_parameters = batch[NOISY_AXL_COMPOSITION].L
-            lattice_parameters[:, spatial_dimension:] = 0  # TODO force orthogonal cell
-            unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
-            edges = get_edges_with_radial_cutoff(
-                reduced_coordinates,
-                unit_cell,
-                self.radial_cutoff,
-                spatial_dimension=self.spatial_dimension,
-                natoms=natoms,
-            )
+        lattice_parameters = batch[NOISY_AXL_COMPOSITION].L
+        lattice_parameters[:, spatial_dimension:] = 0  # TODO force orthogonal cell
+        unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
+        cartesian_coordinates = get_positions_from_coordinates(reduced_coordinates, unit_cell)
 
-        edges = edges.to(reduced_coordinates.device)
-
-        flat_reduced_coordinates = einops.rearrange(
-            reduced_coordinates,
+        flat_cartesian_coordinates = einops.rearrange(
+            cartesian_coordinates,
             "batch natom spatial_dimension -> (batch natom) spatial_dimension",
         )
-
-        # Uplift the reduced coordinates to the embedding Euclidean space.
-        #   Dimensions [number_of_nodes, 2 x spatial_dimension]
-        euclidean_positions = self._get_euclidean_positions(flat_reduced_coordinates)
 
         node_attributes_h = self._get_node_attributes(
             batch, num_atom_types=self.num_atom_types
         )
-        # The raw normalized score has dimensions [number_of_nodes, 2 x spatial_dimension]
-        # CAREFUL! It is important to pass a clone of the euclidian positions because EGNN will modify its input!
-        raw_normalized_score = self.egnn(
-            h=node_attributes_h, edges=edges, x=euclidean_positions.clone()
+        # CAREFUL! It is important to pass a clone of the cartesian positions because EGNN will modify its input!
+        raw_score = self.egnn(
+            h=node_attributes_h, x=flat_cartesian_coordinates.clone(),
+            cell_lengths=lattice_parameters[:, :spatial_dimension], natoms=natoms,
         )
 
-        # The projected score is defined a
-        #       S^alpha = z . Gamma^alpha . hat_z
-        #  where:
-        #       - alpha is a spatial index (ie, x, y z) in the real space
-        #       - z are the "positions" in the uplifted Euclidean space
-        #       - hat_z is the output of the EGNN model, also in the uplifted Euclidean space
-        #       - Gamma^alpha are the projection matrices
-        flat_normalized_scores = einops.einsum(
-            euclidean_positions,
-            self.projection_matrices,
-            raw_normalized_score.X,
-            "nodes i, alpha i j, nodes j-> nodes alpha",
-        )
+        # EGNN's coordinate branch returns an updated position; its displacement is the sigma-normalized
+        # score sigma_cart * grad_cart log p = sigma_rel * grad_rel log p, which is the same in both frames.
+        flat_normalized_scores = raw_score.X - flat_cartesian_coordinates
 
         normalized_scores = einops.rearrange(
             flat_normalized_scores,
@@ -290,7 +250,7 @@ class EGNNScoreNetwork(ScoreNetwork):
         )
 
         atom_reshaped_scores = einops.rearrange(
-            raw_normalized_score.A,
+            raw_score.A,
             "(batch natoms) num_classes -> batch natoms num_classes",
             batch=batch_size,
             natoms=max_atoms,

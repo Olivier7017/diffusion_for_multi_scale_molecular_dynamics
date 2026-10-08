@@ -88,3 +88,35 @@ class TestExplodingVarianceODEAXLGenerator(BaseTestGenerator):
 
         assert sampled_axl.X.min() >= 0.0
         assert sampled_axl.X.max() < 1.0
+
+    def test_initialize_uses_fixed_lattice_parameters(
+        self,
+        noise_parameters,
+        axl_network,
+        device,
+        number_of_samples,
+        number_of_atoms,
+        spatial_dimension,
+        num_atom_types,
+        cell_dimensions,
+        record_samples,
+    ):
+        sampling_parameters = ODESamplingParameters(
+            number_of_atoms=number_of_atoms,
+            spatial_dimension=spatial_dimension,
+            number_of_samples=number_of_samples,
+            num_atom_types=num_atom_types,
+            record_samples=record_samples,
+            use_fixed_lattice_parameters=True,
+            cell_dimensions=cell_dimensions,
+        )
+        generator = ExplodingVarianceODEAXLGenerator(
+            noise_parameters=noise_parameters,
+            sampling_parameters=sampling_parameters,
+            axl_network=axl_network,
+        )
+
+        initial_composition = generator.initialize(number_of_samples, device)
+
+        expected_lattice_parameters = sampling_parameters.fixed_lattice_parameters.repeat(number_of_samples, 1)
+        torch.testing.assert_close(initial_composition.L, expected_lattice_parameters.to(device))

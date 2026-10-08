@@ -368,15 +368,13 @@ class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
     def nbloch(self, request):
         return request.param
 
-    @pytest.fixture(params=[("fully_connected", None), ("radial_cutoff", 3.0)])
-    def score_network_parameters(self, request, spatial_dimension, num_atom_types, nbloch):
-        edges, radial_cutoff = request.param
+    @pytest.fixture()
+    def score_network_parameters(self, spatial_dimension, num_atom_types, nbloch):
         return EGNNScoreNetworkParameters(
             number_of_bloch_wave_shells=nbloch,
             spatial_dimension=spatial_dimension,
-            edges=edges,
-            radial_cutoff=radial_cutoff,
-            num_atom_types=num_atom_types
+            radial_cutoff=3.0,
+            num_atom_types=num_atom_types,
         )
 
     @pytest.fixture()
@@ -384,15 +382,12 @@ class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
         score_network = EGNNScoreNetwork(score_network_parameters)
         return score_network
 
-    @pytest.mark.parametrize(
-        "edges, radial_cutoff", [("fully_connected", 3.0), ("radial_cutoff", None)]
-    )
-    def test_score_network_parameters(self, edges, radial_cutoff, num_atom_types):
+    def test_score_network_parameters(self, num_atom_types):
         score_network_parameters = EGNNScoreNetworkParameters(
-            edges=edges, radial_cutoff=radial_cutoff, num_atom_types=num_atom_types
+            radial_cutoff=None, num_atom_types=num_atom_types
         )
         with pytest.raises(AssertionError):
-            # Check that the code crashes when inconsistent parameters are fed in.
+            # Check that the code crashes when radial_cutoff isn't a float.
             EGNNScoreNetwork(score_network_parameters)
 
     def test_check_batch_raises_with_variable_natoms(self, score_network, padded_batch):

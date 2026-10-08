@@ -1,4 +1,4 @@
-"""Active learning example: MTP MLIP, ARTn dynamic driver, Stillinger-Weber oracle, no-op sample maker.
+"""Active learning example: MTP MLIP, MD dynamic driver, Stillinger-Weber oracle, no-op sample maker.
 
 This example is self-contained; every create_* function lists its parameters (defaults left explicit) so the
 available knobs are visible, and main() is identical across the examples, so switching a component is a
@@ -8,12 +8,10 @@ Required packages (beyond the base install):
     - MLIP-3, providing the 'mlp' executable that fits the MTP: https://gitlab.com/ashapeev/mlip-3.git
     - lammps-mtp-kokkos, a LAMMPS with the mtp/extrapolation pair_style (can be built CPU-only):
       https://github.com/RichardZJM/lammps-mtp-kokkos.git
-    - the ARTn plugin (libartn-lmp.so) and a LAMMPS built with the PLUGIN package:
-      https://gitlab.com/mammasmias/artn-plugin
 
 Notes about this example (the chosen options):
     - MLIP: MTP, started cold (a fresh model). Option B in create_mlip loads a pretrained potential instead.
-    - Dynamic driver: ARTn saddle search.
+    - Dynamic driver: NVT molecular dynamics.
     - Oracle: Stillinger-Weber.
     - Sample maker: no-op, which labels the uncertain structure itself, without excision or repaint.
 """
@@ -24,10 +22,8 @@ from ase.build import bulk
 
 from diffusion_for_multi_scale_molecular_dynamics.active_learning_loop.active_learning import \
     ActiveLearning
-from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.artn_driver.artn_driver import \
-    ArtnDriver
-from diffusion_for_multi_scale_molecular_dynamics.io.dynamic_driver.artn_input_configuration import \
-    ArtnInputConfiguration
+from diffusion_for_multi_scale_molecular_dynamics.dynamic_driver.md_driver.md_driver import \
+    MdDriver
 from diffusion_for_multi_scale_molecular_dynamics.io.lammps.potential.stillinger_weber import \
     StillingerWeberPotential
 from diffusion_for_multi_scale_molecular_dynamics.mlip.mtp.mtp_configuration import \
@@ -51,12 +47,10 @@ from diffusion_for_multi_scale_molecular_dynamics.utils.structure_utils import \
 ELEMENT_LIST = ["Si"]
 UNCERTAINTY_THRESHOLD = 2.0  # MTP extrapolation grade (gamma); atoms above this are treated as uncertain
 WORKING_DIRECTORY = Path("run")
-LAMMPS_EXECUTABLE_PATH = Path("/path/to/lmp")  # your LAMMPS executable (built with mtp/extrapolation + PLUGIN)
-# the Stillinger-Weber coefficients (an example is in tests/reference_files/mlip/aSi.sw):
+LAMMPS_EXECUTABLE_PATH = Path("/path/to/lmp")  # your LAMMPS executable (built with mtp/extrapolation)
+# Stillinger-Weber coefficients, e.g. diffusion_for_multi_scale_molecular_dynamics/tests/reference_files/aSi.sw
 STILLINGER_WEBER_COEFFICIENTS_FILE_PATH = Path("/path/to/aSi.sw")
 MLP_EXECUTABLE_PATH = Path("/path/to/mlp")  # the MLIP-3 'mlp' executable (fits the MTP)
-# the compiled ARTn plugin (libartn-lmp.so, or a directory containing it); None reads the ARTN_PLUGIN_PATH env var:
-ARTN_LIBRARY_PLUGIN_PATH = Path("/path/to/artn-plugin")
 
 
 def main():
@@ -125,7 +119,7 @@ def create_mlip():
     mtp_configuration = MtpConfiguration(
         elements=ELEMENT_LIST, level=6, max_dist=5.0,
         energy_weight=1.0, force_weight=0.01, stress_weight=0.0, site_en_weight=0.0,
-        training_params=dict(max_iter=1000, init_params="same", scale_by_force=0.0, bfgs_conv_tol=5e-2),
+        training_params=dict(max_iter=1000, init_params="same", scale_by_force=0.0, bfgs_conv_tol=1e-3),
     )
     mtp_trainer = MtpTrainer(mtp_configuration=mtp_configuration, mlp_executable_path=MLP_EXECUTABLE_PATH)
     return MtpMlip(mtp_trainer=mtp_trainer, lammps_runner=lammps_runner)
@@ -141,26 +135,12 @@ def create_mlip():
 
 
 def create_dynamic_driver(initial_configuration):
-    """Create an ARTn (saddle-search) dynamic driver."""
+    """Create a molecular-dynamics dynamic driver."""
     lammps_runner = SubprocessLammpsRunner(
         lammps_executable_path=LAMMPS_EXECUTABLE_PATH, mpi_processors=1, openmp_threads=1, mpi_executable="mpirun",
     )
-    # The parameters written to artn.in (the &ARTN_PARAMETERS namelist and the push); see the ARTn
-    # documentation for each variable. push_ids=None picks a random atom each launch; push_add_const is unused
-    # in the radial push mode. Unset fields keep the ArtnInputConfiguration defaults.
-    artn_input_configuration = ArtnInputConfiguration(
-        push_ids=None, engine_units="lammps/metal", verbose=2, ninit=2, nevalf_max=50000,
-        nperp_limitation=[4, 8, 12, 16, 32], lpush_final=True, nnewchance=10, nsmooth=5,
-        forc_thr=0.01, push_step_size=0.25, push_dist_thr=3.0, push_mode="rad",
-        lanczos_disp=0.0001, lanczos_max_size=16, lanczos_min_size=3, lanczos_eval_conv_thr=0.01,
-        eigen_step_size=0.1, push_over=2.0,
-    )
-    return ArtnDriver(
-        lammps_runner=lammps_runner, initial_configuration=initial_configuration,
-        artn_input_configuration=artn_input_configuration,
-        artn_library_plugin_path=ARTN_LIBRARY_PLUGIN_PATH,  # or None to read the ARTN_PLUGIN_PATH env var
-        number_of_requested_saddles=50, restart_from_new_min=True, max_eigenvalue_lost_retries=50,
-    )
+    return MdDriver(lammps_runner=lammps_runner, initial_configuration=initial_configuration,
+                    temperature=300.0, timestep=0.001, number_of_steps=1000)
 
 
 def create_oracle():

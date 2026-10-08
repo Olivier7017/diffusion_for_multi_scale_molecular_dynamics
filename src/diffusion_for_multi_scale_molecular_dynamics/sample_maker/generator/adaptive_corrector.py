@@ -120,16 +120,15 @@ class AdaptiveCorrectorGenerator(LangevinGenerator):
 
             \epsilon_i = 2 \left(r \frac{||z||_2}{||s(x_i, t_i)||_2}\right)^2
 
-        where :math:`r` is an hyper-parameter (0.17 by default) and :math:`||\cdot||_2` is the L2 norm.
+        where :math:`r` is an hyper-parameter (0.17 by default) and :math:`||\cdot||_2` is the L2 norm. Both norms are
+        averaged over atoms (relative coordinates) and samples, so that :math:`\epsilon_i` does not depend on the
+        number of atoms.
         """
-        # to compute epsilon_i, we need the norm of the score for each atom or lattice parameter.
-        # For relative coordinates, taking the norm over the last 2 dimensions means summing the squared components
-        # over the spatial dimension and the atoms, then taking the square-root.
-        # For lattice parameters, we can take the norm over the last dimension only.
-        norm_dims = [-2, -1] if n_dim == 3 else -1
+        # to compute epsilon_i, we need the norm of the score for each atom or lattice parameter, averaged over
+        # atoms and samples.
         view_dims = (1, 1, 1) if n_dim == 3 else (1, 1)
         sigma_score_norm = (
-            torch.linalg.norm(model_predictions_i, dim=norm_dims).mean()
+            torch.linalg.norm(model_predictions_i, dim=-1).mean()
         ).view(*view_dims)
         # note that sigma_score is \sigma * s(x, t), so we need to divide the norm by sigma to get the correct step size
         sigma_score_norm /= sigma_n_i
