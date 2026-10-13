@@ -7,7 +7,8 @@ from typing import Dict, List, Optional, Union
 from ase import Atoms
 
 from diffusion_for_multi_scale_molecular_dynamics.io.abinit import (
-    read_abinit_output, write_abinit_input)
+    add_exchange_correlation_from_pseudopotentials, read_abinit_output,
+    write_abinit_input)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.abinit_runner import \
     AbinitRunner
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
@@ -29,14 +30,15 @@ class AbinitSinglePointCalculator(BaseSinglePointCalculator):
         """Init method.
 
         Args:
-            parameters: the Abinit input variables (ASE unit convention: eV, Angstrom).
+            parameters: the Abinit input variables (ASE unit convention: eV, Angstrom). When 'ixc' is missing, it
+                is read once from the pseudopotentials.
             pseudopotentials: mapping from element symbol to pseudopotential file path.
             abinit_runner: the runner that launches Abinit (serial / MPI / GPU).
             excluded_output_extensions: Abinit output files whose name contains one of these strings are
                 deleted after the run.
         """
         super().__init__(self)
-        self._parameters = parameters
+        self._parameters = add_exchange_correlation_from_pseudopotentials(parameters, list(pseudopotentials.values()))
         self._pseudopotentials = pseudopotentials
         self._abinit_runner = abinit_runner
         self._excluded_output_extensions = excluded_output_extensions

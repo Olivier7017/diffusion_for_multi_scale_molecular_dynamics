@@ -67,6 +67,31 @@ def _exchange_correlation_from_pseudopotentials(pseudopotential_paths: List[Path
     return values.pop()
 
 
+def add_exchange_correlation_from_pseudopotentials(
+    parameters: Dict, pseudopotential_paths: List[Union[str, Path]]
+) -> Dict:
+    """Return a copy of the Abinit parameters with 'ixc' set from the pseudopotential headers, if it is missing.
+
+    ixc must be set before ASE writes the input, which would otherwise default to 7 (LDA). A warning is logged
+    when ixc is added.
+
+    Args:
+        parameters: the Abinit input variables.
+        pseudopotential_paths: the pseudopotentials, which must all be generated with the same functional.
+
+    Returns:
+        parameters_with_ixc: a copy of parameters, with 'ixc' added if it was not given.
+    """
+    parameters = dict(parameters)
+    if "ixc" not in parameters:
+        parameters["ixc"] = _exchange_correlation_from_pseudopotentials([Path(path) for path in pseudopotential_paths])
+        logger.warning(
+            f"No 'ixc' was given to Abinit; setting ixc={parameters['ixc']} from the pseudopotential "
+            "header (pspxc), since it must be set before ASE (which would otherwise default to 7/LDA)."
+        )
+    return parameters
+
+
 def write_abinit_input(
     atoms: Atoms,
     parameters: Dict,
@@ -100,12 +125,7 @@ def write_abinit_input(
     present_pseudopotentials = [pseudopotential_by_atomic_number[number] for number in present_atomic_numbers]
 
     # Default the exchange-correlation to the one the pseudopotentials were generated with.
-    if "ixc" not in parameters:
-        parameters["ixc"] = _exchange_correlation_from_pseudopotentials(present_pseudopotentials)
-        logger.warning(
-            f"No 'ixc' was given to Abinit; setting ixc={parameters['ixc']} from the pseudopotential "
-            "header (pspxc), since it must be set before ASE (which would otherwise default to 7/LDA)."
-        )
+    parameters = add_exchange_correlation_from_pseudopotentials(parameters, present_pseudopotentials)
 
     local_pseudopotentials = []
     for source_path in present_pseudopotentials:

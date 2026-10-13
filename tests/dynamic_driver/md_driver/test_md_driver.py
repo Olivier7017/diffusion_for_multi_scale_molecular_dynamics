@@ -50,12 +50,12 @@ class TestUnit:
 
     def test_empty_dump_is_success(self, md_driver, tmp_path):
         """An uncertain dump file with no content still means nothing was flagged: SUCCESS."""
-        (tmp_path / "uncertain_dump.dump").write_text("")
+        (tmp_path / "uncertain.dump").write_text("")
         assert md_driver._get_calculation_state(tmp_path) == CalculationState.SUCCESS
 
     def test_nonempty_dump_is_interruption(self, md_driver, tmp_path):
         """A non-empty uncertain dump means the halt fired on an uncertain structure: INTERRUPTION."""
-        (tmp_path / "uncertain_dump.dump").write_text("ITEM: TIMESTEP\n0\n")
+        (tmp_path / "uncertain.dump").write_text("ITEM: TIMESTEP\n0\n")
         assert md_driver._get_calculation_state(tmp_path) == CalculationState.INTERRUPTION
 
 

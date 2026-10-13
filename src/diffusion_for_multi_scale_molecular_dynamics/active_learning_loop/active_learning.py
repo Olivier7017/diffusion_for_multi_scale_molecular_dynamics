@@ -23,7 +23,7 @@ from diffusion_for_multi_scale_molecular_dynamics.io.training_database import (
 from diffusion_for_multi_scale_molecular_dynamics.mlip.base_mlip import \
     BaseMLIP
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    DUMP_FILENAME, UNCERTAIN_DUMP_FILENAME, numbered_filename)
+    ORACLE_EVALUATION_PREFIX, UNCERTAIN_DUMP_FILENAME)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (  # noqa
     BaseSinglePointCalculator, SinglePointCalculation,
     get_active_environment_indices)
@@ -85,10 +85,10 @@ class ActiveLearning:
         """Get the uncertain configuration, its per-atom uncertainties and the step it was found at.
 
         This method assumes the CONVENTION that the dynamic driver's LAMMPS run produces a file
-        named 'uncertain_dump.dump' that contains the uncertain configuration.
+        named 'uncertain.dump' that contains the uncertain configuration.
 
         Args:
-            dynamics_working_directory: directory holding the dynamic driver's 'uncertain_dump.dump'.
+            dynamics_working_directory: directory holding the dynamic driver's 'uncertain.dump'.
             uncertainty_field: the per-atom uncertainty column to read (depends on the MLIP backend).
         """
         lammps_dump_path = dynamics_working_directory / UNCERTAIN_DUMP_FILENAME
@@ -403,7 +403,6 @@ class ActiveLearning:
         uncertain_structure = to_pymatgen_structure(uncertain_configuration)
         uncertainty_per_atom = uncertain_configuration.info[UNCERTAINTY_INFO_KEY]
 
-        self._logger.info("Making new samples based on uncertainties.")
         list_sample_structures, list_active_indices, list_sample_information = self._make_samples(
             uncertain_structure, uncertainty_per_atom
         )
@@ -435,9 +434,14 @@ class ActiveLearning:
         start_time = time.time()
         list_single_point_calculations = []
         for index, atoms in enumerate(generated_samples):
-            results_path = oracle_directory / numbered_filename(DUMP_FILENAME, index)
+            results_path = oracle_directory / f"{ORACLE_EVALUATION_PREFIX}_{index}.dump"
+            evaluation_start_time = time.time()
             calculation = self.oracle_calculator.calculate(atoms, results_path=results_path)
             list_single_point_calculations.append(calculation)
+            self._logger.info(
+                f"{self.oracle_calculator.name} evaluation {index + 1}/{len(generated_samples)} completed in "
+                f"{time.time() - evaluation_start_time:.1f} s with energy = {calculation.energy:.4f} eV."
+            )
         self._logger.info(f"Labelling has finished. Execution Time: {time.time() - start_time:.3e} sec.")
 
         oracle_dataframe = convert_single_point_calculations_to_dataframe(

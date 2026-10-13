@@ -52,7 +52,8 @@ LAMMPS_INPUT_FILENAME = "lammps.in"  # the LAMMPS input script
 CONFIGURATION_FILENAME = "configuration.dat"  # the single-point structure data file
 INITIAL_CONFIGURATION_FILENAME = "initial_configuration.dat"  # a dynamic driver's starting structure
 DUMP_FILENAME = "dump.dump"  # the LAMMPS per-atom text dump (read back with ase)
-UNCERTAIN_DUMP_FILENAME = "uncertain_dump.dump"  # a dynamic driver's uncertain-structure dump
+UNCERTAIN_DUMP_FILENAME = "uncertain.dump"  # a dynamic driver's uncertain-structure dump
+ORACLE_EVALUATION_PREFIX = "eval"  # oracle evaluation N is 'eval_N' (an Abinit run directory, or 'eval_N.dump')
 ENERGY_FILENAME = "energy.dat"  # the total potential energy written by a single-point run
 UNCERTAINTY_FIELD = "c_unc_at"  # the per-atom uncertainty dump column (the "c_" prefix is a LAMMPS idiosyncrasy)
 

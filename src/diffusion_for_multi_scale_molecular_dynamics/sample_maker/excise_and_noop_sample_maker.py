@@ -37,12 +37,10 @@ class ExciseAndNoOpSampleMaker(BaseExciseSampleMaker):
                 atom at the center of the excised region.
             list_info: list of samples additional information.
         """
-        logging.info(
-            f"Generating a structure of {len(substructure.X)} atoms from {len(substructure.X)} excised atoms."
-        )
         list_samples = num_samples * [substructure]
         list_active_atom_indices = num_samples * [active_atom_index]
         list_info = [self._create_sample_info_dictionary(substructure) for _ in range(num_samples)]
+        logging.info(f"Generated {len(substructure.X)} atoms from {len(substructure.X)} excised atoms.")
         return list_samples, list_active_atom_indices, list_info
 
     def filter_made_samples(self, structures: List[AXL]) -> List[AXL]:

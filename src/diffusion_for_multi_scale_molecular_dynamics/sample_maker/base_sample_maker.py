@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -346,13 +347,30 @@ class BaseExciseSampleMaker(BaseSampleMaker):
                 : self.arguments.max_constrained_substructure
             ]
 
+        number_of_samples_per_substructure = self.arguments.number_of_samples_per_substructure
+        number_of_substructures = len(constrained_environments_after_excision)
+        if self.arguments.max_constrained_substructure == _UNLIMITED_CONSTRAINED_STRUCTURE:
+            maximum_number_of_samples = "no maximum"
+        else:
+            maximum_number_of_samples = (
+                f"max. {self.arguments.max_constrained_substructure * number_of_samples_per_substructure}"
+            )
+        logging.info(
+            f"Making {number_of_substructures * number_of_samples_per_substructure} ({maximum_number_of_samples}) "
+            "new samples based on uncertainties."
+        )
+
         # Build the samples based on excised regions
         list_created_samples = []
         list_samples_info = []
         list_active_environment_indices = []
-        for constrained_environment, central_atom_index in zip(
+        for substructure_index, (constrained_environment, central_atom_index) in enumerate(zip(
             constrained_environments_after_excision, excised_central_atoms_indices
-        ):
+        )):
+            logging.info(
+                f"Creating batch {substructure_index + 1}/{number_of_substructures} containing "
+                f"{number_of_samples_per_substructure} samples."
+            )
             # Box embedding does not affect the order of atoms in the structure, and so does not
             # change the index "central atom".
             if self.sample_box_strategy == "fixed":

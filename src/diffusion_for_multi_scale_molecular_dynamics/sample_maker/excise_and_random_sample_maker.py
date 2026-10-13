@@ -349,10 +349,6 @@ class ExciseAndRandomSampleMaker(BaseExciseSampleMaker):
                 atom at the center of the excised region.
             list_info: list of samples additional information.
         """
-        logging.info(
-            f"Generating a structure of {self.arguments.total_number_of_atoms} atoms "
-            f"from {len(substructure.X)} excised atoms."
-        )
         list_sample_structures = []
         list_active_atom_indices = []
         additional_information_on_new_structures = []
@@ -364,6 +360,9 @@ class ExciseAndRandomSampleMaker(BaseExciseSampleMaker):
             # additional information on generated structures can be passed here
             additional_information_on_new_structures.append(self._create_sample_info_dictionary(substructure))
 
+        logging.info(
+            f"Generated {self.arguments.total_number_of_atoms} atoms from {len(substructure.X)} excised atoms."
+        )
         return list_sample_structures, list_active_atom_indices, additional_information_on_new_structures
 
     def filter_made_samples(self, structures: List[AXL]) -> List[AXL]:

@@ -160,10 +160,6 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
             ("The active atom index is larger than the number of constrained atoms: "
              "this should be impossible, something is wrong. Review code!")
 
-        logging.info(
-            f"Generating a structure of {self.sampling_parameters.number_of_atoms} atoms "
-            f"from {number_of_constrained_atoms} excised atoms."
-        )
         sampling_constraints = self.create_sampling_constraints(substructure)
         generator = ConstrainedLangevinGenerator(
             noise_parameters=self.sample_noise_parameters,
@@ -180,6 +176,10 @@ class ExciseAndRepaintSampleMaker(BaseExciseSampleMaker):
 
         new_structures = self.torch_batch_axl_to_list_of_numpy_axl(
             generated_samples["original_axl"]
+        )
+        logging.info(
+            f"Generated {self.sampling_parameters.number_of_atoms} atoms from {number_of_constrained_atoms} "
+            "excised atoms."
         )
         if self.samples_should_be_edited:
             # Edit the sampled structures in place.

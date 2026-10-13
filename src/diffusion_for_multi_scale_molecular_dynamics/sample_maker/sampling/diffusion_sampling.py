@@ -30,7 +30,7 @@ def create_batch_of_samples(
     Returns:
         sample_batch: drawn samples in the same dictionary format as the training data.
     """
-    logger.info("Creating a batch of samples")
+    logger.debug("Creating a batch of samples")
     number_of_samples = sampling_parameters.number_of_samples
 
     if sampling_parameters.sample_batchsize is None:
