@@ -43,6 +43,12 @@ class EGNNScoreNetworkParameters(ScoreNetworkParameters):
     smooth_cutoff: bool = True
     rebuild_edges_every_layer: bool = True
     supports_variable_natoms: bool = True
+    noise_input: str = "log"
+
+    def __setstate__(self, state):
+        """Checkpoints saved before noise_input existed were trained with raw sigma."""
+        state.setdefault("noise_input", "raw")
+        self.__dict__.update(state)
 
 
 class EGNNScoreNetwork(ScoreNetwork):
@@ -62,6 +68,8 @@ class EGNNScoreNetwork(ScoreNetwork):
 
         self.spatial_dimension = hyper_params.spatial_dimension
         self.num_atom_types = hyper_params.num_atom_types
+        assert hyper_params.noise_input in ("log", "raw"), f"unknown noise_input {hyper_params.noise_input}"
+        self.noise_input = hyper_params.noise_input
         self.number_of_features_per_node = (
             self.num_atom_types + 2
         )  # +1 for MASK class, + 1 for sigma
@@ -152,7 +160,7 @@ class EGNNScoreNetwork(ScoreNetwork):
 
     @staticmethod
     def _get_node_attributes(
-        batch: Dict[AnyStr, torch.Tensor], num_atom_types: int
+        batch: Dict[AnyStr, torch.Tensor], num_atom_types: int, noise_input: str = "log"
     ) -> torch.Tensor:
         """Get node attributes.
 
@@ -160,6 +168,7 @@ class EGNNScoreNetwork(ScoreNetwork):
         Args:
             batch : the batch dictionary
             num_atom_types: number of atom types excluding the MASK token
+            noise_input: "log" to give ln sigma to the network, "raw" to give sigma itself. Defaults to "log".
 
         Returns:
             node_attributes: a tensor of dimension [batch, natoms, num_atom_types + 2]
@@ -168,6 +177,8 @@ class EGNNScoreNetwork(ScoreNetwork):
         batch_size, max_atoms, spatial_dimension = relative_coordinates.shape
 
         sigmas = batch[NOISE].to(relative_coordinates.device)
+        if noise_input == "log":
+            sigmas = torch.log(sigmas)
         repeated_sigmas = einops.repeat(
             sigmas, "batch 1 -> (batch natoms) 1", natoms=max_atoms
         )
@@ -230,7 +241,7 @@ class EGNNScoreNetwork(ScoreNetwork):
         )
 
         node_attributes_h = self._get_node_attributes(
-            batch, num_atom_types=self.num_atom_types
+            batch, num_atom_types=self.num_atom_types, noise_input=self.noise_input
         )
         # CAREFUL! It is important to pass a clone of the cartesian positions because EGNN will modify its input!
         raw_score = self.egnn(

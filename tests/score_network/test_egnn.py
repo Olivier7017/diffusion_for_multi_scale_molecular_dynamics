@@ -1,6 +1,8 @@
 import pytest
 import torch
 
+from diffusion_for_multi_scale_molecular_dynamics.namespace import (
+    AXL, NOISE, NOISY_AXL_COMPOSITION)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import (
     E_GCL, EGNN)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
@@ -299,3 +301,19 @@ def test_score_network_options_default_to_true():
     score_network_parameters = EGNNScoreNetworkParameters(radial_cutoff=3.0, num_atom_types=1)
     assert score_network_parameters.smooth_cutoff
     assert score_network_parameters.rebuild_edges_every_layer
+
+
+@pytest.mark.parametrize("noise_input", ["log", "raw"])
+def test_node_attributes_noise_input(noise_input):
+    sigmas = torch.tensor([[0.01], [2.0]])
+    number_of_atoms = 3
+    batch = {
+        NOISY_AXL_COMPOSITION: AXL(A=torch.zeros(2, number_of_atoms, dtype=torch.long),
+                                   X=torch.rand(2, number_of_atoms, 3), L=torch.ones(2, 6)),
+        NOISE: sigmas,
+    }
+    node_attributes = EGNNScoreNetwork._get_node_attributes(batch, num_atom_types=1, noise_input=noise_input)
+
+    expected_noise_feature = torch.log(sigmas) if noise_input == "log" else sigmas
+    expected_noise_feature_per_atom = expected_noise_feature.repeat_interleave(number_of_atoms, dim=0)
+    torch.testing.assert_close(node_attributes[:, :1], expected_noise_feature_per_atom)
