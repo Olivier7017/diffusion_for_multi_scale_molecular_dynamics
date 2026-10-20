@@ -1,5 +1,7 @@
 import logging
+import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import einops
@@ -12,6 +14,10 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.optimiz
     OptimizerParameters, check_if_optimizer_is_none, load_optimizer)
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.scheduler import (
     SchedulerParameters, load_scheduler_dictionary)
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.target_score_matching import (
+    TargetScoreMatchingParameters, get_one_sided_squared_error,
+    get_target_score_matching_target, get_thermal_widths_by_atom_type,
+    read_bad_frames)
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.regularizers.regularizer import \
     RegularizerParameters
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.regularizers.regularizer_factory import \
@@ -77,6 +83,7 @@ class AXLDiffusionParameters:
     # plus the unique elements needed to map atom-type ids back to species.
     single_point_calculator_configuration: Optional[Dict[str, Any]] = None
     elements: Optional[List[str]] = None
+    target_score_matching_parameters: Optional[TargetScoreMatchingParameters] = None
 
 
 class AXLDiffusionLightningModel(pl.LightningModule):
@@ -128,6 +135,19 @@ class AXLDiffusionLightningModel(pl.LightningModule):
 
         if hyper_params.regularizer_parameters is not None:
             self.regularizer = create_regularizer(hyper_params.regularizer_parameters)
+
+        self.target_score_matching_parameters = hyper_params.target_score_matching_parameters
+        self.bad_frames = None
+        self.bad_frames_modification_time = None
+        if self.target_score_matching_parameters is not None:
+            assert hyper_params.elements is not None, \
+                "The elements must be given with target_score_matching_parameters, to map atom types to thermal widths."
+            self.register_buffer(
+                "thermal_widths_by_atom_type",
+                get_thermal_widths_by_atom_type(self.target_score_matching_parameters.thermal_width,
+                                                hyper_params.elements),
+                persistent=False,
+            )
 
         self.draw_samples = hyper_params.diffusion_sampling_parameters is not None
         if self.draw_samples:
@@ -296,6 +316,17 @@ class AXLDiffusionLightningModel(pl.LightningModule):
                 lattice_diagonals=lattice_diagonals,
             )
         )
+        if self.target_score_matching_parameters is not None:
+            assert CARTESIAN_FORCES in batch, \
+                "target_score_matching_parameters requires the forces of the training configurations."
+            target_coordinates_normalized_conditional_scores = get_target_score_matching_target(
+                denoising_score_matching_target=target_coordinates_normalized_conditional_scores,
+                forces=batch[CARTESIAN_FORCES].masked_fill(pad_mask.unsqueeze(-1), 0.0),
+                atom_types=a0.masked_fill(pad_mask, 0),
+                sigma=sigma_cart,
+                thermal_widths_by_atom_type=self.thermal_widths_by_atom_type,
+                beta=self.target_score_matching_parameters.beta,
+            )
 
         # for the atom types, the loss is constructed from the Q and Qbar matrices
 
@@ -454,6 +485,86 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             kmax=self.hyper_params.kmax_target_score,
         )
 
+    def _compute_bad_frames_loss(self, number_of_training_configurations: int) -> torch.Tensor:
+        """Compute the weighted loss of a random draw of bad frames, noised at low noise levels.
+
+        At most number_of_training_configurations bad frames are drawn, each noised log-uniformly between
+        minimum_sigma and maximum_sigma. The squared error is one-sided along the target for the saturated atoms
+        (see get_one_sided_squared_error). The loss is summed over the bad frames and divided by the number of
+        training configurations, so that a bad frame weighs bad_frames_lambda_weight times a training configuration.
+
+        Args:
+            number_of_training_configurations: number of configurations in the training batch.
+
+        Returns:
+            bad_frames_loss: the weighted bad frames loss.
+        """
+        parameters = self.target_score_matching_parameters
+        composition, forces = self.bad_frames["composition"], self.bad_frames["forces"]
+        number_of_bad_frames = min(len(forces), number_of_training_configurations)
+        indices = torch.randperm(len(forces), device=forces.device)[:number_of_bad_frames]
+
+        x0 = composition.X[indices]
+        atom_types = composition.A[indices]
+        lattice_parameters = composition.L[indices]
+        spatial_dimension = x0.shape[-1]
+        lattice_diagonals = lattice_parameters[:, :spatial_dimension]
+
+        sigma = torch.exp(torch.empty(number_of_bad_frames, device=x0.device).uniform_(
+            math.log(parameters.minimum_sigma), math.log(parameters.maximum_sigma)))
+        xt = map_relative_coordinates_to_unit_cell(
+            x0 + sigma[:, None, None] * torch.randn_like(x0) / lattice_diagonals[:, None, :]
+        )
+
+        denoising_score_matching_target = self._get_relative_coordinates_target_cartesian_normalized_score(
+            noisy_relative_coordinates=xt,
+            real_relative_coordinates=x0,
+            sigma_cart=sigma,
+            lattice_diagonals=lattice_diagonals,
+        )
+        target = get_target_score_matching_target(
+            denoising_score_matching_target=denoising_score_matching_target,
+            forces=forces[indices],
+            atom_types=atom_types,
+            sigma=sigma,
+            thermal_widths_by_atom_type=self.thermal_widths_by_atom_type,
+            beta=parameters.beta,
+        )
+
+        noisy_batch = {
+            NOISY_AXL_COMPOSITION: AXL(A=atom_types, X=xt, L=lattice_parameters.clone()),
+            TIME: torch.zeros(number_of_bad_frames, 1, device=x0.device),
+            NOISE: sigma[:, None],
+            NUMBER_OF_ATOMS: torch.full((number_of_bad_frames,), x0.shape[1], dtype=torch.long, device=x0.device),
+        }
+        predictions = self.axl_network(noisy_batch, conditional=False)
+        squared_error = get_one_sided_squared_error(predictions.X, target, self.bad_frames["saturated_atoms"][indices])
+        loss_per_bad_frame = squared_error.mean(dim=-1) / spatial_dimension
+        return (parameters.bad_frames_lambda_weight * self.loss_weights.X
+                * loss_per_bad_frame.sum() / number_of_training_configurations)
+
+    def _read_bad_frames_if_modified(self) -> None:
+        """Read the bad frames again if bad_frames_path was modified since it was last read."""
+        bad_frames_path = Path(self.target_score_matching_parameters.bad_frames_path)
+        modification_time = bad_frames_path.stat().st_mtime if bad_frames_path.is_file() else None
+        if modification_time == self.bad_frames_modification_time:
+            return
+        self.bad_frames_modification_time = modification_time
+
+        bad_frames = read_bad_frames(bad_frames_path, self.hyper_params.elements,
+                                     self.target_score_matching_parameters.maximum_force)
+        if bad_frames is None:
+            self.bad_frames = None
+            return
+        composition = bad_frames["composition"]
+        self.bad_frames = dict(
+            composition=AXL(A=composition.A.to(self.device), X=composition.X.to(self.device),
+                            L=composition.L.to(self.device)),
+            forces=bad_frames["forces"].to(self.device),
+            saturated_atoms=bad_frames["saturated_atoms"].to(self.device),
+        )
+        logger.info(f"Read {len(bad_frames['forces'])} bad frames from {bad_frames_path}.")
+
     def _get_lattice_target_normalized_score(
         self,
         noisy_lattice_parameters: torch.Tensor,
@@ -491,12 +602,20 @@ class AXLDiffusionLightningModel(pl.LightningModule):
         output = self._generic_step(batch, batch_idx)
         batch_size = self._get_batch_size(batch)
 
+        if self.bad_frames is not None:
+            output["bad_frames_loss"] = self._compute_bad_frames_loss(number_of_training_configurations=batch_size)
+            output["loss"] = output["loss"] + output["bad_frames_loss"]
+
         list_losses_to_log = [output["loss"]]
         list_labels = ["loss"]
 
         if "regularizer_loss" in output:
             list_losses_to_log.append(output["regularizer_loss"])
             list_labels.append("regularizer_loss")
+
+        if "bad_frames_loss" in output:
+            list_losses_to_log.append(output["bad_frames_loss"])
+            list_labels.append("bad_frames_loss")
 
         for loss, label in zip(list_losses_to_log, list_labels):
             # The 'train_step_loss' is only logged on_step, meaning it is a value for each batch
@@ -774,6 +893,9 @@ class AXLDiffusionLightningModel(pl.LightningModule):
     def on_train_epoch_start(self) -> None:
         """On train epoch start."""
         logger.info(f"Starting Training Epoch {self.current_epoch}.")
+        if self.target_score_matching_parameters is not None and \
+                self.target_score_matching_parameters.bad_frames_path is not None:
+            self._read_bad_frames_if_modified()
 
     def on_train_epoch_end(self) -> None:
         """On train epoch end."""

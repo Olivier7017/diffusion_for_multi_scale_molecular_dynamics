@@ -1,19 +1,31 @@
+import dataclasses
+import math
+import os
+import pickle
+import sys
+
+import ase
+import ase.io
 import numpy as np
 import pytest
 import torch
+from ase.calculators.singlepoint import SinglePointCalculator
 from lightning import LightningDataModule, Trainer
 from torch.utils.data import DataLoader, default_collate, random_split
 
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.data_module.diffusion.noising_transform import \
     NoisingTransform
-from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loss.loss_parameters import \
-    create_loss_parameters
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.loss.loss_parameters import (
+    AtomTypeLossParameters, MSELossParameters, create_loss_parameters)
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.axl_diffusion_lightning_model import (
     AXLDiffusionLightningModel, AXLDiffusionParameters)
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.optimizer import \
     OptimizerParameters
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.scheduler import (
     CosineAnnealingLRSchedulerParameters, ReduceLROnPlateauSchedulerParameters)
+from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.target_score_matching import (
+    TargetScoreMatchingParameters, get_one_sided_squared_error,
+    read_bad_frames)
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_scheduler import \
@@ -21,8 +33,8 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedule
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noisers.lattice_noiser import \
     LatticeDataParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
-    ATOM_TYPES, AXL_COMPOSITION, CARTESIAN_FORCES, LATTICE_PARAMETERS, NOISE,
-    NOISY_ATOM_TYPES, NOISY_AXL_COMPOSITION, NOISY_LATTICE_PARAMETERS,
+    ATOM_TYPES, AXL, AXL_COMPOSITION, CARTESIAN_FORCES, LATTICE_PARAMETERS,
+    NOISE, NOISY_ATOM_TYPES, NOISY_AXL_COMPOSITION, NOISY_LATTICE_PARAMETERS,
     NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE, Q_BAR_MATRICES,
     Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME, TIME_INDICES)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (
@@ -37,8 +49,11 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_netwo
     EGNNScoreNetworkParameters
 from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import \
     MLPScoreNetworkParameters
-from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.wrapped_gaussian_score import \
-    get_sigma_normalized_score_brute_force
+from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.wrapped_gaussian_score import (
+    get_coordinates_sigma_normalized_score_cartesian,
+    get_sigma_normalized_score_brute_force)
+from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
+    map_relative_coordinates_to_unit_cell
 from diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import (
     broadcast_batch_matrix_tensor_to_all_dimensions,
     broadcast_batch_tensor_to_all_dimensions)
@@ -660,3 +675,245 @@ class TestAXLDiffusionLightningModelWithPadding:
         trainer = Trainer(fast_dev_run=3, accelerator=accelerator)
         trainer.fit(lightning_model, fake_datamodule)
         trainer.test(lightning_model, fake_datamodule)
+
+
+TARGET_SCORE_MATCHING_CELL_LENGTH = 5.43
+AXL_DIFFUSION_LIGHTNING_MODEL_MODULE = sys.modules[AXLDiffusionLightningModel.__module__]
+
+
+def write_bad_frames(bad_frames_path, number_of_frames, number_of_atoms=4):
+    """Write bad frames whose first atom has a force above any maximum_force used in these tests."""
+    with ase.io.Trajectory(str(bad_frames_path), "w") as trajectory:
+        for seed in range(number_of_frames):
+            rng = np.random.default_rng(seed)
+            atoms = ase.Atoms(symbols=["Si"] * number_of_atoms,
+                              positions=rng.random((number_of_atoms, 3)) * TARGET_SCORE_MATCHING_CELL_LENGTH,
+                              cell=np.diag([TARGET_SCORE_MATCHING_CELL_LENGTH] * 3), pbc=True)
+            forces = rng.normal(size=(number_of_atoms, 3))
+            forces[0] = [100.0, 0.0, 0.0]
+            atoms.calc = SinglePointCalculator(atoms, energy=0.0, forces=forces)
+            trajectory.write(atoms)
+
+
+class TestTargetScoreMatchingTraining:
+    """Target score matching in the lightning model: the training target and loss, and the bad frames."""
+
+    @pytest.fixture(autouse=True)
+    def set_random_seed(self):
+        torch.manual_seed(2024)
+
+    @pytest.fixture()
+    def number_of_atoms(self):
+        return 4
+
+    @pytest.fixture()
+    def batch_size(self):
+        return 3
+
+    @pytest.fixture()
+    def bad_frames_path(self, tmp_path):
+        return tmp_path / "bad_frames.traj"
+
+    @pytest.fixture()
+    def target_score_matching_parameters(self, bad_frames_path):
+        return TargetScoreMatchingParameters(
+            temperature=300.0, thermal_width={"Si": 0.044}, minimum_sigma=0.01, maximum_sigma=0.044,
+            bad_frames_path=bad_frames_path, maximum_force=5.0, bad_frames_lambda_weight=1.0,
+        )
+
+    @pytest.fixture()
+    def hyper_params(self, target_score_matching_parameters):
+        return AXLDiffusionParameters(
+            score_network_parameters=EGNNScoreNetworkParameters(
+                num_atom_types=1, radial_cutoff=3.0, n_layers=1, message_hidden_dimensions_size=4,
+                node_hidden_dimensions_size=4, coordinate_hidden_dimensions_size=4,
+            ),
+            loss_parameters=AXL(A=AtomTypeLossParameters(lambda_weight=0.0), X=MSELossParameters(lambda_weight=1.0),
+                                L=MSELossParameters(lambda_weight=0.0)),
+            optimizer_parameters=OptimizerParameters(name="adamw", learning_rate=1e-3),
+            elements=["Si"],
+            target_score_matching_parameters=target_score_matching_parameters,
+        )
+
+    @pytest.fixture()
+    def lightning_model(self, hyper_params):
+        return AXLDiffusionLightningModel(hyper_params)
+
+    @pytest.fixture()
+    def batch(self, batch_size, number_of_atoms):
+        """A noised training batch with forces; the last configuration has one padded atom."""
+        noising_transform = NoisingTransform(
+            noise_parameters=NoiseParameters(total_time_steps=10, sigma_min_cart=0.01, sigma_max_cart=1.0),
+            num_atom_types=1, spatial_dimension=3, use_fixed_lattice_parameters=True, use_optimal_transport=False,
+        )
+        raw_data = []
+        for sample_index in range(batch_size):
+            number_of_real_atoms = number_of_atoms - 1 if sample_index == batch_size - 1 else number_of_atoms
+            relative_coordinates = torch.rand(number_of_atoms, 3)
+            atom_types = torch.zeros(number_of_atoms, dtype=torch.long)
+            forces = torch.randn(number_of_atoms, 3)
+            relative_coordinates[number_of_real_atoms:] = torch.nan
+            atom_types[number_of_real_atoms:] = PADDED_ATOM_TYPE
+            forces[number_of_real_atoms:] = torch.nan
+            raw_data.append({
+                RELATIVE_COORDINATES: relative_coordinates,
+                ATOM_TYPES: atom_types,
+                LATTICE_PARAMETERS: torch.tensor([TARGET_SCORE_MATCHING_CELL_LENGTH] * 3 + [0.0] * 3),
+                CARTESIAN_FORCES: forces,
+                "natom": torch.tensor(number_of_real_atoms),
+            })
+        return noising_transform.transform(default_collate(raw_data))
+
+    @pytest.fixture()
+    def expected_target(self, batch, target_score_matching_parameters):
+        """kappa sigma beta F + (1 - kappa) target_dsm, computed independently from the batch."""
+        pad_mask = batch[ATOM_TYPES] == PADDED_ATOM_TYPE
+        x0 = batch[RELATIVE_COORDINATES].masked_fill(pad_mask.unsqueeze(-1), 0.0)
+        xt = batch[NOISY_RELATIVE_COORDINATES].masked_fill(pad_mask.unsqueeze(-1), 0.0)
+        forces = batch[CARTESIAN_FORCES].masked_fill(pad_mask.unsqueeze(-1), 0.0)
+        sigma = batch[NOISE].squeeze(-1)
+        lattice_diagonals = batch[LATTICE_PARAMETERS][:, :3]
+        denoising_target = get_coordinates_sigma_normalized_score_cartesian(
+            map_relative_coordinates_to_unit_cell(xt - x0), sigma, lattice_diagonals, kmax=4
+        )
+        kappa = (0.044**2 / (0.044**2 + sigma**2))[:, None, None]
+        force_target = sigma[:, None, None] * target_score_matching_parameters.beta * forces
+        return kappa * force_target + (1.0 - kappa) * denoising_target
+
+    @pytest.fixture()
+    def recorded_bad_frames_batch_sizes(self, mocker, lightning_model):
+        """Replace the network by a fixed prediction of 0.3, recording the number of configurations it receives."""
+        batch_sizes = []
+
+        def fake_forward(batch, conditional=None):
+            composition = batch[NOISY_AXL_COMPOSITION]
+            batch_sizes.append(composition.X.shape[0])
+            return AXL(A=torch.zeros(*composition.A.shape, 2), X=torch.full_like(composition.X, 0.3),
+                       L=torch.zeros_like(composition.L))
+
+        mocker.patch.object(lightning_model.axl_network, "forward", side_effect=fake_forward)
+        return batch_sizes
+
+    @pytest.fixture()
+    def lightning_model_with_bad_frames(self, lightning_model, bad_frames_path):
+        write_bad_frames(bad_frames_path, number_of_frames=3)
+        lightning_model._read_bad_frames_if_modified()
+        return lightning_model
+
+    def test_elements_are_required(self, hyper_params):
+        with pytest.raises(AssertionError):
+            AXLDiffusionLightningModel(dataclasses.replace(hyper_params, elements=None))
+
+    def test_thermal_widths_buffer(self, lightning_model):
+        torch.testing.assert_close(lightning_model.thermal_widths_by_atom_type, torch.tensor([0.044]))
+        assert "thermal_widths_by_atom_type" not in lightning_model.state_dict()
+        lightning_model.to(torch.float64)
+        assert lightning_model.thermal_widths_by_atom_type.dtype == torch.float64
+
+    def test_parameters_pickled_without_target_score_matching_load_as_none(self, hyper_params):
+        old_hyper_params = dataclasses.replace(hyper_params, target_score_matching_parameters=None)
+        del old_hyper_params.__dict__["target_score_matching_parameters"]
+        restored_hyper_params = pickle.loads(pickle.dumps(old_hyper_params))
+        assert restored_hyper_params.target_score_matching_parameters is None
+
+    def test_training_target(self, lightning_model, batch, expected_target):
+        output = lightning_model._generic_step(batch, batch_idx=0)
+        target = output["target_coordinates_normalized_conditional_scores"]
+        torch.testing.assert_close(target, expected_target)
+        pad_mask = batch[ATOM_TYPES] == PADDED_ATOM_TYPE
+        torch.testing.assert_close(target[pad_mask], torch.zeros_like(target[pad_mask]))
+
+    def test_training_loss(self, lightning_model, batch):
+        output = lightning_model._generic_step(batch, batch_idx=0)
+        target = output["target_coordinates_normalized_conditional_scores"]
+        predictions = output["model_predictions"].X
+        torch.testing.assert_close(output["unreduced_loss"].X, (predictions - target) ** 2)
+
+        pad_mask = batch[ATOM_TYPES] == PADDED_ATOM_TYPE
+        squared_error = ((predictions - target) ** 2).masked_fill(pad_mask.unsqueeze(-1), 0.0)
+        expected_loss = (squared_error.sum(dim=(-2, -1)) / (batch["natom"] * 3)).mean()
+        torch.testing.assert_close(output["loss"], expected_loss)
+
+    def test_batch_without_forces_raises(self, lightning_model, batch):
+        del batch[CARTESIAN_FORCES]
+        with pytest.raises(AssertionError):
+            lightning_model._generic_step(batch, batch_idx=0)
+
+    def test_bad_frames_are_read_again_only_when_modified(self, mocker, lightning_model, bad_frames_path):
+        read_spy = mocker.patch.object(AXL_DIFFUSION_LIGHTNING_MODEL_MODULE, "read_bad_frames",
+                                       wraps=read_bad_frames)
+        lightning_model._read_bad_frames_if_modified()
+        assert lightning_model.bad_frames is None
+
+        write_bad_frames(bad_frames_path, number_of_frames=2)
+        lightning_model._read_bad_frames_if_modified()
+        lightning_model._read_bad_frames_if_modified()
+        assert read_spy.call_count == 1
+        assert len(lightning_model.bad_frames["forces"]) == 2
+
+        write_bad_frames(bad_frames_path, number_of_frames=3)
+        later_time = bad_frames_path.stat().st_mtime + 10.0
+        os.utime(bad_frames_path, (later_time, later_time))
+        lightning_model._read_bad_frames_if_modified()
+        assert read_spy.call_count == 2
+        assert len(lightning_model.bad_frames["forces"]) == 3
+
+    @pytest.mark.parametrize("number_of_training_configurations, expected_number_of_bad_frames", [(2, 2), (8, 3)])
+    def test_bad_frames_drawn(self, lightning_model_with_bad_frames, recorded_bad_frames_batch_sizes,
+                              number_of_training_configurations, expected_number_of_bad_frames):
+        lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations)
+        assert recorded_bad_frames_batch_sizes == [expected_number_of_bad_frames]
+
+    def test_bad_frames_loss_scaling(self, lightning_model_with_bad_frames, recorded_bad_frames_batch_sizes):
+        torch.manual_seed(7)
+        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+        assert torch.isfinite(loss)
+
+        torch.manual_seed(7)
+        loss_with_half_the_configurations = lightning_model_with_bad_frames._compute_bad_frames_loss(
+            number_of_training_configurations=4)
+        torch.testing.assert_close(loss_with_half_the_configurations, 2.0 * loss)
+
+        lightning_model_with_bad_frames.target_score_matching_parameters.bad_frames_lambda_weight = 3.0
+        torch.manual_seed(7)
+        weighted_loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+        torch.testing.assert_close(weighted_loss, 3.0 * loss)
+
+    def test_bad_frames_loss_is_zero_for_an_exact_prediction(self, mocker, lightning_model_with_bad_frames):
+        target_spy = mocker.spy(AXL_DIFFUSION_LIGHTNING_MODEL_MODULE, "get_target_score_matching_target")
+
+        def exact_forward(batch, conditional=None):
+            composition = batch[NOISY_AXL_COMPOSITION]
+            return AXL(A=torch.zeros(*composition.A.shape, 2), X=target_spy.spy_return,
+                       L=torch.zeros_like(composition.L))
+
+        mocker.patch.object(lightning_model_with_bad_frames.axl_network, "forward", side_effect=exact_forward)
+        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+        torch.testing.assert_close(loss, torch.tensor(0.0))
+
+    def test_bad_frames_loss_value(self, lightning_model_with_bad_frames, recorded_bad_frames_batch_sizes,
+                                   target_score_matching_parameters):
+        torch.manual_seed(11)
+        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+
+        bad_frames = lightning_model_with_bad_frames.bad_frames
+        torch.manual_seed(11)
+        indices = torch.randperm(3)
+        sigma = torch.exp(torch.empty(3).uniform_(math.log(0.01), math.log(0.044)))
+        x0 = bad_frames["composition"].X[indices]
+        lattice_diagonals = bad_frames["composition"].L[indices][:, :3]
+        xt = map_relative_coordinates_to_unit_cell(
+            x0 + sigma[:, None, None] * torch.randn_like(x0) / lattice_diagonals[:, None, :]
+        )
+        denoising_target = get_coordinates_sigma_normalized_score_cartesian(
+            map_relative_coordinates_to_unit_cell(xt - x0), sigma, lattice_diagonals, kmax=4
+        )
+        kappa = (0.044**2 / (0.044**2 + sigma**2))[:, None, None]
+        force_target = sigma[:, None, None] * target_score_matching_parameters.beta * bad_frames["forces"][indices]
+        target = kappa * force_target + (1.0 - kappa) * denoising_target
+        error = get_one_sided_squared_error(
+            torch.full_like(target, 0.3), target, bad_frames["saturated_atoms"][indices]
+        )
+        expected_loss = (error.mean(dim=-1) / 3).sum() / 8
+
+        torch.testing.assert_close(loss, expected_loss)

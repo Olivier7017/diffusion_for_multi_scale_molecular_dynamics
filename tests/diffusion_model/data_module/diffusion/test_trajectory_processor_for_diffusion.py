@@ -5,6 +5,7 @@ import ase.io
 import numpy as np
 import pytest
 import torch
+from ase.calculators.calculator import Calculator, all_changes
 from ase.calculators.singlepoint import SinglePointCalculator
 from lightning import Trainer
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -25,6 +26,21 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISY_AXL_COMPOSITION)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import \
     MLPScoreNetworkParameters
+
+
+class CountingCalculator(Calculator):
+    """A live calculator that counts how many times it is asked to calculate."""
+
+    implemented_properties = ["energy", "forces"]
+
+    def __init__(self):
+        super().__init__()
+        self.number_of_calculations = 0
+
+    def calculate(self, atoms=None, properties=None, system_changes=all_changes):
+        super().calculate(atoms, properties, system_changes)
+        self.number_of_calculations += 1
+        self.results = dict(energy=0.0, forces=np.zeros((len(self.atoms), 3)))
 
 
 class TestTrajectoryProcessorForDiffusion:
@@ -75,6 +91,33 @@ class TestTrajectoryProcessorForDiffusion:
         # The rest of the row should still be populated normally.
         assert len(df) == 1
         assert df["natom"].iloc[0] == len(atoms)
+
+    def test_parse_trajectory_with_energy_and_forces(self, processor, atoms, tmp_path):
+        """A SinglePointCalculator with energy and forces should yield both potential_energy and forces."""
+        forces = np.arange(3 * len(atoms), dtype=float).reshape(-1, 3)
+        atoms.calc = SinglePointCalculator(atoms, energy=-1.0, forces=forces)
+
+        traj_path = tmp_path / "energy_and_forces.traj"
+        ase.io.write(str(traj_path), atoms)
+
+        df = processor.parse_trajectory(str(traj_path))
+
+        assert df["potential_energy"].iloc[0] == pytest.approx(-1.0)
+        np.testing.assert_allclose(df[CARTESIAN_FORCES].iloc[0], forces.reshape(-1))
+
+    def test_parse_trajectory_never_calls_a_live_calculator(self, processor, atoms, tmp_path, mocker):
+        """Energies and forces are only read from a SinglePointCalculator: a live calculator is never called."""
+        traj_path = tmp_path / "live_calculator.traj"
+        ase.io.write(str(traj_path), atoms)
+        calculator = CountingCalculator()
+        atoms.calc = calculator
+        mocker.patch.object(ase.io, "read", return_value=[atoms])
+
+        df = processor.parse_trajectory(str(traj_path))
+
+        assert calculator.number_of_calculations == 0
+        assert "potential_energy" not in df.columns
+        assert CARTESIAN_FORCES not in df.columns
 
 
 class TestTrainingWithMockedFit:

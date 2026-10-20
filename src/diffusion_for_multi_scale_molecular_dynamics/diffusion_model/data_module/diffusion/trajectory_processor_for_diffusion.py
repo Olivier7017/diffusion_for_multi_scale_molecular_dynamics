@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from ase.calculators.calculator import \
     PropertyNotImplementedError as ASEPropertyNotImplementedError
+from ase.calculators.singlepoint import SinglePointCalculator
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     CARTESIAN_FORCES, CARTESIAN_POSITIONS, LATTICE_PARAMETERS,
@@ -213,7 +214,7 @@ class TrajectoryProcessorForDiffusion:
                 RELATIVE_COORDINATES: atoms.get_scaled_positions().reshape(-1),
                 LATTICE_PARAMETERS: lattice_parameters,
             }
-            if atoms.calc is not None:
+            if isinstance(atoms.calc, SinglePointCalculator):
                 try:
                     row["potential_energy"] = atoms.get_potential_energy()
                     row[CARTESIAN_FORCES] = atoms.get_forces().reshape(-1)
