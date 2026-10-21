@@ -128,10 +128,6 @@ class TestOneSidedSquaredError:
     def target(self):
         return torch.tensor([[[-8.5, 0.0, 0.0]]])
 
-    @pytest.fixture()
-    def saturated_atoms(self):
-        return torch.tensor([[True]])
-
     @pytest.mark.parametrize(
         "prediction, expected_error, expected_gradient",
         [
@@ -142,18 +138,18 @@ class TestOneSidedSquaredError:
             ([-148.0, 30.0, 0.0], 30.0**2, [0.0, 60.0, 0.0]),
         ],
     )
-    def test_saturated_atom(self, target, saturated_atoms, prediction, expected_error, expected_gradient):
+    def test_one_sided_squared_error(self, target, prediction, expected_error, expected_gradient):
         predictions = torch.tensor([[prediction]], requires_grad=True)
-        error = get_one_sided_squared_error(predictions, target, saturated_atoms)
+        error = get_one_sided_squared_error(predictions, target)
         error.sum().backward()
         torch.testing.assert_close(error, torch.tensor([[expected_error]]))
         torch.testing.assert_close(predictions.grad, torch.tensor([[expected_gradient]]))
 
-    def test_non_saturated_atoms_have_the_plain_squared_error(self):
+    def test_weaker_predictions_have_the_plain_squared_error(self):
         torch.manual_seed(0)
-        predictions = torch.randn(2, 4, 3)
         target = torch.randn(2, 4, 3)
-        error = get_one_sided_squared_error(predictions, target, torch.zeros(2, 4, dtype=torch.bool))
+        predictions = 0.5 * target + torch.linalg.cross(target, torch.randn(2, 4, 3))
+        error = get_one_sided_squared_error(predictions, target)
         torch.testing.assert_close(error, ((predictions - target) ** 2).sum(dim=-1))
 
 
@@ -200,8 +196,6 @@ class TestReadBadFrames:
         torch.testing.assert_close(composition.L, torch.tensor([[CELL_LENGTH] * 3 + [0.0] * 3] * 3))
         expected_forces = torch.tensor([[5.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 0.0]])
         torch.testing.assert_close(bad_frames["forces"], expected_forces.repeat(3, 1, 1))
-        torch.testing.assert_close(bad_frames["saturated_atoms"],
-                                   torch.tensor([[True, False, False, False]] * 3))
 
     @pytest.mark.parametrize(
         "frames",

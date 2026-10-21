@@ -781,18 +781,18 @@ class TestTargetScoreMatchingTraining:
         return kappa * force_target + (1.0 - kappa) * denoising_target
 
     @pytest.fixture()
-    def recorded_bad_frames_batch_sizes(self, mocker, lightning_model):
-        """Replace the network by a fixed prediction of 0.3, recording the number of configurations it receives."""
-        batch_sizes = []
+    def recorded_network_inputs(self, mocker, lightning_model):
+        """Replace the network by a fixed prediction of 0.3, recording the batches it receives."""
+        network_inputs = []
 
         def fake_forward(batch, conditional=None):
             composition = batch[NOISY_AXL_COMPOSITION]
-            batch_sizes.append(composition.X.shape[0])
+            network_inputs.append(batch)
             return AXL(A=torch.zeros(*composition.A.shape, 2), X=torch.full_like(composition.X, 0.3),
                        L=torch.zeros_like(composition.L))
 
         mocker.patch.object(lightning_model.axl_network, "forward", side_effect=fake_forward)
-        return batch_sizes
+        return network_inputs
 
     @pytest.fixture()
     def lightning_model_with_bad_frames(self, lightning_model, bad_frames_path):
@@ -858,25 +858,39 @@ class TestTargetScoreMatchingTraining:
         assert read_spy.call_count == 2
         assert len(lightning_model.bad_frames["forces"]) == 3
 
-    @pytest.mark.parametrize("number_of_training_configurations, expected_number_of_bad_frames", [(2, 2), (8, 3)])
-    def test_bad_frames_drawn(self, lightning_model_with_bad_frames, recorded_bad_frames_batch_sizes,
-                              number_of_training_configurations, expected_number_of_bad_frames):
-        lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations)
-        assert recorded_bad_frames_batch_sizes == [expected_number_of_bad_frames]
+    @pytest.mark.parametrize(
+        "number_of_training_batches, expected_number_of_bad_frames_per_step",
+        [(1, [3, 0]), (2, [2, 1, 0]), (5, [1, 1, 1, 0, 0])],
+    )
+    def test_each_bad_frame_is_used_once_per_epoch(self, lightning_model_with_bad_frames, number_of_training_batches,
+                                                   expected_number_of_bad_frames_per_step):
+        lightning_model_with_bad_frames._start_bad_frames_epoch(number_of_training_batches)
+        bad_frame_indices = [lightning_model_with_bad_frames._get_next_bad_frame_indices()
+                             for _ in expected_number_of_bad_frames_per_step]
+        assert [len(indices) for indices in bad_frame_indices] == expected_number_of_bad_frames_per_step
+        torch.testing.assert_close(torch.cat(bad_frame_indices).sort().values, torch.arange(3))
 
-    def test_bad_frames_loss_scaling(self, lightning_model_with_bad_frames, recorded_bad_frames_batch_sizes):
+    def test_no_bad_frames_gives_no_epoch_order(self, lightning_model):
+        lightning_model._read_bad_frames_if_modified()
+        lightning_model._start_bad_frames_epoch(number_of_training_batches=2)
+        assert lightning_model.bad_frames_order is None
+
+    def test_bad_frames_loss_scaling(self, lightning_model_with_bad_frames, recorded_network_inputs):
+        bad_frame_indices = torch.arange(3)
         torch.manual_seed(7)
-        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(bad_frame_indices,
+                                                                        number_of_training_configurations=8)
         assert torch.isfinite(loss)
 
         torch.manual_seed(7)
         loss_with_half_the_configurations = lightning_model_with_bad_frames._compute_bad_frames_loss(
-            number_of_training_configurations=4)
+            bad_frame_indices, number_of_training_configurations=4)
         torch.testing.assert_close(loss_with_half_the_configurations, 2.0 * loss)
 
         lightning_model_with_bad_frames.target_score_matching_parameters.bad_frames_lambda_weight = 3.0
         torch.manual_seed(7)
-        weighted_loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+        weighted_loss = lightning_model_with_bad_frames._compute_bad_frames_loss(bad_frame_indices,
+                                                                                 number_of_training_configurations=8)
         torch.testing.assert_close(weighted_loss, 3.0 * loss)
 
     def test_bad_frames_loss_is_zero_for_an_exact_prediction(self, mocker, lightning_model_with_bad_frames):
@@ -888,32 +902,29 @@ class TestTargetScoreMatchingTraining:
                        L=torch.zeros_like(composition.L))
 
         mocker.patch.object(lightning_model_with_bad_frames.axl_network, "forward", side_effect=exact_forward)
-        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(torch.arange(3),
+                                                                        number_of_training_configurations=8)
         torch.testing.assert_close(loss, torch.tensor(0.0))
 
-    def test_bad_frames_loss_value(self, lightning_model_with_bad_frames, recorded_bad_frames_batch_sizes,
+    def test_bad_frames_loss_value(self, lightning_model_with_bad_frames, recorded_network_inputs,
                                    target_score_matching_parameters):
+        """The network sees the unnoised bad frames with a noise level sigma, and the target is kappa sigma beta F."""
+        bad_frame_indices = torch.tensor([2, 0])
         torch.manual_seed(11)
-        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(number_of_training_configurations=8)
+        loss = lightning_model_with_bad_frames._compute_bad_frames_loss(bad_frame_indices,
+                                                                        number_of_training_configurations=8)
 
         bad_frames = lightning_model_with_bad_frames.bad_frames
         torch.manual_seed(11)
-        indices = torch.randperm(3)
-        sigma = torch.exp(torch.empty(3).uniform_(math.log(0.01), math.log(0.044)))
-        x0 = bad_frames["composition"].X[indices]
-        lattice_diagonals = bad_frames["composition"].L[indices][:, :3]
-        xt = map_relative_coordinates_to_unit_cell(
-            x0 + sigma[:, None, None] * torch.randn_like(x0) / lattice_diagonals[:, None, :]
-        )
-        denoising_target = get_coordinates_sigma_normalized_score_cartesian(
-            map_relative_coordinates_to_unit_cell(xt - x0), sigma, lattice_diagonals, kmax=4
-        )
+        sigma = torch.exp(torch.empty(2).uniform_(math.log(0.01), math.log(0.044)))
         kappa = (0.044**2 / (0.044**2 + sigma**2))[:, None, None]
-        force_target = sigma[:, None, None] * target_score_matching_parameters.beta * bad_frames["forces"][indices]
-        target = kappa * force_target + (1.0 - kappa) * denoising_target
-        error = get_one_sided_squared_error(
-            torch.full_like(target, 0.3), target, bad_frames["saturated_atoms"][indices]
-        )
+        forces = bad_frames["forces"][bad_frame_indices]
+        target = kappa * sigma[:, None, None] * target_score_matching_parameters.beta * forces
+        error = get_one_sided_squared_error(torch.full_like(target, 0.3), target)
         expected_loss = (error.mean(dim=-1) / 3).sum() / 8
-
         torch.testing.assert_close(loss, expected_loss)
+
+        [network_input] = recorded_network_inputs
+        torch.testing.assert_close(network_input[NOISY_AXL_COMPOSITION].X,
+                                   bad_frames["composition"].X[bad_frame_indices])
+        torch.testing.assert_close(network_input[NOISE], sigma[:, None])

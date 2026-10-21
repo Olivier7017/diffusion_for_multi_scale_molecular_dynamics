@@ -126,6 +126,7 @@ def generate_new_cells(model, cell_dimensions):
     generator = LangevinGenerator(
         noise_parameters=NOISE_PARAMETERS, sampling_parameters=sampling_parameters, axl_network=model.axl_network,
     )
+    print(f"Generating {NUMBER_OF_SAMPLES} cells of {''.join(ELEMENT_LIST)}{NUMBER_OF_ATOMS}.")
     with torch.no_grad():
         samples_batch = create_batch_of_samples(
             generator=generator, sampling_parameters=sampling_parameters, device=model.device,
@@ -160,6 +161,8 @@ def excise_and_repaint(model, cell_dimensions):
         noise_parameters=NOISE_PARAMETERS, sampling_parameters=sampling_parameters,
         axl_network=model.axl_network, sampling_constraints=sampling_constraint,
     )
+    print(f"Repainting {NUMBER_OF_SAMPLES} cells of {''.join(ELEMENT_LIST)}{NUMBER_OF_ATOMS} around "
+          f"{len(substructure_in_new_box.X)} excised atoms.")
     with torch.no_grad():
         samples_batch = create_batch_of_samples(
             generator=generator, sampling_parameters=sampling_parameters, device=model.device,
