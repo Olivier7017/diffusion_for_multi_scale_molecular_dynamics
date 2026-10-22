@@ -36,7 +36,8 @@ class E_GCL(nn.Module):
         act_fn: Callable = nn.SiLU(),
         residual: bool = True,
         attention: bool = False,
-        normalize: bool = False,
+        normalize: str = "raw",
+        normalization_length: float = 0.1,
         coords_agg: str = "mean",
         message_agg: str = "mean",
         tanh: bool = False,
@@ -57,8 +58,12 @@ class E_GCL(nn.Module):
             act_fn: activation function used in the MLPs. Defaults to nn.SiLU()
             residual: if True, add a skip connection in the nodes update. Defaults to True.
             attention: if True, multiply the message output by a gated value of the output. Defaults to False.
-            normalize: if True, use a normalized version of the coordinates update i.e. x_i^l - x_j^l would be a unit
-                vector in eq. 4 in https://arxiv.org/pdf/2102.09844. Defaults to False.
+            normalize: normalization of the vector x_i^l - x_j^l of length r in the coordinates update (eq. 4 in
+                https://arxiv.org/pdf/2102.09844). "raw": no normalization. "tanh": multiplied by tanh(r^2) / r, a
+                unit vector at large r that vanishes like r^2 at short range. "smooth": multiplied by
+                1 / sqrt(r^2 + a^2), with a = normalization_length, a unit vector for r >> a that vanishes like r / a
+                for r << a. Defaults to "raw".
+            normalization_length: the length a of the "smooth" normalization, in Angstrom. Defaults to 0.1.
             coords_agg: Use a weighted mean (due to smooth cutoff) or sum aggregation for the coordinates update.
                 Defaults to mean.
             message_agg: Use a weighted mean (due to smooth cutoff) or sum aggregation for the messages.
@@ -68,9 +73,12 @@ class E_GCL(nn.Module):
                 f(r) = 0.5 * (cos(pi * r / radial_cutoff) + 1). Defaults to True.
         """
         super(E_GCL, self).__init__()
+        if normalize not in ["raw", "tanh", "smooth"]:
+            raise ValueError(f"normalize should be raw, tanh or smooth. Got {normalize}")
         self.residual = residual
         self.attention = attention
         self.normalize = normalize
+        self.normalization_length = normalization_length
         self.tanh = tanh
         self.epsilon = 1e-8
         self.radial_cutoff = radial_cutoff
@@ -289,7 +297,7 @@ class E_GCL(nn.Module):
         coord_diff = coord[row] - coord[col] - shift
         radial = torch.sum(coord_diff**2, 1).unsqueeze(1)
 
-        if self.normalize:  # normalize distance vector to be unit vector
+        if self.normalize != "raw":  # normalize distance vector to be unit vector
             # norm is detached from gradient in the original implementation - not clear why
             coord_diff = self.normalize_radial_norm(radial) * coord_diff
 
@@ -308,6 +316,9 @@ class E_GCL(nn.Module):
         Returns:
             normalized_radial_norm: normalized distance between two nodes.
         """
+        if self.normalize == "smooth":
+            return 1.0 / torch.sqrt(radial_norm_squared + self.normalization_length**2)
+
         # This function computes a normalization for a radial distance.
         # For r the vector radial distance, define
         #
@@ -367,7 +378,8 @@ class EGNN(nn.Module):
         act_fn: Callable = nn.SiLU(),
         residual: bool = True,
         attention: bool = False,
-        normalize: bool = False,
+        normalize: str = "raw",
+        normalization_length: float = 0.1,
         tanh: bool = False,
         coords_agg: str = "mean",
         message_agg: str = "mean",
@@ -390,8 +402,9 @@ class EGNN(nn.Module):
             act_fn: activation function used in the MLPs. Defaults to nn.SiLU()
             residual: if True, add a skip connection in the nodes update. Defaults to True.
             attention: if True, multiply the message output by a gated value of the output. Defaults to False.
-            normalize: if True, use a normalized version of the coordinates update i.e. x_i^l - x_j^l would be a unit
-                vector in eq. 4 in https://arxiv.org/pdf/2102.09844. Defaults to False.
+            normalize: normalization of the vector x_i^l - x_j^l in the coordinates update: "raw", "tanh" or
+                "smooth" (see E_GCL). Defaults to "raw".
+            normalization_length: the length a of the "smooth" normalization, in Angstrom. Defaults to 0.1.
             coords_agg: Use a weighted mean (due to smooth cutoff) or sum aggregation for the coordinates update.
                 Defaults to mean.
             message_agg: Use a weighted mean (due to smooth cutoff) or sum aggregation for the messages.
@@ -428,6 +441,7 @@ class EGNN(nn.Module):
                     residual=residual,
                     attention=attention,
                     normalize=normalize,
+                    normalization_length=normalization_length,
                     coords_agg=coords_agg,
                     message_agg=message_agg,
                     tanh=tanh,

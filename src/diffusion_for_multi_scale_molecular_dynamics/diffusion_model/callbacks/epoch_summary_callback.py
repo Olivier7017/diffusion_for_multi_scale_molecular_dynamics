@@ -9,9 +9,9 @@ from lightning.pytorch.callbacks import EarlyStopping
 class EpochSummaryLogger(Callback):
     """A per-epoch training log.
 
-    Shows, for each epoch: train loss, validation loss, AXL loss (only those with weight>0), learning rate
-    (optional), wall clock time, and early stopping progress (wait count / patience). Reports the early
-    stopping outcome once training ends, if triggered.
+    Shows, for each epoch: train loss, bad frames loss (only when training with bad frames), validation loss, AXL loss
+    (only those with weight>0), learning rate (optional), wall clock time, and early stopping progress (wait count /
+    patience). Reports the early stopping outcome once training ends, if triggered.
     """
 
     def __init__(self, early_stopping_callback: EarlyStopping, log_file_path: Union[str, Path]):
@@ -55,6 +55,11 @@ class EpochSummaryLogger(Callback):
         segments = [
             f"Epoch {trainer.current_epoch:4d}",
             f"train_loss={get('train_epoch_loss'):>10.6f}",
+        ]
+        tsm_parameters = pl_module.target_score_matching_parameters
+        if tsm_parameters is not None and tsm_parameters.bad_frames_path is not None:
+            segments.append(f"bad_frames_loss={get('train_epoch_bad_frames_loss'):>10.6f}")
+        segments += [
             f"val_loss={get('validation_epoch_loss'):>10.6f}",
             f"X_loss={get('validation_epoch_relative_coordinates_loss'):>10.6f}",
         ]

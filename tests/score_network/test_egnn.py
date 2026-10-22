@@ -1,3 +1,5 @@
+import pickle
+
 import pytest
 import torch
 
@@ -295,6 +297,28 @@ def test_score_network_passes_options_to_egnn(smooth_cutoff, rebuild_edges_every
     for graph_layer in score_network.egnn.graph_layers:
         assert graph_layer.smooth_cutoff == smooth_cutoff
         assert graph_layer.radial_cutoff == 3.0
+
+
+@pytest.mark.parametrize("normalize, expected_normalize", [("smooth", "smooth"), (True, "tanh"), (False, "raw")])
+def test_score_network_passes_normalize_to_egnn(normalize, expected_normalize):
+    score_network_parameters = EGNNScoreNetworkParameters(
+        radial_cutoff=3.0, num_atom_types=1, normalize=normalize, normalization_length=0.2,
+    )
+    assert score_network_parameters.normalize == expected_normalize
+    score_network = EGNNScoreNetwork(score_network_parameters)
+    for graph_layer in score_network.egnn.graph_layers:
+        assert graph_layer.normalize == expected_normalize
+        assert graph_layer.normalization_length == 0.2
+
+
+@pytest.mark.parametrize("normalize, expected_normalize", [(True, "tanh"), (False, "raw")])
+def test_parameters_pickled_with_boolean_normalize(normalize, expected_normalize):
+    old_parameters = EGNNScoreNetworkParameters(radial_cutoff=3.0, num_atom_types=1)
+    old_parameters.__dict__["normalize"] = normalize
+    del old_parameters.__dict__["normalization_length"]
+    restored_parameters = pickle.loads(pickle.dumps(old_parameters))
+    assert restored_parameters.normalize == expected_normalize
+    assert restored_parameters.normalization_length == 0.1
 
 
 def test_score_network_options_default_to_true():

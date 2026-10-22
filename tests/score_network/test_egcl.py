@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import torch
 
@@ -60,7 +62,8 @@ class TestEGCL:
             computed_displacement, simple_pair_coord[1, :].unsqueeze(0)
         )
 
-    def test_normalize_distance(self, egcl):
+    def test_normalize_distance(self, egcl_hyperparameters):
+        egcl = E_GCL(**egcl_hyperparameters, normalize="tanh")
 
         zero = torch.tensor(0.)
         one = torch.tensor(1.)
@@ -71,3 +74,25 @@ class TestEGCL:
         large_distance_norm = large * egcl.normalize_radial_norm(large**2)
 
         torch.testing.assert_close(large_distance_norm, one)
+
+    @pytest.mark.parametrize("distance", [1.0e-3, 0.1, 2.35])
+    @pytest.mark.parametrize(
+        "normalize, expected_norm",
+        [
+            ("raw", lambda r: r),
+            ("tanh", lambda r: math.tanh(r**2)),
+            ("smooth", lambda r: r / math.sqrt(r**2 + 0.1**2)),
+        ],
+    )
+    def test_normalized_displacement(self, egcl_hyperparameters, single_edge, normalize, expected_norm, distance):
+        """The normalized x_i - x_j keeps its direction and has the expected norm, with a = 0.1 Angstrom."""
+        egcl = E_GCL(**egcl_hyperparameters, normalize=normalize, normalization_length=0.1)
+        coord = torch.tensor([[0.0, 0.0, 0.0], [0.6 * distance, 0.8 * distance, 0.0]])
+        _, displacement = egcl.coord2radial(single_edge, coord)
+        norm = torch.linalg.norm(displacement)
+        torch.testing.assert_close(norm.item(), expected_norm(distance), rtol=1e-4, atol=1e-9)
+        torch.testing.assert_close(displacement / norm, coord[1:] / distance)
+
+    def test_unknown_normalize_raises(self, egcl_hyperparameters):
+        with pytest.raises(ValueError, match="normalize"):
+            E_GCL(**egcl_hyperparameters, normalize="unit")

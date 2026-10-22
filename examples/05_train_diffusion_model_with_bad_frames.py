@@ -15,7 +15,8 @@ Required packages (beyond the base install):
     - The LAMMPS python binding ('import lammps'), for Stillinger-Weber through ase's LAMMPSlib.
 
 Notes about this example (the chosen options):
-    - Score network, data and noise: as in 03_train_diffusion_model.py.
+    - Score network, data and noise: as in 03_train_diffusion_model.py, except for normalize="smooth", which keeps
+      the direction between two close atoms at nearly full strength down to about 0.1 Angstrom.
     - Target: target score matching, with the forces of the training frames at TEMPERATURE.
     - Bad configuration: a cell that is not diamond, i.e. not every atom has exactly 4 neighbors closer than
       2.6 Angstrom (see is_bad_configuration).
@@ -199,7 +200,7 @@ def create_diffusion_model(thermal_width):
         coordinate_hidden_dimensions_size=HIDDEN_DIMENSIONS_SIZE, coordinate_n_hidden_dimensions=N_LAYERS,
         message_hidden_dimensions_size=HIDDEN_DIMENSIONS_SIZE, message_n_hidden_dimensions=N_LAYERS,
         node_hidden_dimensions_size=HIDDEN_DIMENSIONS_SIZE, node_n_hidden_dimensions=N_LAYERS,
-        radial_cutoff=5.,
+        radial_cutoff=5., normalize="smooth",
     )
     loss_parameters = AXL(
         A=AtomTypeLossParameters(lambda_weight=0.0),

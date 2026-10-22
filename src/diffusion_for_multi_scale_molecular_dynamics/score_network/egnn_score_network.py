@@ -34,7 +34,8 @@ class EGNNScoreNetworkParameters(ScoreNetworkParameters):
     coordinate_hidden_dimensions_size: int = 32
     residual: bool = True
     attention: bool = False
-    normalize: bool = False
+    normalize: str = "raw"
+    normalization_length: float = 0.1  # Angstrom
     tanh: bool = False
     coords_agg: str = "mean"
     message_agg: str = "mean"
@@ -45,9 +46,18 @@ class EGNNScoreNetworkParameters(ScoreNetworkParameters):
     supports_variable_natoms: bool = True
     noise_input: str = "log"
 
+    def __post_init__(self):
+        """Map the former boolean normalize to its name."""
+        super().__post_init__()
+        if isinstance(self.normalize, bool):
+            self.normalize = "tanh" if self.normalize else "raw"
+
     def __setstate__(self, state):
-        """Checkpoints saved before noise_input existed were trained with raw sigma."""
+        """Load older checkpoints, trained with raw sigma before noise_input and with a boolean normalize."""
         state.setdefault("noise_input", "raw")
+        if isinstance(state.get("normalize"), bool):
+            state["normalize"] = "tanh" if state["normalize"] else "raw"
+        state.setdefault("normalization_length", 0.1)
         self.__dict__.update(state)
 
 
@@ -115,6 +125,7 @@ class EGNNScoreNetwork(ScoreNetwork):
             residual=hyper_params.residual,
             attention=hyper_params.attention,
             normalize=hyper_params.normalize,
+            normalization_length=hyper_params.normalization_length,
             tanh=hyper_params.tanh,
             coords_agg=hyper_params.coords_agg,
             message_agg=hyper_params.message_agg,
