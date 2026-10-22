@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import AnyStr, Dict
+from typing import Any, AnyStr, Dict, Optional, Tuple
 
 import einops
 import torch
@@ -8,24 +8,16 @@ from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS)
 from diffusion_for_multi_scale_molecular_dynamics.score_network import \
     ScoreNetworkParameters
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import \
-    EGNN
 from diffusion_for_multi_scale_molecular_dynamics.score_network.score_network import \
     ScoreNetwork
-from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
-    get_positions_from_coordinates, map_lattice_parameters_to_unit_cell_vectors)
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
     class_index_to_onehot
-from diffusion_for_multi_scale_molecular_dynamics.utils.lattice_utils import \
-    get_cubic_point_group_positive_normalized_bloch_wave_vectors
 
 
 @dataclass(kw_only=True)
 class EGNNScoreNetworkParameters(ScoreNetworkParameters):
-    """Specific Hyper-parameters for ENN score networks."""
+    """Hyper-parameters shared by the EGNN score networks."""
 
-    architecture: str = "egnn"
-    number_of_bloch_wave_shells: int = 1
     message_n_hidden_dimensions: int = 1
     message_hidden_dimensions_size: int = 16
     node_n_hidden_dimensions: int = 1
@@ -35,37 +27,22 @@ class EGNNScoreNetworkParameters(ScoreNetworkParameters):
     residual: bool = True
     attention: bool = False
     normalize: str = "raw"
-    normalization_length: float = 0.1  # Angstrom
     tanh: bool = False
     coords_agg: str = "mean"
     message_agg: str = "mean"
     n_layers: int = 4
-    radial_cutoff: float
+    radial_cutoff: Optional[float]  # Angstrom
     smooth_cutoff: bool = True
-    rebuild_edges_every_layer: bool = True
     supports_variable_natoms: bool = True
     noise_input: str = "log"
 
-    def __post_init__(self):
-        """Map the former boolean normalize to its name."""
-        super().__post_init__()
-        if isinstance(self.normalize, bool):
-            self.normalize = "tanh" if self.normalize else "raw"
-
-    def __setstate__(self, state):
-        """Load older checkpoints, trained with raw sigma before noise_input and with a boolean normalize."""
-        state.setdefault("noise_input", "raw")
-        if isinstance(state.get("normalize"), bool):
-            state["normalize"] = "tanh" if state["normalize"] else "raw"
-        state.setdefault("normalization_length", 0.1)
-        self.__dict__.update(state)
-
 
 class EGNNScoreNetwork(ScoreNetwork):
-    """Score network using EGNN.
+    """Base class of the score networks using EGNN.
 
     This implementation leverages the baseline EGNN architecture from Satorras et al.
     Supports variable numbers of atoms across samples in the same batch via padding.
+    The subclasses define how the atoms are given to EGNN and how its output becomes the score.
     """
 
     def __init__(self, hyper_params: EGNNScoreNetworkParameters):
@@ -83,37 +60,18 @@ class EGNNScoreNetwork(ScoreNetwork):
         self.number_of_features_per_node = (
             self.num_atom_types + 2
         )  # +1 for MASK class, + 1 for sigma
-
-        self.number_of_bloch_wave_shells = hyper_params.number_of_bloch_wave_shells
-        bloch_wave_reciprocal_lattice_vectors = (
-            get_cubic_point_group_positive_normalized_bloch_wave_vectors(
-                number_of_complete_shells=self.number_of_bloch_wave_shells,
-                spatial_dimension=self.spatial_dimension,
-            )
-        ).float()
-
-        self.register_parameter(
-            "bloch_wave_reciprocal_lattice_vectors",
-            torch.nn.Parameter(
-                bloch_wave_reciprocal_lattice_vectors, requires_grad=False
-            ),
-        )
-
-        projection_matrices = self._create_block_diagonal_projection_matrices(
-            bloch_wave_reciprocal_lattice_vectors
-        )
-
-        self.register_parameter(
-            "projection_matrices",
-            torch.nn.Parameter(projection_matrices, requires_grad=False),
-        )
-
-        assert (
-            type(hyper_params.radial_cutoff) is float
-        ), "A floating point value is needed for radial_cutoff."
         self.radial_cutoff = hyper_params.radial_cutoff
 
-        self.egnn = EGNN(
+    def _get_egnn_arguments(self, hyper_params: EGNNScoreNetworkParameters) -> Dict[str, Any]:
+        """Get the EGNN arguments shared by the EGNN score networks.
+
+        Args:
+            hyper_params : hyper parameters from the config file.
+
+        Returns:
+            egnn_arguments: the shared arguments of EGNN.
+        """
+        return dict(
             input_size=self.number_of_features_per_node,
             message_n_hidden_dimensions=hyper_params.message_n_hidden_dimensions,
             message_hidden_dimensions_size=hyper_params.message_hidden_dimensions_size,
@@ -125,49 +83,13 @@ class EGNNScoreNetwork(ScoreNetwork):
             residual=hyper_params.residual,
             attention=hyper_params.attention,
             normalize=hyper_params.normalize,
-            normalization_length=hyper_params.normalization_length,
             tanh=hyper_params.tanh,
             coords_agg=hyper_params.coords_agg,
             message_agg=hyper_params.message_agg,
             n_layers=hyper_params.n_layers,
             smooth_cutoff=hyper_params.smooth_cutoff,
-            rebuild_edges_every_layer=hyper_params.rebuild_edges_every_layer,
             num_classes=self.num_atom_types + 1,
         )
-
-    @staticmethod
-    def _create_block_diagonal_projection_matrices(
-        bloch_wave_reciprocal_lattice_vectors: torch.Tensor,
-    ) -> torch.Tensor:
-        """Create block diagonal projection matrices.
-
-        This method creates the "Gamma" matrices that are needed to project the higher dimensional
-        outputs of EGNN back to the relevant dimension for the normalized score.
-
-        The normalized score is defined as
-            S = z . Gamma^alpha . hat_z
-        where hat_z is the output of the EGNN model, z are the uplifted Euclidean position. This method
-        creates the Gamma matrices, expressed as a tensor Gamma_{alpha, i, j}, where "alpha" is a coordinate
-        in real space, and i,j are coordinates in the uplifted Euclidean space.
-
-        Args:
-            bloch_wave_reciprocal_lattice_vectors: K vectors, in reduced units.
-
-        Returns:
-            projection_matrices: block diagonal projection matrices, of
-                dimension [spatial_dimension, uplifted Euclidean dimension, uplifted Euclidean dimension].
-        """
-        dimensional_projector = torch.tensor([[0.0, -1.0], [1.0, 0.0]])
-
-        spatial_dimension = bloch_wave_reciprocal_lattice_vectors.shape[1]
-
-        projection_matrices = []
-        for alpha in range(spatial_dimension):
-            list_k_alpha = bloch_wave_reciprocal_lattice_vectors[:, alpha]
-            blocks = [k_alpha * dimensional_projector for k_alpha in list_k_alpha]
-            projection_matrices.append(torch.block_diag(*blocks))
-
-        return torch.stack(projection_matrices)
 
     @staticmethod
     def _get_node_attributes(
@@ -204,65 +126,42 @@ class EGNNScoreNetwork(ScoreNetwork):
         )
         return node_attributes
 
-    def _get_euclidean_positions(
+    def _get_flat_scores(
         self,
-        flat_relative_coordinates: torch.Tensor,
-    ) -> torch.Tensor:
-        """Get Euclidean positions.
-
-        Get the positions that take points on the torus into a higher dimensional
-        (ie, [e^{iK r}]i) Euclidean-like space.
+        node_attributes: torch.Tensor,
+        relative_coordinates: torch.Tensor,
+        lattice_parameters: torch.Tensor,
+        natoms: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the scores of every atom from EGNN.
 
         Args:
-            flat_relative_coordinates: relative coordinates, of dimensions [number_of_nodes, spatial_dimension]
+            node_attributes: node attributes. size: batch_size * max_atoms, num_atom_types + 2
+            relative_coordinates: noisy relative coordinates. size: batch_size, max_atoms, spatial_dimension
+            lattice_parameters: lattice parameters of orthogonal cells. size: batch_size, number of lattice parameters
+            natoms: real (non-padded) atom count per sample. size: batch_size
 
         Returns:
-            euclidean_positions : uplifted relative coordinates to a higher dimensional Euclidean space.
+            normalized_scores: sigma-normalized coordinates scores. size: batch_size * max_atoms, spatial_dimension
+            atom_type_logits: atom type logits. size: batch_size * max_atoms, num_atom_types + 1
         """
-        # Uplift the relative coordinates to the embedding Euclidean space
-        two_pi_x = 2.0 * torch.pi * flat_relative_coordinates
-        kr = einops.einsum(
-            self.bloch_wave_reciprocal_lattice_vectors.to(two_pi_x),
-            two_pi_x,
-            "nbloch space, nodes space -> nodes nbloch",
-        )
-        cosines = kr.cos()
-        sines = kr.sin()
-        euclidean_positions = einops.rearrange(
-            torch.stack([cosines, sines]),
-            "two nodes nbloch -> nodes (nbloch two)",
-        )
-        return euclidean_positions
+        raise NotImplementedError
 
     def _forward_unchecked(
         self, batch: Dict[AnyStr, torch.Tensor], conditional: bool = False
     ) -> AXL:
-        reduced_coordinates = batch[NOISY_AXL_COMPOSITION].X
-        batch_size, max_atoms, spatial_dimension = reduced_coordinates.shape
-        natoms = batch[NUMBER_OF_ATOMS]
+        relative_coordinates = batch[NOISY_AXL_COMPOSITION].X
+        batch_size, max_atoms, spatial_dimension = relative_coordinates.shape
 
         lattice_parameters = batch[NOISY_AXL_COMPOSITION].L
         lattice_parameters[:, spatial_dimension:] = 0  # TODO force orthogonal cell
-        unit_cell = map_lattice_parameters_to_unit_cell_vectors(lattice_parameters)
-        cartesian_coordinates = get_positions_from_coordinates(reduced_coordinates, unit_cell)
-
-        flat_cartesian_coordinates = einops.rearrange(
-            cartesian_coordinates,
-            "batch natom spatial_dimension -> (batch natom) spatial_dimension",
-        )
 
         node_attributes_h = self._get_node_attributes(
             batch, num_atom_types=self.num_atom_types, noise_input=self.noise_input
         )
-        # CAREFUL! It is important to pass a clone of the cartesian positions because EGNN will modify its input!
-        raw_score = self.egnn(
-            h=node_attributes_h, x=flat_cartesian_coordinates.clone(),
-            cell_lengths=lattice_parameters[:, :spatial_dimension], natoms=natoms,
+        flat_normalized_scores, flat_atom_type_logits = self._get_flat_scores(
+            node_attributes_h, relative_coordinates, lattice_parameters, batch[NUMBER_OF_ATOMS]
         )
-
-        # EGNN's coordinate branch returns an updated position; its displacement is the sigma-normalized
-        # score sigma_cart * grad_cart log p = sigma_rel * grad_rel log p, which is the same in both frames.
-        flat_normalized_scores = raw_score.X - flat_cartesian_coordinates
 
         normalized_scores = einops.rearrange(
             flat_normalized_scores,
@@ -272,7 +171,7 @@ class EGNNScoreNetwork(ScoreNetwork):
         )
 
         atom_reshaped_scores = einops.rearrange(
-            raw_score.A,
+            flat_atom_type_logits,
             "(batch natoms) num_classes -> batch natoms num_classes",
             batch=batch_size,
             natoms=max_atoms,

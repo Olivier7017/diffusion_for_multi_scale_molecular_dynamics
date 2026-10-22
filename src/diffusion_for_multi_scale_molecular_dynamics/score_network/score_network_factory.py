@@ -5,10 +5,10 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network import (
     ScoreNetwork, ScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.analytical_score_network import (
     AnalyticalScoreNetwork, AnalyticalScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
+    CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.diffusion_mace_score_network import (
     DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.equivariant_analytical_score_network import (
     EquivariantAnalyticalScoreNetwork,
     EquivariantAnalyticalScoreNetworkParameters)
@@ -19,6 +19,8 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_networ
 from diffusion_for_multi_scale_molecular_dynamics.score_network.score_prediction_head import (
     MaceEquivariantScorePredictionHeadParameters,
     MaceMLPScorePredictionHeadParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.torus_egnn_score_network import (
+    TorusEGNNScoreNetwork, TorusEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.configuration_parsing import \
     create_parameters_from_configuration_dictionary
 
@@ -28,7 +30,8 @@ SCORE_NETWORKS_BY_ARCH = dict(
     mlp=MLPScoreNetwork,
     mace=MACEScoreNetwork,
     diffusion_mace=DiffusionMACEScoreNetwork,
-    egnn=EGNNScoreNetwork,
+    egnn_cartesian=CartesianEGNNScoreNetwork,
+    egnn_torus=TorusEGNNScoreNetwork,
 )
 SCORE_NETWORK_PARAMETERS_BY_ARCH = dict(
     analytical=AnalyticalScoreNetworkParameters,
@@ -36,7 +39,8 @@ SCORE_NETWORK_PARAMETERS_BY_ARCH = dict(
     mlp=MLPScoreNetworkParameters,
     mace=MACEScoreNetworkParameters,
     diffusion_mace=DiffusionMACEScoreNetworkParameters,
-    egnn=EGNNScoreNetworkParameters,
+    egnn_cartesian=CartesianEGNNScoreNetworkParameters,
+    egnn_torus=TorusEGNNScoreNetworkParameters,
 )
 MACE_PREDICTION_HEAD_BY_NAME = dict(
     mlp=MaceMLPScorePredictionHeadParameters,

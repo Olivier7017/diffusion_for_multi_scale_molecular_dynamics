@@ -14,8 +14,10 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predict
     PredictorCorrectorSamplingParameters
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.sampling_constraint import \
     SamplingConstraint
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
+    CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.torus_egnn_score_network import (
+    TorusEGNNScoreNetwork, TorusEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_reciprocal_basis_vectors,
     get_relative_coordinates_from_cartesian_positions,
@@ -33,19 +35,17 @@ class TestExciseAndRepaintSampleMaker(BaseTestExciseSampleMaker):
     def batch_size(self):
         return 3
 
-    @pytest.fixture
-    def score_network_parameters(self, num_atom_types):
-        return EGNNScoreNetworkParameters(
-            number_of_bloch_wave_shells=1,
-            radial_cutoff=5.0,
-            num_atom_types=num_atom_types,
-            normalize=False,
+    @pytest.fixture(params=["cartesian", "torus"])
+    def axl_score_network(self, request, num_atom_types):
+        if request.param == "cartesian":
+            return CartesianEGNNScoreNetwork(
+                CartesianEGNNScoreNetworkParameters(radial_cutoff=5.0, num_atom_types=num_atom_types)
+            )
+        return TorusEGNNScoreNetwork(
+            TorusEGNNScoreNetworkParameters(
+                number_of_bloch_wave_shells=1, radial_cutoff=5.0, num_atom_types=num_atom_types
+            )
         )
-
-    @pytest.fixture()
-    def axl_score_network(self, score_network_parameters):
-        score_network = EGNNScoreNetwork(score_network_parameters)
-        return score_network
 
     @pytest.fixture
     def batch_atom_types(self, batch_size, number_of_atoms, num_atom_types):

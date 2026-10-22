@@ -6,10 +6,10 @@ from e3nn import o3
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION,
     NOISY_CARTESIAN_POSITIONS, NUMBER_OF_ATOMS, TIME)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
+    CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.diffusion_mace_score_network import (
     DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.equivariant_analytical_score_network import (
     EquivariantAnalyticalScoreNetwork,
     EquivariantAnalyticalScoreNetworkParameters)
@@ -17,6 +17,8 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network.mace_score_netwo
     MACEScoreNetwork, MACEScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.score_prediction_head import \
     MaceEquivariantScorePredictionHeadParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.torus_egnn_score_network import (
+    TorusEGNNScoreNetwork, TorusEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import (
     get_positions_from_coordinates, get_reciprocal_basis_vectors,
     get_relative_coordinates_from_cartesian_positions,
@@ -537,20 +539,15 @@ class TestEquivarianceMaceWithEquivariantScorePredictionHead(BaseTestScoreEquiva
         return MACEScoreNetwork(score_network_parameters)
 
 
-class TestEquivarianceEGNN(BaseTestScoreEquivariance):
+class TestEquivarianceCartesianEGNN(BaseTestScoreEquivariance):
 
-    @pytest.fixture(params=[True, False])
+    @pytest.fixture(params=["raw", "tanh", "smooth"])
     def normalize(self, request):
         return request.param
 
-    @pytest.fixture(params=[1, 2, 3])
-    def nbloch(self, request):
-        return request.param
-
     @pytest.fixture()
-    def score_network_parameters(self, num_atom_types, normalize, nbloch):
-        return EGNNScoreNetworkParameters(
-            number_of_bloch_wave_shells=nbloch,
+    def score_network_parameters(self, num_atom_types, normalize):
+        return CartesianEGNNScoreNetworkParameters(
             radial_cutoff=3.0,
             num_atom_types=num_atom_types,
             normalize=normalize,
@@ -558,8 +555,34 @@ class TestEquivarianceEGNN(BaseTestScoreEquivariance):
 
     @pytest.fixture()
     def score_network(self, score_network_parameters):
-        score_network = EGNNScoreNetwork(score_network_parameters)
-        return score_network
+        return CartesianEGNNScoreNetwork(score_network_parameters)
+
+
+class TestEquivarianceTorusEGNN(BaseTestScoreEquivariance):
+
+    @pytest.fixture(params=["raw", "tanh"])
+    def normalize(self, request):
+        return request.param
+
+    @pytest.fixture(params=[1, 2, 3])
+    def nbloch(self, request):
+        return request.param
+
+    @pytest.fixture(params=[("fully_connected", None, False), ("radial_cutoff", 3.0, True)])
+    def score_network_parameters(self, request, num_atom_types, normalize, nbloch):
+        edges, radial_cutoff, smooth_cutoff = request.param
+        return TorusEGNNScoreNetworkParameters(
+            number_of_bloch_wave_shells=nbloch,
+            edges=edges,
+            radial_cutoff=radial_cutoff,
+            smooth_cutoff=smooth_cutoff,
+            num_atom_types=num_atom_types,
+            normalize=normalize,
+        )
+
+    @pytest.fixture()
+    def score_network(self, score_network_parameters):
+        return TorusEGNNScoreNetwork(score_network_parameters)
 
 
 @pytest.mark.parametrize("num_atom_types", [0])

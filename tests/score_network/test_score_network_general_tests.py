@@ -8,19 +8,21 @@ import torch
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, CARTESIAN_FORCES, NOISE, NOISY_AXL_COMPOSITION, NUMBER_OF_ATOMS,
     PADDED_ATOM_TYPE, TIME, UNIT_CELL)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
+    CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.diffusion_mace_score_network import (
     DiffusionMACEScoreNetwork, DiffusionMACEScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.mace_score_network import (
     MACEScoreNetwork, MACEScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import (
     MLPScoreNetwork, MLPScoreNetworkParameters)
-from diffusion_for_multi_scale_molecular_dynamics.score_network.score_network_factory import \
-    create_score_network_parameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.score_network_factory import (
+    create_score_network, create_score_network_parameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.score_prediction_head import (
     MaceEquivariantScorePredictionHeadParameters,
     MaceMLPScorePredictionHeadParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.torus_egnn_score_network import (
+    TorusEGNNScoreNetwork, TorusEGNNScoreNetworkParameters)
 from tests.fake_data_utils import generate_random_string
 from tests.score_network.base_test_score_network import BaseTestScoreNetwork
 
@@ -358,37 +360,15 @@ class TestDiffusionMACEScoreNetwork(BaseScoreNetworkGeneralTests):
         return DiffusionMACEScoreNetwork(score_network_parameters)
 
 
-class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
+class BaseEGNNScoreNetworkGeneralTests(BaseScoreNetworkGeneralTests):
+    """General tests shared by the EGNN score networks."""
 
     @pytest.fixture(params=[1, 2, 3])
     def spatial_dimension(self, request):
         return request.param
 
-    @pytest.fixture(params=[1, 2, 3])
-    def nbloch(self, request):
-        return request.param
-
-    @pytest.fixture()
-    def score_network_parameters(self, spatial_dimension, num_atom_types, nbloch):
-        return EGNNScoreNetworkParameters(
-            number_of_bloch_wave_shells=nbloch,
-            spatial_dimension=spatial_dimension,
-            radial_cutoff=3.0,
-            num_atom_types=num_atom_types,
-        )
-
-    @pytest.fixture()
-    def score_network(self, score_network_parameters):
-        score_network = EGNNScoreNetwork(score_network_parameters)
-        return score_network
-
-    def test_score_network_parameters(self, num_atom_types):
-        score_network_parameters = EGNNScoreNetworkParameters(
-            radial_cutoff=None, num_atom_types=num_atom_types
-        )
-        with pytest.raises(AssertionError):
-            # Check that the code crashes when radial_cutoff isn't a float.
-            EGNNScoreNetwork(score_network_parameters)
+    def test_factory_creates_the_network_of_the_architecture(self, score_network_parameters, score_network):
+        assert type(create_score_network(score_network_parameters)) is type(score_network)
 
     def test_check_batch_raises_with_variable_natoms(self, score_network, padded_batch):
         # EGNN supports variable natoms: _check_batch should not raise.
@@ -398,6 +378,92 @@ class TestEGNNScoreNetwork(BaseScoreNetworkGeneralTests):
         # EGNN should run forward without error on a batch with variable natoms.
         with torch.no_grad():
             score_network(padded_batch)
+
+    def test_padding_does_not_change_the_real_atoms(self, score_network, padded_batch, batch_size):
+        """The real atoms of a padded sample get the same scores as the same atoms without the padding slot."""
+        padded_samples = torch.arange(batch_size // 2)
+        composition = padded_batch[NOISY_AXL_COMPOSITION]
+        trimmed_batch = {
+            NOISY_AXL_COMPOSITION: AXL(A=composition.A[padded_samples, :-1], X=composition.X[padded_samples, :-1],
+                                       L=composition.L[padded_samples].clone()),
+            TIME: padded_batch[TIME][padded_samples],
+            UNIT_CELL: padded_batch[UNIT_CELL][padded_samples],
+            NOISE: padded_batch[NOISE][padded_samples],
+            CARTESIAN_FORCES: padded_batch[CARTESIAN_FORCES][padded_samples, :-1],
+            NUMBER_OF_ATOMS: padded_batch[NUMBER_OF_ATOMS][padded_samples],
+        }
+        score_network.eval()
+        with torch.no_grad():
+            padded_scores = score_network(padded_batch)
+            trimmed_scores = score_network(trimmed_batch)
+        torch.testing.assert_close(padded_scores.X[padded_samples, :-1], trimmed_scores.X)
+        torch.testing.assert_close(padded_scores.A[padded_samples, :-1], trimmed_scores.A)
+
+
+class TestCartesianEGNNScoreNetwork(BaseEGNNScoreNetworkGeneralTests):
+
+    @pytest.fixture(params=["raw", "tanh", "smooth"])
+    def normalize(self, request):
+        return request.param
+
+    @pytest.fixture()
+    def score_network_parameters(self, spatial_dimension, num_atom_types, normalize):
+        return CartesianEGNNScoreNetworkParameters(
+            spatial_dimension=spatial_dimension,
+            radial_cutoff=3.0,
+            num_atom_types=num_atom_types,
+            normalize=normalize,
+        )
+
+    @pytest.fixture()
+    def score_network(self, score_network_parameters):
+        return CartesianEGNNScoreNetwork(score_network_parameters)
+
+    def test_score_network_parameters(self, num_atom_types):
+        with pytest.raises(AssertionError):
+            # Check that the code crashes when radial_cutoff isn't a float.
+            CartesianEGNNScoreNetworkParameters(radial_cutoff=None, num_atom_types=num_atom_types)
+
+
+class TestTorusEGNNScoreNetwork(BaseEGNNScoreNetworkGeneralTests):
+
+    @pytest.fixture(params=[1, 2, 3])
+    def nbloch(self, request):
+        return request.param
+
+    @pytest.fixture(params=[("fully_connected", None, False), ("radial_cutoff", 3.0, True)])
+    def score_network_parameters(self, request, spatial_dimension, num_atom_types, nbloch):
+        edges, radial_cutoff, smooth_cutoff = request.param
+        return TorusEGNNScoreNetworkParameters(
+            number_of_bloch_wave_shells=nbloch,
+            spatial_dimension=spatial_dimension,
+            edges=edges,
+            radial_cutoff=radial_cutoff,
+            smooth_cutoff=smooth_cutoff,
+            num_atom_types=num_atom_types,
+        )
+
+    @pytest.fixture()
+    def score_network(self, score_network_parameters):
+        return TorusEGNNScoreNetwork(score_network_parameters)
+
+    @pytest.mark.parametrize(
+        "edges, radial_cutoff, smooth_cutoff, normalize",
+        [
+            ("fully_connected", 3.0, False, "raw"),
+            ("fully_connected", None, True, "raw"),
+            ("radial_cutoff", None, False, "raw"),
+            ("all", None, False, "raw"),
+            ("radial_cutoff", 3.0, True, "smooth"),
+        ],
+    )
+    def test_score_network_parameters(self, edges, radial_cutoff, smooth_cutoff, normalize, num_atom_types):
+        with pytest.raises(AssertionError):
+            # Check that the code crashes when inconsistent parameters are fed in.
+            TorusEGNNScoreNetworkParameters(
+                edges=edges, radial_cutoff=radial_cutoff, smooth_cutoff=smooth_cutoff, normalize=normalize,
+                num_atom_types=num_atom_types,
+            )
 
     def test_create_block_diagonal_projection_matrices(
         self, score_network, spatial_dimension

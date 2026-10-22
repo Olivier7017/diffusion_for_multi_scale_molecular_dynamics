@@ -102,8 +102,8 @@ def get_score_network(
             num_atom_types=num_atom_types,
         )
 
-    elif architecture == "egnn":
-        score_network = dict(architecture="egnn", num_atom_types=num_atom_types, radial_cutoff=3.0)
+    elif architecture in ("egnn_cartesian", "egnn_torus"):
+        score_network = dict(architecture=architecture, num_atom_types=num_atom_types, radial_cutoff=3.0)
     else:
         raise NotImplementedError("This score network is not implemented")
     return score_network
@@ -187,7 +187,8 @@ def get_config(
 @pytest.mark.parametrize(
     "architecture, head_name, all_devices",
     [
-        ("egnn", None, True),
+        ("egnn_cartesian", None, True),
+        ("egnn_torus", None, True),
         ("diffusion_mace", None, True),
         ("mlp", None, True),
         ("mace", "equivariant", True),

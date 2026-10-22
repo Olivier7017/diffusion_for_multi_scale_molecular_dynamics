@@ -38,8 +38,8 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.models.schedul
 from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noise_schedulers.noise_parameters import \
     NoiseParameters
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import \
-    EGNNScoreNetworkParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import \
+    CartesianEGNNScoreNetworkParameters
 
 # Silence noisy warnings from packages.
 warnings.filterwarnings("ignore", message=r".*isinstance\(treespec, LeafSpec\).*")
@@ -130,7 +130,7 @@ def create_noise_parameters():
 
 def create_diffusion_model():
     """Create the EGNN-based AXL diffusion model."""
-    score_network_parameters = EGNNScoreNetworkParameters(
+    score_network_parameters = CartesianEGNNScoreNetworkParameters(
         num_atom_types=len(ELEMENT_LIST), n_layers=N_LAYERS,
         coordinate_hidden_dimensions_size=HIDDEN_DIMENSIONS_SIZE, coordinate_n_hidden_dimensions=N_LAYERS,
         message_hidden_dimensions_size=HIDDEN_DIMENSIONS_SIZE, message_n_hidden_dimensions=N_LAYERS,

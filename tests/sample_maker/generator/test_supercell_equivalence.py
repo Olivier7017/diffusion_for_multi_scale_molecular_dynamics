@@ -5,6 +5,8 @@ supercell atom has the same local environment as its counterpart in the Si8 cell
 that the counterparts are displaced identically:
     1. the score network gives the same outputs for the counterparts;
     2. the same network outputs give the same cartesian displacements in the predictor and corrector steps.
+Only the cartesian EGNN is tested: the torus EGNN embeds the relative coordinates, so the same cartesian environment
+is a different environment on the torus of a larger cell.
 """
 
 import itertools
@@ -25,8 +27,8 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predict
     PredictorCorrectorSamplingParameters
 from diffusion_for_multi_scale_molecular_dynamics.score_network import \
     ScoreNetworkParameters
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
+    CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_relative_coordinates_to_unit_cell
 from diffusion_for_multi_scale_molecular_dynamics.utils.d3pm_utils import \
@@ -155,13 +157,13 @@ class TestScoreNetworkOutputs:
 
     @pytest.fixture()
     def score_network(self, smooth_cutoff, rebuild_edges_every_layer):
-        score_network_parameters = EGNNScoreNetworkParameters(
+        score_network_parameters = CartesianEGNNScoreNetworkParameters(
             radial_cutoff=5.0,
             num_atom_types=NUM_ATOM_TYPES,
             smooth_cutoff=smooth_cutoff,
             rebuild_edges_every_layer=rebuild_edges_every_layer,
         )
-        score_network = EGNNScoreNetwork(score_network_parameters).double()
+        score_network = CartesianEGNNScoreNetwork(score_network_parameters).double()
         score_network.eval()
         return score_network
 

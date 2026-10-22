@@ -35,8 +35,9 @@ from diffusion_for_multi_scale_molecular_dynamics.diffusion_model.noisers.lattic
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     ATOM_TYPES, AXL, AXL_COMPOSITION, CARTESIAN_FORCES, LATTICE_PARAMETERS,
     NOISE, NOISY_ATOM_TYPES, NOISY_AXL_COMPOSITION, NOISY_LATTICE_PARAMETERS,
-    NOISY_RELATIVE_COORDINATES, PADDED_ATOM_TYPE, Q_BAR_MATRICES,
-    Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME, TIME_INDICES)
+    NOISY_RELATIVE_COORDINATES, NUMBER_OF_ATOMS, PADDED_ATOM_TYPE,
+    Q_BAR_MATRICES, Q_BAR_TM1_MATRICES, Q_MATRICES, RELATIVE_COORDINATES, TIME,
+    TIME_INDICES)
 from diffusion_for_multi_scale_molecular_dynamics.oracle.base_single_point_calculator import (
     BaseSinglePointCalculator, SinglePointCalculation)
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
@@ -45,13 +46,15 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.metrics.sampling_
     SamplingMetricsParameters
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.sampling.diffusion_sampling_parameters import \
     DiffusionSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import \
-    EGNNScoreNetworkParameters
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import \
+    CartesianEGNNScoreNetworkParameters
 from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import \
     MLPScoreNetworkParameters
 from diffusion_for_multi_scale_molecular_dynamics.score_network.target_scores.wrapped_gaussian_score import (
     get_coordinates_sigma_normalized_score_cartesian,
     get_sigma_normalized_score_brute_force)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.torus_egnn_score_network import \
+    TorusEGNNScoreNetworkParameters
 from diffusion_for_multi_scale_molecular_dynamics.utils.basis_transformations import \
     map_relative_coordinates_to_unit_cell
 from diffusion_for_multi_scale_molecular_dynamics.utils.tensor_utils import (
@@ -495,9 +498,15 @@ class TestAXLDiffusionLightningModelWithPadding:
     def optimizer_parameters(self):
         return OptimizerParameters(name="adam", learning_rate=0.001, weight_decay=0.0)
 
+    @pytest.fixture(params=[CartesianEGNNScoreNetworkParameters, TorusEGNNScoreNetworkParameters],
+                    ids=["cartesian", "torus"])
+    def egnn_score_network_parameters_class(self, request):
+        return request.param
+
     @pytest.fixture()
-    def hyper_params(self, num_atom_types, spatial_dimension, loss_parameters, optimizer_parameters):
-        score_network_parameters = EGNNScoreNetworkParameters(
+    def hyper_params(self, num_atom_types, spatial_dimension, loss_parameters, optimizer_parameters,
+                     egnn_score_network_parameters_class):
+        score_network_parameters = egnn_score_network_parameters_class(
             num_atom_types=num_atom_types,
             spatial_dimension=spatial_dimension,
             radial_cutoff=3.0,
@@ -677,6 +686,62 @@ class TestAXLDiffusionLightningModelWithPadding:
         trainer.test(lightning_model, fake_datamodule)
 
 
+@pytest.mark.parametrize(
+    "score_network_parameters",
+    [
+        CartesianEGNNScoreNetworkParameters(num_atom_types=1, radial_cutoff=3.0, n_layers=2),
+        TorusEGNNScoreNetworkParameters(num_atom_types=1, radial_cutoff=3.0, n_layers=2),
+        TorusEGNNScoreNetworkParameters(num_atom_types=1, edges="fully_connected", radial_cutoff=None,
+                                        smooth_cutoff=False, n_layers=2),
+    ],
+    ids=["cartesian", "torus_radial_cutoff", "torus_fully_connected"],
+)
+class TestEGNNCheckpointRoundTrip:
+    """A saved checkpoint loads back the same EGNN score network, with the same outputs."""
+
+    @pytest.fixture()
+    def lightning_model(self, score_network_parameters):
+        hyper_params = AXLDiffusionParameters(
+            score_network_parameters=score_network_parameters,
+            loss_parameters=create_loss_parameters(model_dictionary={}),
+            optimizer_parameters=OptimizerParameters(name="adam", learning_rate=0.001),
+        )
+        return AXLDiffusionLightningModel(hyper_params).eval()
+
+    @pytest.fixture()
+    def batch(self):
+        torch.manual_seed(1234)
+        batch_size, number_of_atoms = 2, 8
+        return {
+            NOISY_AXL_COMPOSITION: AXL(A=torch.zeros(batch_size, number_of_atoms, dtype=torch.long),
+                                       X=torch.rand(batch_size, number_of_atoms, 3),
+                                       L=torch.tensor([[5.43, 5.43, 5.43, 0.0, 0.0, 0.0]] * batch_size)),
+            NOISE: torch.tensor([[0.05], [0.5]]),
+            TIME: torch.rand(batch_size, 1),
+            NUMBER_OF_ATOMS: torch.full((batch_size,), number_of_atoms),
+        }
+
+    def test_checkpoint_round_trip(self, lightning_model, batch, score_network_parameters, tmp_path):
+        trainer = Trainer(accelerator="cpu", logger=False, enable_checkpointing=False)
+        trainer.strategy.connect(lightning_model)
+        checkpoint_path = tmp_path / "model.ckpt"
+        trainer.save_checkpoint(checkpoint_path)
+
+        loaded_model = AXLDiffusionLightningModel.load_from_checkpoint(checkpoint_path, map_location="cpu").eval()
+        assert type(loaded_model.axl_network) is type(lightning_model.axl_network)
+        assert loaded_model.hyper_params.score_network_parameters == score_network_parameters
+
+        def copy(batch):
+            composition = batch[NOISY_AXL_COMPOSITION]
+            return {**batch, NOISY_AXL_COMPOSITION: composition._replace(L=composition.L.clone())}
+
+        with torch.no_grad():
+            scores = lightning_model.axl_network(copy(batch), conditional=False)
+            loaded_scores = loaded_model.axl_network(copy(batch), conditional=False)
+        torch.testing.assert_close(loaded_scores.X, scores.X)
+        torch.testing.assert_close(loaded_scores.A, scores.A)
+
+
 TARGET_SCORE_MATCHING_CELL_LENGTH = 5.43
 AXL_DIFFUSION_LIGHTNING_MODEL_MODULE = sys.modules[AXLDiffusionLightningModel.__module__]
 
@@ -721,10 +786,15 @@ class TestTargetScoreMatchingTraining:
             bad_frames_path=bad_frames_path, maximum_force=5.0, bad_frames_lambda_weight=1.0,
         )
 
+    @pytest.fixture(params=[CartesianEGNNScoreNetworkParameters, TorusEGNNScoreNetworkParameters],
+                    ids=["cartesian", "torus"])
+    def egnn_score_network_parameters_class(self, request):
+        return request.param
+
     @pytest.fixture()
-    def hyper_params(self, target_score_matching_parameters):
+    def hyper_params(self, target_score_matching_parameters, egnn_score_network_parameters_class):
         return AXLDiffusionParameters(
-            score_network_parameters=EGNNScoreNetworkParameters(
+            score_network_parameters=egnn_score_network_parameters_class(
                 num_atom_types=1, radial_cutoff=3.0, n_layers=1, message_hidden_dimensions_size=4,
                 node_hidden_dimensions_size=4, coordinate_hidden_dimensions_size=4,
             ),

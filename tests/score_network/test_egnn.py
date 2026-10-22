@@ -1,16 +1,20 @@
-import pickle
-
 import pytest
 import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, NOISE, NOISY_AXL_COMPOSITION)
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import (
-    E_GCL, EGNN)
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn import \
+    CartesianEGNN
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
+    CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import \
+    E_GCL
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import \
+    EGNNScoreNetwork
 from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_utils import (
     unsorted_segment_mean, unsorted_segment_sum)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.torus_egnn import \
+    TorusEGNN
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -170,10 +174,55 @@ class TestEGCLWithoutSmoothCutoff:
             aggregated_messages = unsorted_segment_mean(messages, row, num_segments=num_nodes)
             expected_h = h + egcl.node_mlp(torch.cat([h, aggregated_messages], dim=1))
 
-            computed_h, computed_coord = egcl(h, edge_index, coord.clone())
+            computed_h, computed_coord = egcl(h, edge_index, coord.clone(), radial)
 
         torch.testing.assert_close(computed_h, expected_h)
         torch.testing.assert_close(computed_coord, expected_coord)
+
+    def test_edges_without_shift(self, egcl, coord, edge_index):
+        """Edges given as [i, j] only: x_i - x_j, with no periodic shift."""
+        _, coord_diff = egcl.coord2radial(edge_index[:, :2], coord)
+        row, col = edge_index[:, 0].long(), edge_index[:, 1].long()
+        torch.testing.assert_close(coord_diff, coord[row] - coord[col])
+
+
+class TestEGCLEnvelopeUsesGivenDistances:
+    """The smooth cutoff uses the edge distances given to the layer, not the distances between the node positions."""
+
+    @pytest.fixture()
+    def egcl(self, egcl_hyperparameters):
+        model = E_GCL(**egcl_hyperparameters, smooth_cutoff=True)
+        model.eval()
+        return model
+
+    @pytest.fixture()
+    def h(self, node_features_size):
+        return torch.randn(2, node_features_size)
+
+    @pytest.fixture()
+    def coord(self):
+        return torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+
+    @pytest.fixture()
+    def edge_index(self):
+        return torch.tensor([[0, 1], [1, 0]]).float()
+
+    def test_edges_beyond_the_cutoff_do_not_contribute(self, egcl, h, coord, edge_index, radial_cutoff):
+        """The nodes are 1 A apart, but the given distance is beyond the cutoff: no message, no displacement."""
+        beyond_cutoff = torch.full((2, 1), (1.1 * radial_cutoff) ** 2)
+        with torch.no_grad():
+            computed_h, computed_coord = egcl(h, edge_index, coord.clone(), beyond_cutoff)
+            expected_h = h + egcl.node_mlp(torch.cat([h, torch.zeros(2, egcl.message_mlp[-2].out_features)], dim=1))
+        torch.testing.assert_close(computed_coord, coord)
+        torch.testing.assert_close(computed_h, expected_h)
+
+    def test_envelope_weights_the_messages(self, egcl, h, coord, edge_index, radial_cutoff):
+        """With a single neighbour, the weighted mean does not depend on the given distance inside the cutoff."""
+        with torch.no_grad():
+            close = egcl(h, edge_index, coord.clone(), torch.full((2, 1), (0.2 * radial_cutoff) ** 2))
+            far = egcl(h, edge_index, coord.clone(), torch.full((2, 1), (0.8 * radial_cutoff) ** 2))
+        torch.testing.assert_close(close[0], far[0])
+        torch.testing.assert_close(close[1], far[1])
 
 
 class TestEGNNContinuityAtCutoff:
@@ -216,7 +265,7 @@ class TestEGNNContinuityAtCutoff:
     def test_smooth_cutoff_is_continuous(
         self, egnn_hyperparameters, h, cell_lengths, distances, step, n_layers, aggregation
     ):
-        egnn = EGNN(
+        egnn = CartesianEGNN(
             **egnn_hyperparameters, n_layers=n_layers, coords_agg=aggregation, message_agg=aggregation,
             smooth_cutoff=True,
         )
@@ -225,7 +274,7 @@ class TestEGNNContinuityAtCutoff:
         assert output_changes.max() < 5.0 * step
 
     def test_hard_cutoff_is_discontinuous(self, egnn_hyperparameters, h, cell_lengths, distances):
-        egnn = EGNN(**egnn_hyperparameters, n_layers=1, smooth_cutoff=False)
+        egnn = CartesianEGNN(**egnn_hyperparameters, n_layers=1, smooth_cutoff=False)
         egnn.eval()
         output_changes = self.compute_outputs(egnn, h, cell_lengths, distances)
         assert output_changes.max() > 2.0e-2
@@ -258,7 +307,7 @@ class TestRebuildEdgesEveryLayer:
     def test_number_of_edge_builds(
         self, egnn_hyperparameters, h, x, cell_lengths, rebuild_edges_every_layer, expected_calls
     ):
-        egnn = EGNN(**egnn_hyperparameters, n_layers=3, rebuild_edges_every_layer=rebuild_edges_every_layer)
+        egnn = CartesianEGNN(**egnn_hyperparameters, n_layers=3, rebuild_edges_every_layer=rebuild_edges_every_layer)
         original_build_edges = egnn._build_edges
         calls = []
 
@@ -271,8 +320,8 @@ class TestRebuildEdgesEveryLayer:
         assert len(calls) == expected_calls
 
     def test_single_layer_is_independent_of_rebuild(self, egnn_hyperparameters, h, x, cell_lengths):
-        egnn_rebuild = EGNN(**egnn_hyperparameters, n_layers=1, rebuild_edges_every_layer=True)
-        egnn_once = EGNN(**egnn_hyperparameters, n_layers=1, rebuild_edges_every_layer=False)
+        egnn_rebuild = CartesianEGNN(**egnn_hyperparameters, n_layers=1, rebuild_edges_every_layer=True)
+        egnn_once = CartesianEGNN(**egnn_hyperparameters, n_layers=1, rebuild_edges_every_layer=False)
         egnn_once.load_state_dict(egnn_rebuild.state_dict())
         egnn_rebuild.eval()
         egnn_once.eval()
@@ -283,46 +332,81 @@ class TestRebuildEdgesEveryLayer:
         torch.testing.assert_close(outputs_rebuild.A, outputs_once.A)
 
 
+class TestTorusEGNNMatchesCartesianEGNN:
+    """With the same weights and the same fixed edges, both EGNN subclasses apply the same layers.
+
+    The cell is large enough that no periodic image is within the cutoff, so the cartesian edges have no shift. With
+    a smooth cutoff, only one layer is compared: CartesianEGNN updates the edge distances from the layer-updated
+    positions, while TorusEGNN keeps the cartesian distances of its input.
+    """
+
+    @pytest.fixture()
+    def number_of_atoms(self):
+        return 6
+
+    @pytest.fixture()
+    def cell_lengths(self):
+        return torch.tensor([[30.0, 30.0, 30.0]])
+
+    @pytest.fixture()
+    def h(self, number_of_atoms):
+        return torch.randn(number_of_atoms, 3)
+
+    @pytest.fixture()
+    def x(self, number_of_atoms):
+        return 10.0 + 2.0 * torch.rand(number_of_atoms, 3)
+
+    @pytest.mark.parametrize("smooth_cutoff, n_layers", [(False, 3), (True, 1)])
+    def test_same_outputs(self, egnn_hyperparameters, h, x, cell_lengths, smooth_cutoff, n_layers):
+        cartesian_egnn = CartesianEGNN(
+            **egnn_hyperparameters, n_layers=n_layers, smooth_cutoff=smooth_cutoff, rebuild_edges_every_layer=False
+        )
+        torus_egnn = TorusEGNN(**egnn_hyperparameters, n_layers=n_layers, smooth_cutoff=smooth_cutoff)
+        torus_egnn.load_state_dict(cartesian_egnn.state_dict())
+        cartesian_egnn.eval()
+        torus_egnn.eval()
+
+        edges = cartesian_egnn._build_edges(x, cell_lengths, natoms=None)
+        assert torch.all(edges[:, 2:] == 0.0)
+        edge_distances_squared = CartesianEGNN._get_edge_distances_squared(edges, x)
+        with torch.no_grad():
+            cartesian_outputs = cartesian_egnn(h, x.clone(), cell_lengths)
+            torus_outputs = torus_egnn(h, x.clone(), edges[:, :2], edge_distances_squared)
+        torch.testing.assert_close(torus_outputs.X, cartesian_outputs.X)
+        torch.testing.assert_close(torus_outputs.A, cartesian_outputs.A)
+
+
 @pytest.mark.parametrize("smooth_cutoff", [True, False])
 @pytest.mark.parametrize("rebuild_edges_every_layer", [True, False])
 def test_score_network_passes_options_to_egnn(smooth_cutoff, rebuild_edges_every_layer):
-    score_network_parameters = EGNNScoreNetworkParameters(
+    score_network_parameters = CartesianEGNNScoreNetworkParameters(
         radial_cutoff=3.0,
         num_atom_types=1,
         smooth_cutoff=smooth_cutoff,
         rebuild_edges_every_layer=rebuild_edges_every_layer,
     )
-    score_network = EGNNScoreNetwork(score_network_parameters)
+    score_network = CartesianEGNNScoreNetwork(score_network_parameters)
+    assert isinstance(score_network.egnn, CartesianEGNN)
     assert score_network.egnn.rebuild_edges_every_layer == rebuild_edges_every_layer
     for graph_layer in score_network.egnn.graph_layers:
         assert graph_layer.smooth_cutoff == smooth_cutoff
         assert graph_layer.radial_cutoff == 3.0
 
 
-@pytest.mark.parametrize("normalize, expected_normalize", [("smooth", "smooth"), (True, "tanh"), (False, "raw")])
-def test_score_network_passes_normalize_to_egnn(normalize, expected_normalize):
-    score_network_parameters = EGNNScoreNetworkParameters(
+@pytest.mark.parametrize("normalize", ["raw", "tanh", "smooth"])
+def test_score_network_passes_normalize_to_egnn(normalize):
+    score_network_parameters = CartesianEGNNScoreNetworkParameters(
         radial_cutoff=3.0, num_atom_types=1, normalize=normalize, normalization_length=0.2,
     )
-    assert score_network_parameters.normalize == expected_normalize
-    score_network = EGNNScoreNetwork(score_network_parameters)
+    score_network = CartesianEGNNScoreNetwork(score_network_parameters)
     for graph_layer in score_network.egnn.graph_layers:
-        assert graph_layer.normalize == expected_normalize
+        assert graph_layer.normalize == normalize
         assert graph_layer.normalization_length == 0.2
 
 
-@pytest.mark.parametrize("normalize, expected_normalize", [(True, "tanh"), (False, "raw")])
-def test_parameters_pickled_with_boolean_normalize(normalize, expected_normalize):
-    old_parameters = EGNNScoreNetworkParameters(radial_cutoff=3.0, num_atom_types=1)
-    old_parameters.__dict__["normalize"] = normalize
-    del old_parameters.__dict__["normalization_length"]
-    restored_parameters = pickle.loads(pickle.dumps(old_parameters))
-    assert restored_parameters.normalize == expected_normalize
-    assert restored_parameters.normalization_length == 0.1
-
-
 def test_score_network_options_default_to_true():
-    score_network_parameters = EGNNScoreNetworkParameters(radial_cutoff=3.0, num_atom_types=1)
+    score_network_parameters = CartesianEGNNScoreNetworkParameters(radial_cutoff=3.0, num_atom_types=1)
+    assert score_network_parameters.architecture == "egnn_cartesian"
     assert score_network_parameters.smooth_cutoff
     assert score_network_parameters.rebuild_edges_every_layer
 

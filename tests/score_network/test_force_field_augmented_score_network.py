@@ -15,8 +15,8 @@ from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.langevi
     LangevinGenerator
 from diffusion_for_multi_scale_molecular_dynamics.sample_maker.generator.predictor_corrector_axl_generator import \
     PredictorCorrectorSamplingParameters
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_score_network import (
-    EGNNScoreNetwork, EGNNScoreNetworkParameters)
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
+    CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.force_field_augmented_score_network import (
     ForceFieldAugmentedScoreNetwork, ForceFieldAugmentedScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.mlp_score_network import (
@@ -377,9 +377,8 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
 
     @pytest.fixture()
     def score_network_parameters_Si32(self):
-        score_network_parameters = EGNNScoreNetworkParameters(
+        score_network_parameters = CartesianEGNNScoreNetworkParameters(
             num_atom_types=1,
-            number_of_bloch_wave_shells=1,
             message_n_hidden_dimensions=2,
             message_hidden_dimensions_size=64,
             node_n_hidden_dimensions=2,
@@ -388,7 +387,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             coordinate_hidden_dimensions_size=64,
             residual=True,
             attention=False,
-            normalize=True,
+            normalize="tanh",
             tanh=True,
             coords_agg="mean",
             message_agg="mean",
@@ -430,7 +429,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             element_list=element_list_Si32,
         )
 
-        score_network = EGNNScoreNetwork(score_network_parameters_Si32)
+        score_network = CartesianEGNNScoreNetwork(score_network_parameters_Si32)
         force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
             repulsive_force_parameters=zbl_parameters,
             force_activation_scale=100.,
@@ -561,7 +560,7 @@ class TestForceFieldAugmentedScoreNetworkZBL(BaseTestScoreNetwork):
             element_list=element_list_Si32,
         )
 
-        score_network = EGNNScoreNetwork(score_network_parameters_Si32)
+        score_network = CartesianEGNNScoreNetwork(score_network_parameters_Si32)
         force_field_parameters = ForceFieldAugmentedScoreNetworkParameters(
             repulsive_force_parameters=zbl_parameters,
             force_activation_scale=100.0,

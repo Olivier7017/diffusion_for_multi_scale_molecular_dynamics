@@ -10,13 +10,12 @@ The file is modified from the original download to fit our own linting style and
 
 from typing import Callable, Optional, Tuple
 
-import einops
 import torch
 from torch import nn
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
 from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_utils import (
-    build_graph_periodic_edges_batch, unsorted_segment_mean, unsorted_segment_sum)
+    unsorted_segment_mean, unsorted_segment_sum)
 
 
 class E_GCL(nn.Module):
@@ -32,7 +31,7 @@ class E_GCL(nn.Module):
         node_hidden_dimensions_size: int,
         coordinate_n_hidden_dimensions: int,
         coordinate_hidden_dimensions_size: int,
-        radial_cutoff: float,
+        radial_cutoff: Optional[float],
         act_fn: Callable = nn.SiLU(),
         residual: bool = True,
         attention: bool = False,
@@ -54,7 +53,8 @@ class E_GCL(nn.Module):
             node_hidden_dimensions_size: size of the hidden layers of the node update MLP
             coordinate_n_hidden_dimensions: number of hidden layers of the coordinate update MLP
             coordinate_hidden_dimensions_size: size of the hidden layers of the coordinate update MLP
-            radial_cutoff: cutoff distance, in Angstrom, at which the smooth cutoff envelope reaches zero.
+            radial_cutoff: cutoff distance, in Angstrom, at which the smooth cutoff envelope reaches zero. Only used
+                with smooth_cutoff.
             act_fn: activation function used in the MLPs. Defaults to nn.SiLU()
             residual: if True, add a skip connection in the nodes update. Defaults to True.
             attention: if True, multiply the message output by a gated value of the output. Defaults to False.
@@ -284,8 +284,8 @@ class E_GCL(nn.Module):
         """Compute distances between linked nodes.
 
         Args:
-            edge_index: source and destination indices, and their periodic shift (Angstrom).
-                size: number of edges, 2 + spatial_dimension
+            edge_index: source and destination indices, optionally followed by their periodic shift (Angstrom).
+                size: number of edges, 2 or 2 + spatial_dimension
             coord: coordinates. size: number of nodes, spatial dimension
 
         Returns:
@@ -293,8 +293,9 @@ class E_GCL(nn.Module):
             distance vector between nodes. size: number of edges, spatial dimension
         """
         row, col = edge_index[:, 0].long(), edge_index[:, 1].long()
-        shift = edge_index[:, 2:]
-        coord_diff = coord[row] - coord[col] - shift
+        coord_diff = coord[row] - coord[col]
+        if edge_index.shape[1] > 2:
+            coord_diff = coord_diff - edge_index[:, 2:]
         radial = torch.sum(coord_diff**2, 1).unsqueeze(1)
 
         if self.normalize != "raw":  # normalize distance vector to be unit vector
@@ -337,23 +338,25 @@ class E_GCL(nn.Module):
         h: torch.Tensor,
         edge_index: torch.Tensor,
         coord: torch.Tensor,
+        edge_distances_squared: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute node embeddings and coordinates.
 
         Args:
             h: node features. size: number of nodes, input_size
-            edge_index: source and destination indices, and their periodic shift (Angstrom).
-                size: number of edges, 2 + spatial_dimension
+            edge_index: source and destination indices, optionally followed by their periodic shift (Angstrom).
+                size: number of edges, 2 or 2 + spatial_dimension
             coord: node positions. size: number of nodes, spatial dimension
+            edge_distances_squared: cartesian distance squared of every edge (Angstrom^2), for the smooth cutoff.
+                size: number of edges, 1
 
         Returns:
             updated node features. size: number of nodes, output_size
             updated coordinates. size: number of nodes, spatial dimension
         """
         row, col = edge_index[:, 0].long(), edge_index[:, 1].long()
-        # compute cartesian distances between nodes (atoms)
         radial, coord_diff = self.coord2radial(edge_index, coord)
-        envelope = self.cutoff_envelope(radial) if self.smooth_cutoff else None
+        envelope = self.cutoff_envelope(edge_distances_squared) if self.smooth_cutoff else None
 
         messages = self.message_model(h[row], h[col], radial)  # compute m_{ij}
         coord = self.coord_model(coord, edge_index, coord_diff, messages, envelope)  # update x_i
@@ -362,7 +365,10 @@ class E_GCL(nn.Module):
 
 
 class EGNN(nn.Module):
-    """EGNN model."""
+    """EGNN model: the node embedding, the stack of E_GCL layers and the atom type classification.
+
+    The subclasses define the forward pass, i.e. how the edges of the graph are obtained.
+    """
 
     def __init__(
         self,
@@ -374,7 +380,7 @@ class EGNN(nn.Module):
         node_hidden_dimensions_size: int,
         coordinate_n_hidden_dimensions: int,
         coordinate_hidden_dimensions_size: int,
-        radial_cutoff: float,
+        radial_cutoff: Optional[float],
         act_fn: Callable = nn.SiLU(),
         residual: bool = True,
         attention: bool = False,
@@ -385,7 +391,6 @@ class EGNN(nn.Module):
         message_agg: str = "mean",
         n_layers: int = 4,
         smooth_cutoff: bool = True,
-        rebuild_edges_every_layer: bool = True,
     ):
         """EGNN model stacking multiple E_GCL layers.
 
@@ -398,7 +403,8 @@ class EGNN(nn.Module):
             node_hidden_dimensions_size: size of the hidden layers of the node update MLP
             coordinate_n_hidden_dimensions: number of hidden layers of the coordinate update MLP
             coordinate_hidden_dimensions_size: size of the hidden layers of the coordinate update MLP
-            radial_cutoff: cutoff distance, in Angstrom, used to build the periodic edges.
+            radial_cutoff: cutoff distance, in Angstrom, of the edges. Only used by the smooth cutoff and to build
+                edges within a cutoff.
             act_fn: activation function used in the MLPs. Defaults to nn.SiLU()
             residual: if True, add a skip connection in the nodes update. Defaults to True.
             attention: if True, multiply the message output by a gated value of the output. Defaults to False.
@@ -413,13 +419,10 @@ class EGNN(nn.Module):
             n_layers: number of E_GCL layers. Defaults to 4.
             smooth_cutoff: if True, add a cosine envelope that smoothly goes to zero at radial cutoff :
                 f(r) = 0.5 * (cos(pi * r / radial_cutoff) + 1). Defaults to True.
-            rebuild_edges_every_layer: if True, rebuild the periodic edges from the layer-updated positions before
-                every layer. If False, build them once from the input positions. Defaults to True.
         """
         super(EGNN, self).__init__()
         self.n_layers = n_layers
         self.radial_cutoff = radial_cutoff
-        self.rebuild_edges_every_layer = rebuild_edges_every_layer
         self.embedding_in = nn.Linear(input_size, node_hidden_dimensions_size)
         self.graph_layers = nn.ModuleList([])
         self.node_classification_layer = nn.Linear(
@@ -449,63 +452,22 @@ class EGNN(nn.Module):
                 )
             )
 
-    def _build_edges(
-        self,
-        x: torch.Tensor,
-        cell_lengths: torch.Tensor,
-        natoms: Optional[torch.Tensor],
-    ) -> torch.Tensor:
-        """Build the periodic edges within radial_cutoff.
+    def _get_model_outputs(self, h: torch.Tensor, x: torch.Tensor) -> AXL:
+        """Classify the atom types from the final node features.
 
         Args:
-            x: node coordinates. size is number of nodes, spatial dimension
-            cell_lengths: per-sample orthogonal cell side lengths. size: batch_size, spatial_dimension
-            natoms: optional real (non-padded) atom count per sample. size: batch_size
-
-        Returns:
-            edges as [i, j, shift_x, shift_y, shift_z]. size: number of edges, 2 + spatial_dimension
-        """
-        batch_size = cell_lengths.shape[0]
-        batched_x = einops.rearrange(
-            x, "(batch natoms) spatial_dimension -> batch natoms spatial_dimension",
-            batch=batch_size, natoms=x.shape[0] // batch_size,
-        )
-        return build_graph_periodic_edges_batch(
-            batched_x, cell_lengths, self.radial_cutoff, natoms=natoms,
-        )
-
-    def forward(
-        self,
-        h: torch.Tensor,
-        x: torch.Tensor,
-        cell_lengths: torch.Tensor,
-        natoms: Optional[torch.Tensor] = None,
-    ) -> AXL:
-        """Forward instructions for the model.
-
-        Args:
-            h: node features. size is number of nodes (atoms), input size
-            x: node coordinates. size is number of nodes, spatial dimension
-            cell_lengths: per-sample orthogonal cell side lengths, used to build the periodic
-                edges. size: batch_size, spatial_dimension
-            natoms: optional real (non-padded) atom count per sample. size: batch_size
+            h: final node features. size is number of nodes, node_hidden_dimensions_size
+            x: final node coordinates. size is number of nodes, coordinates dimension
 
         Returns:
             estimated score in an AXL namedtuple.
-                coordinates: size is number of nodes, spatial dimension
+                coordinates: size is number of nodes, coordinates dimension
                 atom types: number of nodes, number of atomic species + 1 (for MASK)
                 lattice: number of nodes, spatial dimension * (spatial dimension - 1) TODO
         """
-        h = self.embedding_in(h)
-        edges = self._build_edges(x, cell_lengths, natoms)
-        for layer_index, graph_layer in enumerate(self.graph_layers):
-            if self.rebuild_edges_every_layer and layer_index > 0:
-                edges = self._build_edges(x, cell_lengths, natoms)
-            h, x = graph_layer(h, edges, x)
         node_classification_logits = self.node_classification_layer(h)
-        model_outputs = AXL(
+        return AXL(
             A=node_classification_logits,
             X=x,
             L=torch.zeros_like(x),  # TODo
         )
-        return model_outputs
