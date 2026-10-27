@@ -990,7 +990,9 @@ class TestTargetScoreMatchingTraining:
         kappa = (0.044**2 / (0.044**2 + sigma**2))[:, None, None]
         forces = bad_frames["forces"][bad_frame_indices]
         target = kappa * sigma[:, None, None] * target_score_matching_parameters.beta * forces
-        error = get_one_sided_squared_error(torch.full_like(target, 0.3), target)
+        saturated_atoms = bad_frames["saturated_atoms"][bad_frame_indices]
+        assert saturated_atoms[:, 0].all()
+        error = get_one_sided_squared_error(torch.full_like(target, 0.3), target, saturated_atoms)
         expected_loss = (error.mean(dim=-1) / 3).sum() / 8
         torch.testing.assert_close(loss, expected_loss)
 

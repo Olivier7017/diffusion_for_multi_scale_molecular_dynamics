@@ -43,8 +43,9 @@ class TargetScoreMatchingParameters:
         bad_frames_path: trajectory of bad configurations, each with its forces stored in a SinglePointCalculator.
             Every bad frame is used once per training epoch.
         maximum_force: the norm of each atomic force of a bad frame is clipped to this value, to not train
-            exclusively on the configurations with the highest gradient. A prediction at least as strong as the
-            target, in the direction of the target, is not penalized. Required with bad_frames_path.
+            exclusively on the configurations with the highest gradient. For an atom whose force is clipped, a
+            prediction at least as strong as the target, in the direction of the target, is not penalized.
+            Required with bad_frames_path.
         bad_frames_lambda_weight: weight of each bad frame in the loss, relative to a training configuration.
     """
 
@@ -130,17 +131,22 @@ def clip_forces(forces: torch.Tensor, maximum_force: float) -> torch.Tensor:
     return forces * torch.clamp(maximum_force / norms.clamp(min=1e-12), max=1.0)
 
 
-def get_one_sided_squared_error(predictions: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Squared error of each atom, one-sided along the target.
+def get_one_sided_squared_error(
+    predictions: torch.Tensor, target: torch.Tensor, saturated_atoms: torch.Tensor
+) -> torch.Tensor:
+    """Squared error of each atom, one-sided for saturated atoms.
 
-    The prediction is split into its component along the target direction and its perpendicular component, so that
-    the squared error is (|target| - parallel)^2 + |perpendicular|^2. The parallel term is only counted when the
-    prediction is weaker than the target: a prediction at least as strong as the target, in its direction, is not
-    penalized, while the perpendicular term keeps the direction right.
+    Calculate the error for the predictions of the network. Saturated atoms are those whose force was bigger than
+    maximum_force, before clipping.
+    The prediction norm is not penalized if it is at least as strong as the clipped target.
+    The prediction direction is penalized as the difference between prediction and the component of prediction
+    parallel to the target (a prediction stronger than the target is penalized as if it had the norm of the target).
+    Every unsaturated atom has the plain squared error |predictions - target|^2.
 
     Args:
         predictions: predicted sigma-normalized scores. Dimension [batch_size, number_of_atoms, 3].
         target: target sigma-normalized scores. Dimension [batch_size, number_of_atoms, 3].
+        saturated_atoms: atoms whose force is clipped. Dimension [batch_size, number_of_atoms].
 
     Returns:
         squared_error: squared error of each atom. Dimension [batch_size, number_of_atoms].
@@ -150,7 +156,11 @@ def get_one_sided_squared_error(predictions: torch.Tensor, target: torch.Tensor)
     parallel = (predictions * target_directions).sum(dim=-1, keepdim=True)
     perpendicular = predictions - parallel * target_directions
     parallel_error = (target_norms - parallel).clamp(min=0.0)
-    return (parallel_error**2 + (perpendicular**2).sum(dim=-1, keepdim=True)).squeeze(-1)
+    prediction_norms = torch.linalg.norm(predictions, dim=-1, keepdim=True)
+    perpendicular_scale = (target_norms / prediction_norms.clamp(min=1e-12)).clamp(max=1.0)
+    one_sided_error = parallel_error**2 + ((perpendicular_scale * perpendicular) ** 2).sum(dim=-1, keepdim=True)
+    plain_error = ((predictions - target) ** 2).sum(dim=-1)
+    return torch.where(saturated_atoms, one_sided_error.squeeze(-1), plain_error)
 
 
 def read_bad_frames(
@@ -167,8 +177,9 @@ def read_bad_frames(
         maximum_force: the norm of each atomic force is clipped to this value, in eV/Angstrom.
 
     Returns:
-        bad_frames: the composition (AXL of atom types, relative coordinates and lattice parameters) and the clipped
-            forces of every frame, or None if the file is missing or empty.
+        bad_frames: the composition (AXL of atom types, relative coordinates and lattice parameters), the clipped
+            forces and the saturated atoms (whose force is clipped) of every frame, or None if the file is missing
+            or empty.
     """
     bad_frames_path = Path(bad_frames_path)
     if not bad_frames_path.is_file() or bad_frames_path.stat().st_size == 0:
@@ -196,4 +207,5 @@ def read_bad_frames(
         L=torch.tensor(lattice_parameters, dtype=torch.float32),
     )
     forces = torch.tensor(np.ascontiguousarray(np.stack([atoms.get_forces() for atoms in frames])), dtype=torch.float32)
-    return dict(composition=composition, forces=clip_forces(forces, maximum_force))
+    saturated_atoms = torch.linalg.norm(forces, dim=-1) > maximum_force
+    return dict(composition=composition, forces=clip_forces(forces, maximum_force), saturated_atoms=saturated_atoms)

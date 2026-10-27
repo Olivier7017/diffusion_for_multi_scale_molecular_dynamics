@@ -135,22 +135,67 @@ class TestOneSidedSquaredError:
             ([-148.0, 0.0, 0.0], 0.0, [0.0, 0.0, 0.0]),
             ([-4.0, 0.0, 0.0], 4.5**2, [9.0, 0.0, 0.0]),
             ([148.0, 0.0, 0.0], 156.5**2, [313.0, 0.0, 0.0]),
-            ([-148.0, 30.0, 0.0], 30.0**2, [0.0, 60.0, 0.0]),
         ],
     )
-    def test_one_sided_squared_error(self, target, prediction, expected_error, expected_gradient):
+    def test_saturated_atom_along_the_target(self, target, prediction, expected_error, expected_gradient):
         predictions = torch.tensor([[prediction]], requires_grad=True)
-        error = get_one_sided_squared_error(predictions, target)
+        error = get_one_sided_squared_error(predictions, target, torch.tensor([[True]]))
         error.sum().backward()
         torch.testing.assert_close(error, torch.tensor([[expected_error]]))
         torch.testing.assert_close(predictions.grad, torch.tensor([[expected_gradient]]))
 
-    def test_weaker_predictions_have_the_plain_squared_error(self):
+    @pytest.mark.parametrize("angle", [0.1, 1.0, 5.0, 10.0, 15.0, 20.0, 30.0])
+    @pytest.mark.parametrize("prediction_norm", [6.0, 1.0e6])
+    def test_saturated_atom_direction_is_penalized_at_the_target_norm(self, angle, prediction_norm):
+        """A prediction stronger than the target costs |target|^2 sin^2(angle), whatever its norm."""
+        target = torch.tensor([[[5.0, 0.0, 0.0]]], dtype=torch.float64)
+        radians = np.radians(angle)
+        predictions = prediction_norm * torch.tensor([[[np.cos(radians), np.sin(radians), 0.0]]], dtype=torch.float64)
+        error = get_one_sided_squared_error(predictions, target, torch.tensor([[True]]))
+        torch.testing.assert_close(error, torch.tensor([[25.0 * np.sin(radians) ** 2]], dtype=torch.float64))
+
+    def test_saturated_atom_stronger_predictions_in_the_same_direction_have_the_same_error(self):
+        """Predictions of norm 10 and 148, both stronger than a target of norm 5, 8 degrees off the target."""
+        target = torch.tensor([[[5.0, 0.0, 0.0], [5.0, 0.0, 0.0]]], dtype=torch.float64)
+        radians = np.radians(8.0)
+        direction = torch.tensor([np.cos(radians), np.sin(radians), 0.0], dtype=torch.float64)
+        predictions = torch.stack([10.0 * direction, 148.0 * direction]).unsqueeze(0)
+        error = get_one_sided_squared_error(predictions, target, torch.tensor([[True, True]]))
+        torch.testing.assert_close(error[0, 0], error[0, 1])
+        torch.testing.assert_close(error[0, 0], torch.tensor(25.0 * np.sin(radians) ** 2, dtype=torch.float64))
+
+    def test_saturated_atom_weaker_prediction_has_the_plain_squared_error(self):
         torch.manual_seed(0)
         target = torch.randn(2, 4, 3)
-        predictions = 0.5 * target + torch.linalg.cross(target, torch.randn(2, 4, 3))
-        error = get_one_sided_squared_error(predictions, target)
+        perpendicular_directions = torch.nn.functional.normalize(
+            torch.linalg.cross(target, torch.randn(2, 4, 3)), dim=-1
+        )
+        target_norms = torch.linalg.norm(target, dim=-1, keepdim=True)
+        predictions = 0.5 * target + 0.3 * target_norms * perpendicular_directions
+        error = get_one_sided_squared_error(predictions, target, torch.ones(2, 4, dtype=torch.bool))
         torch.testing.assert_close(error, ((predictions - target) ** 2).sum(dim=-1))
+
+    @pytest.mark.parametrize(
+        "prediction", [[-10.0, 0.0, 0.0], [-148.0, 0.0, 0.0], [-4.0, 0.0, 0.0], [148.0, 0.0, 0.0], [-148.0, 30.0, 0.0]]
+    )
+    def test_unsaturated_atom_has_the_plain_squared_error(self, target, prediction):
+        """The target of an unsaturated atom is exact: a stronger prediction is penalized too."""
+        predictions = torch.tensor([[prediction]])
+        error = get_one_sided_squared_error(predictions, target, torch.tensor([[False]]))
+        torch.testing.assert_close(error, ((predictions - target) ** 2).sum(dim=-1))
+
+    def test_relaxed_atom_must_stay_put(self):
+        """An almost relaxed atom has a tiny exact target: a prediction of 0.5 is penalized, not free."""
+        target = torch.tensor([[[4.0e-5, 0.0, 0.0]]])
+        predictions = torch.tensor([[[0.5, 0.0, 0.0]]])
+        error = get_one_sided_squared_error(predictions, target, torch.tensor([[False]]))
+        torch.testing.assert_close(error, torch.tensor([[(0.5 - 4.0e-5) ** 2]]))
+
+    def test_saturated_atoms_are_selected_per_atom(self, target):
+        predictions = torch.tensor([[[-148.0, 0.0, 0.0], [-148.0, 0.0, 0.0]]])
+        targets = target.repeat(1, 2, 1)
+        error = get_one_sided_squared_error(predictions, targets, torch.tensor([[True, False]]))
+        torch.testing.assert_close(error, torch.tensor([[0.0, 139.5**2]]))
 
 
 def make_frame(number_of_atoms=4, forces=None, cell=None, with_calculator=True, seed=0):
@@ -196,6 +241,7 @@ class TestReadBadFrames:
         torch.testing.assert_close(composition.L, torch.tensor([[CELL_LENGTH] * 3 + [0.0] * 3] * 3))
         expected_forces = torch.tensor([[5.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 0.0]])
         torch.testing.assert_close(bad_frames["forces"], expected_forces.repeat(3, 1, 1))
+        torch.testing.assert_close(bad_frames["saturated_atoms"], torch.tensor([[True, False, False, False]] * 3))
 
     @pytest.mark.parametrize(
         "frames",

@@ -495,9 +495,9 @@ class AXLDiffusionLightningModel(pl.LightningModule):
 
         Each bad frame is given to the network with a noise level drawn log-uniformly between minimum_sigma and
         maximum_sigma, but is not noised: the denoising score matching target vanishes and the target is
-        kappa sigma beta F. The squared error is one-sided along the target (see get_one_sided_squared_error). The
-        loss is summed over the bad frames and divided by the number of training configurations, so that a bad frame
-        weighs bad_frames_lambda_weight times a training configuration.
+        kappa sigma beta F. The squared error is one-sided for the saturated atoms (see
+        get_one_sided_squared_error). The loss is summed over the bad frames and divided by the number of training
+        configurations, so that a bad frame weighs bad_frames_lambda_weight times a training configuration.
 
         Args:
             bad_frame_indices: indices of the bad frames to evaluate.
@@ -531,7 +531,9 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             NUMBER_OF_ATOMS: torch.full((number_of_bad_frames,), number_of_atoms, dtype=torch.long, device=x0.device),
         }
         predictions = self.axl_network(batch, conditional=False)
-        squared_error = get_one_sided_squared_error(predictions.X, target)
+        squared_error = get_one_sided_squared_error(
+            predictions.X, target, self.bad_frames["saturated_atoms"][bad_frame_indices]
+        )
         loss_per_bad_frame = squared_error.mean(dim=-1) / spatial_dimension
         return (parameters.bad_frames_lambda_weight * self.loss_weights.X
                 * loss_per_bad_frame.sum() / number_of_training_configurations)
@@ -574,6 +576,7 @@ class AXLDiffusionLightningModel(pl.LightningModule):
             composition=AXL(A=composition.A.to(self.device), X=composition.X.to(self.device),
                             L=composition.L.to(self.device)),
             forces=bad_frames["forces"].to(self.device),
+            saturated_atoms=bad_frames["saturated_atoms"].to(self.device),
         )
         logger.info(f"Read {len(bad_frames['forces'])} bad frames from {bad_frames_path}.")
 
