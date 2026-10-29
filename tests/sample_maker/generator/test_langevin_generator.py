@@ -827,3 +827,82 @@ class TestCellSizeIndependence:
             list_dx_cart.append(dx_cart)
 
         torch.testing.assert_close(list_dx_cart[0], list_dx_cart[1])
+
+
+class NonFiniteAXLNetwork(FakeAXLNetwork):
+    """A fake score network whose coordinates scores are infinite and whose atom type logits are NaN."""
+
+    def _forward_unchecked(self, batch, conditional=False):
+        outputs = super()._forward_unchecked(batch, conditional)
+        return AXL(A=torch.full_like(outputs.A, torch.nan), X=torch.full_like(outputs.X, torch.inf), L=outputs.L)
+
+
+class TestFiniteModelPredictions:
+    """The network outputs are made finite before they are used, so that a pathological output cannot crash."""
+
+    @pytest.fixture()
+    def num_atom_types(self):
+        return 2
+
+    @pytest.fixture()
+    def score_network_parameters(self, num_atom_types):
+        return ScoreNetworkParameters(architecture="dummy", spatial_dimension=3, num_atom_types=num_atom_types)
+
+    def make_generator(self, axl_network, num_atom_types, maximum_sigma_score=10.0, number_of_samples=2):
+        sampling_parameters = PredictorCorrectorSamplingParameters(
+            number_of_atoms=4, number_of_samples=number_of_samples, spatial_dimension=3,
+            num_atom_types=num_atom_types, maximum_sigma_score=maximum_sigma_score, progress_bar=False,
+        )
+        return LangevinGenerator(noise_parameters=NoiseParameters(total_time_steps=5),
+                                 sampling_parameters=sampling_parameters, axl_network=axl_network)
+
+    @pytest.fixture()
+    def generator(self, score_network_parameters, num_atom_types):
+        return self.make_generator(FakeAXLNetwork(score_network_parameters), num_atom_types)
+
+    @pytest.fixture()
+    def finite_predictions(self, num_atom_types):
+        return AXL(A=torch.zeros(1, 4, num_atom_types + 1), X=torch.zeros(1, 4, 3), L=torch.zeros(1, 6))
+
+    def test_default_maximum_sigma_score(self, num_atom_types):
+        sampling_parameters = PredictorCorrectorSamplingParameters(
+            number_of_atoms=4, number_of_samples=1, spatial_dimension=3, num_atom_types=num_atom_types
+        )
+        assert sampling_parameters.maximum_sigma_score == 10.0
+
+    def test_non_finite_atom_scores_are_zeroed(self, generator, finite_predictions):
+        scores = torch.tensor([[[torch.nan, 1.0, 2.0], [torch.inf, 0.0, 0.0], [1.0, 2.0, 2.0], [0.5, -torch.inf, 0.0]]])
+        finite_scores = generator._get_finite_model_predictions(finite_predictions._replace(X=scores)).X
+        expected = torch.tensor([[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 2.0, 2.0], [0.0, 0.0, 0.0]]])
+        torch.testing.assert_close(finite_scores, expected)
+
+    @pytest.mark.parametrize("maximum_sigma_score, expected_strong_score", [(10.0, [6.0, 8.0, 0.0]),
+                                                                            (None, [30.0, 40.0, 0.0])])
+    def test_scores_are_capped_keeping_their_direction(self, score_network_parameters, num_atom_types,
+                                                       finite_predictions, maximum_sigma_score, expected_strong_score):
+        generator = self.make_generator(FakeAXLNetwork(score_network_parameters), num_atom_types,
+                                        maximum_sigma_score=maximum_sigma_score)
+        scores = torch.tensor([[[30.0, 40.0, 0.0], [1.0, 2.0, 2.0], [0.0, 0.0, 0.0], [0.0, -3.0, 4.0]]])
+        finite_scores = generator._get_finite_model_predictions(finite_predictions._replace(X=scores)).X
+        expected = torch.tensor([[expected_strong_score, [1.0, 2.0, 2.0], [0.0, 0.0, 0.0], [0.0, -3.0, 4.0]]])
+        torch.testing.assert_close(finite_scores, expected)
+
+    def test_logits_are_made_finite_keeping_the_masked_probabilities(self, generator, finite_predictions):
+        logits = torch.tensor([[[0.5, 1.0, -torch.inf], [torch.nan, 0.0, torch.inf], [0.0, 0.0, 0.0],
+                                [torch.nan, torch.nan, torch.nan]]])
+        finite_logits = generator._get_finite_model_predictions(finite_predictions._replace(A=logits)).A
+        assert torch.isfinite(finite_logits).all()
+        probabilities = torch.softmax(finite_logits, dim=-1)
+        torch.testing.assert_close(probabilities.sum(dim=-1), torch.ones(1, 4))
+        torch.testing.assert_close(probabilities[0, 0], torch.softmax(torch.tensor([0.5, 1.0, -torch.inf]), dim=-1))
+
+    def test_non_finite_lattice_scores_are_zeroed(self, generator, finite_predictions):
+        lattice_scores = torch.tensor([[1.0, torch.nan, torch.inf, -torch.inf, 2.0, 0.0]])
+        finite_lattice_scores = generator._get_finite_model_predictions(finite_predictions._replace(L=lattice_scores)).L
+        torch.testing.assert_close(finite_lattice_scores, torch.tensor([[1.0, 0.0, 0.0, 0.0, 2.0, 0.0]]))
+
+    def test_sampling_survives_a_non_finite_network(self, score_network_parameters, num_atom_types):
+        """Without the cleaning, the infinite scores give NaN coordinates, which fail the next _check_batch."""
+        generator = self.make_generator(NonFiniteAXLNetwork(score_network_parameters), num_atom_types)
+        samples = generator.sample(2, torch.device("cpu"))
+        assert torch.all((samples.X >= 0.0) & (samples.X < 1.0))

@@ -29,6 +29,7 @@ class PredictorCorrectorSamplingParameters(SamplingParameters):
     atom_type_greedy_sampling: bool = True
     atom_type_transition_in_corrector: bool = False
     progress_bar: bool = True
+    maximum_sigma_score: Optional[float] = 10.0  # cap on each atom's sigma-normalized score norm (None: no cap)
 
     # Step size scaling for the Adaptive Corrector Generator. Default value comes from github implementation
     # https: // github.com / yang - song / score_sde / blob / main / configs / default_celeba_configs.py

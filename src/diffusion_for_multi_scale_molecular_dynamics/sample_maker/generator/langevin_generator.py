@@ -59,6 +59,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
         self.masked_atom_type_index = self.num_classes - 1
         self.axl_network = axl_network
         self.small_epsilon = sampling_parameters.small_epsilon
+        self.maximum_sigma_score = sampling_parameters.maximum_sigma_score
 
         self.one_atom_type_transition_per_step = (
             sampling_parameters.one_atom_type_transition_per_step
@@ -131,7 +132,7 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
                 spatial_dimension]
 
         Returns:
-            axl network output:
+            axl network output, made finite (see _get_finite_model_predictions):
                  atom type: logits of p(a_0 | a_t).
                  relative coordinates: sigma normalized score: sigma x Score(x, t).
                  lattice: sigma normalized score: sigma x Score (l, t).
@@ -155,7 +156,30 @@ class LangevinGenerator(PredictorCorrectorAXLGenerator):
 
         # TODO do not hard-code conditional to False - need to be able to condition sampling
         model_predictions = self.axl_network(augmented_batch, conditional=False)
-        return model_predictions
+        return self._get_finite_model_predictions(model_predictions)
+
+    def _get_finite_model_predictions(self, model_predictions: AXL) -> AXL:
+        """Make the outputs of the axl-network finite, so that a pathological output cannot crash the sampling.
+
+        The sigma-normalized score of an atom with a non-finite component is set to zero and the maximum score is
+        capped to maximum_sigma_score.
+
+        Args:
+            model_predictions: axl network output (see _get_model_predictions).
+
+        Returns:
+            finite_model_predictions: the axl network output, with finite values.
+        """
+        scores = model_predictions.X
+        finite_atoms = torch.isfinite(scores).all(dim=-1, keepdim=True)
+        scores = torch.where(finite_atoms, scores, torch.zeros_like(scores))
+        if self.maximum_sigma_score is not None:
+            score_norms = torch.linalg.norm(scores, dim=-1, keepdim=True)
+            scores = scores * torch.clamp(self.maximum_sigma_score / score_norms.clamp(min=self.small_epsilon), max=1.0)
+
+        logits = torch.nan_to_num(model_predictions.A, nan=0.0)
+        lattice_scores = torch.nan_to_num(model_predictions.L, nan=0.0, posinf=0.0, neginf=0.0)
+        return AXL(A=logits, X=scores, L=lattice_scores)
 
     def _relative_coordinates_update(
         self,

@@ -3,8 +3,8 @@ import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import (
     AXL, NOISE, NOISY_AXL_COMPOSITION)
-from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn import \
-    CartesianEGNN
+from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn import (
+    CartesianE_GCL, CartesianEGNN)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.cartesian_egnn_score_network import (
     CartesianEGNNScoreNetwork, CartesianEGNNScoreNetworkParameters)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import \
@@ -337,7 +337,8 @@ class TestTorusEGNNMatchesCartesianEGNN:
 
     The cell is large enough that no periodic image is within the cutoff, so the cartesian edges have no shift. With
     a smooth cutoff, only one layer is compared: CartesianEGNN updates the edge distances from the layer-updated
-    positions, while TorusEGNN keeps the cartesian distances of its input.
+    positions, while TorusEGNN keeps the cartesian distances of its input. The bond direction feature is off, since
+    the torus layers only see the distance squared.
     """
 
     @pytest.fixture()
@@ -359,7 +360,8 @@ class TestTorusEGNNMatchesCartesianEGNN:
     @pytest.mark.parametrize("smooth_cutoff, n_layers", [(False, 3), (True, 1)])
     def test_same_outputs(self, egnn_hyperparameters, h, x, cell_lengths, smooth_cutoff, n_layers):
         cartesian_egnn = CartesianEGNN(
-            **egnn_hyperparameters, n_layers=n_layers, smooth_cutoff=smooth_cutoff, rebuild_edges_every_layer=False
+            **egnn_hyperparameters, n_layers=n_layers, smooth_cutoff=smooth_cutoff, rebuild_edges_every_layer=False,
+            bond_direction_feature=False,
         )
         torus_egnn = TorusEGNN(**egnn_hyperparameters, n_layers=n_layers, smooth_cutoff=smooth_cutoff)
         torus_egnn.load_state_dict(cartesian_egnn.state_dict())
@@ -374,6 +376,82 @@ class TestTorusEGNNMatchesCartesianEGNN:
             torus_outputs = torus_egnn(h, x.clone(), edges[:, :2], edge_distances_squared)
         torch.testing.assert_close(torus_outputs.X, cartesian_outputs.X)
         torch.testing.assert_close(torus_outputs.A, cartesian_outputs.A)
+
+
+class TestBondDirectionFeature:
+    """The cartesian layers also give the messages the bond direction (dx^4 + dy^4 + dz^4) / (d^2 + a^2)^2."""
+
+    @pytest.fixture()
+    def egcl(self, egcl_hyperparameters):
+        return CartesianE_GCL(**egcl_hyperparameters)
+
+    @staticmethod
+    def get_features(egcl, coord_diff):
+        radial = (coord_diff**2).sum(dim=1, keepdim=True)
+        return egcl.get_edge_features(radial, coord_diff)
+
+    @pytest.mark.parametrize(
+        "direction, expected_direction_invariant",
+        [([1.0, 0.0, 0.0], 1.0), ([0.0, -1.0, 0.0], 1.0), ([1.0, 1.0, 1.0], 1.0 / 3.0), ([1.0, -1.0, 0.0], 0.5)],
+    )
+    def test_feature_values(self, egcl, direction, expected_direction_invariant):
+        distance = 2.35
+        coord_diff = distance * torch.nn.functional.normalize(torch.tensor([direction]), dim=-1)
+        features = self.get_features(egcl, coord_diff)
+        smoothing = (distance**2 / (distance**2 + CartesianE_GCL.bond_direction_length**2)) ** 2
+        torch.testing.assert_close(features[:, 0], torch.tensor([distance**2]))
+        torch.testing.assert_close(features[:, 1], torch.tensor([expected_direction_invariant * smoothing]))
+
+    def test_overlapping_atoms_have_a_vanishing_feature(self, egcl):
+        directions = torch.nn.functional.normalize(torch.randn(10, 3), dim=-1)
+        for distance in [0.0, 1.0e-4, 1.0e-3]:
+            features = self.get_features(egcl, distance * directions)
+            assert torch.all(torch.isfinite(features))
+            assert torch.all(features[:, 1] <= distance**4 / CartesianE_GCL.bond_direction_length**4 + 1e-12)
+
+    def test_feature_is_invariant_under_the_cubic_symmetries_only(self, egcl):
+        coord_diff = torch.randn(20, 3)
+        features = self.get_features(egcl, coord_diff)
+        for permutation in [[1, 0, 2], [2, 0, 1]]:
+            for signs in [[1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]]:
+                transformed = coord_diff[:, permutation] * torch.tensor(signs)
+                torch.testing.assert_close(self.get_features(egcl, transformed), features)
+        angle = torch.tensor(0.3)
+        rotation = torch.tensor([[torch.cos(angle), -torch.sin(angle), 0.0], [torch.sin(angle), torch.cos(angle), 0.0],
+                                 [0.0, 0.0, 1.0]])
+        rotated_features = self.get_features(egcl, coord_diff @ rotation.T)
+        torch.testing.assert_close(rotated_features[:, 0], features[:, 0])
+        assert not torch.allclose(rotated_features[:, 1], features[:, 1])
+
+    @pytest.mark.parametrize("normalize", ["raw", "tanh", "smooth"])
+    def test_feature_uses_the_raw_difference(self, mocker, egcl_hyperparameters, node_features_size, normalize):
+        egcl = CartesianE_GCL(**egcl_hyperparameters, normalize=normalize)
+        message_model_spy = mocker.spy(egcl, "message_model")
+        coord = torch.tensor([[0.0, 0.0, 0.0], [1.0, 2.0, 0.5]])
+        edge_index = torch.tensor([[0, 1], [1, 0]]).float()
+        raw_coord_diff = torch.stack([coord[0] - coord[1], coord[1] - coord[0]])
+        radial = (raw_coord_diff**2).sum(dim=1, keepdim=True)
+        with torch.no_grad():
+            egcl(torch.randn(2, node_features_size), edge_index, coord.clone(), radial)
+        edge_features = message_model_spy.call_args.args[2]
+        torch.testing.assert_close(edge_features, egcl.get_edge_features(radial, raw_coord_diff))
+
+    @pytest.mark.parametrize("layer_class, number_of_edge_features", [(E_GCL, 1), (CartesianE_GCL, 2)])
+    def test_message_input_size(self, egcl_hyperparameters, node_features_size, layer_class, number_of_edge_features):
+        egcl = layer_class(**egcl_hyperparameters)
+        assert egcl.message_mlp[0].in_features == 2 * node_features_size + number_of_edge_features
+
+    @pytest.mark.parametrize("bond_direction_feature, layer_class", [(True, CartesianE_GCL), (False, E_GCL)])
+    def test_option_reaches_the_layers(self, bond_direction_feature, layer_class):
+        score_network_parameters = CartesianEGNNScoreNetworkParameters(
+            radial_cutoff=3.0, num_atom_types=1, bond_direction_feature=bond_direction_feature,
+        )
+        score_network = CartesianEGNNScoreNetwork(score_network_parameters)
+        for graph_layer in score_network.egnn.graph_layers:
+            assert type(graph_layer) is layer_class
+
+    def test_on_by_default(self):
+        assert CartesianEGNNScoreNetworkParameters(radial_cutoff=3.0, num_atom_types=1).bond_direction_feature
 
 
 @pytest.mark.parametrize("smooth_cutoff", [True, False])
