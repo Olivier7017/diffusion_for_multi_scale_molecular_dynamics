@@ -6,7 +6,7 @@ K_i = [(Phi^+)_ii]^-1, is the 3x3 spring that reproduces these displacements, wi
 taken into account. The thermal width of an element at temperature T is then s^2 = k_B T tr(K^-1) / 3.
 """
 
-from typing import Dict
+from typing import Dict, List, Union
 
 import numpy as np
 from ase import Atoms
@@ -14,18 +14,21 @@ from ase.calculators.singlepoint import SinglePointCalculator
 from ase.units import kB
 
 
-def compute_thermal_width_by_element(atoms: Atoms, temperature: float, displacement: float = 0.01) -> Dict[str, float]:
-    """Compute the harmonic thermal width s of each element of a relaxed structure, s^2 = k_B T tr(K^-1) / 3.
+def compute_thermal_width_by_element(
+    structures: Union[Atoms, List[Atoms]], temperature: float, displacement: float = 0.01
+) -> Dict[str, float]:
+    """Compute the harmonic thermal width s of each element of relaxed structures, s^2 = k_B T tr(K^-1) / 3.
 
     Args:
-        atoms: a relaxed structure, with a calculator able to compute forces (not a SinglePointCalculator).
+        structures: a relaxed structure or a list of relaxed structures, each with a calculator able to compute forces
+            (not a SinglePointCalculator).
         temperature: temperature, in Kelvin.
         displacement: displacement of each atom in the finite differences, in Angstrom.
 
     Returns:
         thermal_width_by_element: thermal width of each element, in Angstrom.
     """
-    effective_stiffness_by_element = compute_effective_stiffness_by_element(atoms, displacement)
+    effective_stiffness_by_element = compute_effective_stiffness_by_element(structures, displacement)
     return {
         element: float(np.sqrt(kB * temperature * np.trace(np.linalg.inv(effective_stiffness)) / 3.0))
         for element, effective_stiffness in effective_stiffness_by_element.items()
@@ -33,12 +36,52 @@ def compute_thermal_width_by_element(atoms: Atoms, temperature: float, displacem
 
 
 def compute_effective_stiffness_by_element(
-    atoms: Atoms, displacement: float = 0.01, maximum_residual_force: float = 1.0e-5
+    structures: Union[Atoms, List[Atoms]], displacement: float = 0.01, maximum_residual_force: float = 1.0e-5
 ) -> Dict[str, np.ndarray]:
-    """Compute the effective stiffness K of each element of a relaxed structure.
+    """Compute the effective stiffness K of each element of relaxed structures.
 
-    The IFC matrix Phi is computed by central finite differences of the forces, and the effective stiffness of an
-    element is the inverse of (Phi^+)_ii averaged over the atoms i of this element.
+    The IFC matrix Phi of each structure is computed by central finite differences of the forces, and the effective
+    stiffness of an element is the inverse of (Phi^+)_ii averaged over the atoms i of this element, in every structure.
+
+    Args:
+        structures: a relaxed structure or a list of relaxed structures, each with a calculator able to compute forces
+            (not a SinglePointCalculator).
+        displacement: displacement of each atom in the finite differences, in Angstrom.
+        maximum_residual_force: largest atomic force norm of a relaxed structure, in eV/Angstrom.
+
+    Returns:
+        effective_stiffness_by_element: 3x3 effective stiffness of each element, in eV/Angstrom^2.
+
+    Raises:
+        ValueError: if no structure is given, or if a structure has no calculator able to compute forces, is not
+            relaxed, or is not at a minimum of the energy. The message gives the index of that structure.
+    """
+    if isinstance(structures, Atoms):
+        structures = [structures]
+    if len(structures) == 0:
+        raise ValueError("No structure is given.")
+
+    symbols, thermal_displacement_matrices = [], []
+    for index, atoms in enumerate(structures):
+        try:
+            thermal_displacement_matrices.append(
+                _get_relaxed_thermal_displacement_matrices(atoms, displacement, maximum_residual_force)
+            )
+        except ValueError as error:
+            raise ValueError(f"Structure {index}: {error}") from error
+        symbols += atoms.get_chemical_symbols()
+
+    thermal_displacement_matrices = np.concatenate(thermal_displacement_matrices)
+    return {
+        element: np.linalg.inv(thermal_displacement_matrices[np.array(symbols) == element].mean(axis=0))
+        for element in sorted(set(symbols))
+    }
+
+
+def _get_relaxed_thermal_displacement_matrices(
+    atoms: Atoms, displacement: float, maximum_residual_force: float
+) -> np.ndarray:
+    """Get (Phi^+)_ii of each atom of a relaxed structure.
 
     Args:
         atoms: a relaxed structure, with a calculator able to compute forces (not a SinglePointCalculator).
@@ -46,7 +89,7 @@ def compute_effective_stiffness_by_element(
         maximum_residual_force: largest atomic force norm of a relaxed structure, in eV/Angstrom.
 
     Returns:
-        effective_stiffness_by_element: 3x3 effective stiffness of each element, in eV/Angstrom^2.
+        thermal_displacement_matrices: (Phi^+)_ii of each atom, in Angstrom^2/eV. Dimension [number_of_atoms, 3, 3].
 
     Raises:
         ValueError: if the structure has no calculator able to compute forces, is not relaxed, or is not at a
@@ -60,14 +103,7 @@ def compute_effective_stiffness_by_element(
         raise ValueError(f"The structure is not relaxed: the largest atomic force is {residual_force:.2e} eV/A, "
                          f"above {maximum_residual_force:.0e} eV/A.")
 
-    force_constants = compute_force_constants(atoms, displacement)
-    thermal_displacement_matrices = _get_thermal_displacement_matrices(force_constants)
-
-    symbols = atoms.get_chemical_symbols()
-    return {
-        element: np.linalg.inv(thermal_displacement_matrices[np.array(symbols) == element].mean(axis=0))
-        for element in sorted(set(symbols))
-    }
+    return _get_thermal_displacement_matrices(compute_force_constants(atoms, displacement))
 
 
 def compute_force_constants(atoms: Atoms, displacement: float = 0.01) -> np.ndarray:
