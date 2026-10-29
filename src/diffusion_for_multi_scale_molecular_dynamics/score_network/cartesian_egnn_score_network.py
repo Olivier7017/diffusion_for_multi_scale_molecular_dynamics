@@ -20,6 +20,7 @@ class CartesianEGNNScoreNetworkParameters(EGNNScoreNetworkParameters):
     architecture: str = "egnn_cartesian"
     normalization_length: float = 0.1  # Angstrom
     rebuild_edges_every_layer: bool = True
+    bond_direction_feature: bool = True
 
     def __post_init__(self):
         """Post init checks."""
@@ -45,6 +46,7 @@ class CartesianEGNNScoreNetwork(EGNNScoreNetwork):
             **self._get_egnn_arguments(hyper_params),
             normalization_length=hyper_params.normalization_length,
             rebuild_edges_every_layer=hyper_params.rebuild_edges_every_layer,
+            bond_direction_feature=hyper_params.bond_direction_feature,
         )
 
     def _get_flat_scores(

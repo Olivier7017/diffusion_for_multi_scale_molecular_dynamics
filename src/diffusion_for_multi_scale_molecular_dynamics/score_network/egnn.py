@@ -8,7 +8,7 @@ It implements EGNN as described in the paper "E(n) Equivariant Graph Neural Netw
 The file is modified from the original download to fit our own linting style and add additional controls.
 """
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, Type
 
 import torch
 from torch import nn
@@ -20,6 +20,8 @@ from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_utils impor
 
 class E_GCL(nn.Module):
     """E(n) Equivariant Convolutional Layer."""
+
+    number_of_edge_features = 1
 
     def __init__(
         self,
@@ -91,8 +93,8 @@ class E_GCL(nn.Module):
 
         # message update MLP i.e. message m_{ij} used in the graph neural network.
         # \phi_e is eq. (3) in https://arxiv.org/pdf/2102.09844
-        # Input is a concatenation of the two node features and distance
-        message_input_size = input_size * 2 + 1
+        # Input is a concatenation of the two node features and the edge features (see get_edge_features)
+        message_input_size = input_size * 2 + self.number_of_edge_features
         self.message_mlp = nn.Sequential(
             nn.Linear(message_input_size, message_hidden_dimensions_size), act_fn
         )
@@ -148,7 +150,7 @@ class E_GCL(nn.Module):
             )
 
     def message_model(
-        self, source: torch.Tensor, target: torch.Tensor, radial: torch.Tensor
+        self, source: torch.Tensor, target: torch.Tensor, edge_features: torch.Tensor
     ) -> torch.Tensor:
         r"""Constructs the message m_{ij} from source (j) to target (i).
 
@@ -161,17 +163,31 @@ class E_GCL(nn.Module):
         Args:
             source: source node features (size: number of edges, input_size)
             target: target node features (size: number of edges, input_size)
-            radial: distance squared between nodes i and j (size: number of edges, 1)
+            edge_features: features of the edge between nodes i and j (see get_edge_features).
+                size: number of edges, number_of_edge_features
 
         Returns:
             messages :math:`m_{ij}` size: number of edges, message_hidden_dimensions_size
         """
-        out = torch.cat([source, target, radial], dim=1)
+        out = torch.cat([source, target, edge_features], dim=1)
         out = self.message_mlp(out)
         if self.attention:  # gate the message by itself - optional
             att_val = self.att_mlp(out)
             out = out * att_val
         return out
+
+    def get_edge_features(self, radial: torch.Tensor, coord_diff: torch.Tensor) -> torch.Tensor:
+        """Get the edge features of the messages: the distance squared between nodes i and j.
+
+        Args:
+            radial: distance squared between nodes i and j. size: number of edges, 1
+            coord_diff: difference between coordinates, x_i - x_j, before any normalization.
+                size: number of edges, spatial dimension
+
+        Returns:
+            edge_features: features of every edge. size: number of edges, number_of_edge_features
+        """
+        return radial
 
     def cutoff_envelope(self, radial: torch.Tensor) -> torch.Tensor:
         """Cosine cutoff envelope f(r) = 0.5 * (cos(pi * r / radial_cutoff) + 1) for r < radial_cutoff, 0 beyond.
@@ -292,10 +308,36 @@ class E_GCL(nn.Module):
             distance squared between nodes. size: number of edges
             distance vector between nodes. size: number of edges, spatial dimension
         """
+        return self._normalize_coord_diff(self._get_coord_diff(edge_index, coord))
+
+    @staticmethod
+    def _get_coord_diff(edge_index: torch.Tensor, coord: torch.Tensor) -> torch.Tensor:
+        """Get the difference between the coordinates of linked nodes, x_i - x_j.
+
+        Args:
+            edge_index: source and destination indices, optionally followed by their periodic shift (Angstrom).
+                size: number of edges, 2 or 2 + spatial_dimension
+            coord: coordinates. size: number of nodes, spatial dimension
+
+        Returns:
+            distance vector between nodes. size: number of edges, spatial dimension
+        """
         row, col = edge_index[:, 0].long(), edge_index[:, 1].long()
         coord_diff = coord[row] - coord[col]
         if edge_index.shape[1] > 2:
             coord_diff = coord_diff - edge_index[:, 2:]
+        return coord_diff
+
+    def _normalize_coord_diff(self, coord_diff: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get the distance squared between linked nodes, and their normalized distance vector.
+
+        Args:
+            coord_diff: distance vector between nodes. size: number of edges, spatial dimension
+
+        Returns:
+            distance squared between nodes. size: number of edges
+            normalized distance vector between nodes (see normalize). size: number of edges, spatial dimension
+        """
         radial = torch.sum(coord_diff**2, 1).unsqueeze(1)
 
         if self.normalize != "raw":  # normalize distance vector to be unit vector
@@ -355,10 +397,12 @@ class E_GCL(nn.Module):
             updated coordinates. size: number of nodes, spatial dimension
         """
         row, col = edge_index[:, 0].long(), edge_index[:, 1].long()
-        radial, coord_diff = self.coord2radial(edge_index, coord)
+        raw_coord_diff = self._get_coord_diff(edge_index, coord)
+        radial, coord_diff = self._normalize_coord_diff(raw_coord_diff)
         envelope = self.cutoff_envelope(edge_distances_squared) if self.smooth_cutoff else None
 
-        messages = self.message_model(h[row], h[col], radial)  # compute m_{ij}
+        edge_features = self.get_edge_features(radial, raw_coord_diff)
+        messages = self.message_model(h[row], h[col], edge_features)  # compute m_{ij}
         coord = self.coord_model(coord, edge_index, coord_diff, messages, envelope)  # update x_i
         h = self.node_model(h, edge_index, messages, envelope)  # update h_i
         return h, coord
@@ -391,6 +435,7 @@ class EGNN(nn.Module):
         message_agg: str = "mean",
         n_layers: int = 4,
         smooth_cutoff: bool = True,
+        graph_layer_class: Type[E_GCL] = E_GCL,
     ):
         """EGNN model stacking multiple E_GCL layers.
 
@@ -419,6 +464,7 @@ class EGNN(nn.Module):
             n_layers: number of E_GCL layers. Defaults to 4.
             smooth_cutoff: if True, add a cosine envelope that smoothly goes to zero at radial cutoff :
                 f(r) = 0.5 * (cos(pi * r / radial_cutoff) + 1). Defaults to True.
+            graph_layer_class: class of the graph layers, E_GCL or a subclass. Defaults to E_GCL.
         """
         super(EGNN, self).__init__()
         self.n_layers = n_layers
@@ -430,7 +476,7 @@ class EGNN(nn.Module):
         )
         for _ in range(0, n_layers):
             self.graph_layers.append(
-                E_GCL(
+                graph_layer_class(
                     input_size=node_hidden_dimensions_size,
                     output_size=node_hidden_dimensions_size,
                     message_n_hidden_dimensions=message_n_hidden_dimensions,

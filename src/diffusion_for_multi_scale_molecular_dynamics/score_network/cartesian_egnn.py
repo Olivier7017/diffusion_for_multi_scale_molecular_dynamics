@@ -6,25 +6,54 @@ import einops
 import torch
 
 from diffusion_for_multi_scale_molecular_dynamics.namespace import AXL
-from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import \
-    EGNN
+from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn import (
+    E_GCL, EGNN)
 from diffusion_for_multi_scale_molecular_dynamics.score_network.egnn_utils import \
     build_graph_periodic_edges_batch
+
+
+class CartesianE_GCL(E_GCL):
+    """E_GCL whose messages also see the direction of the bond between nodes i and j, relative to the cell axes."""
+
+    number_of_edge_features = 2
+    bond_direction_length = 0.1  # Angstrom: smooths the bond direction of nearly overlapping atoms, where it is
+    # ill-defined and can swing abruptly from one orientation to another.
+
+    def get_edge_features(self, radial: torch.Tensor, coord_diff: torch.Tensor) -> torch.Tensor:
+        """Get the edge features of the messages: the distance squared and the bond direction.
+
+        The bond direction is the cubic invariant (dx^4 + dy^4 + dz^4) / (d^2 + a^2)^2 of x_i - x_j = (dx, dy, dz), with
+        a = bond_direction_length. For a bond much longer than a, it is 1 along <100> and 1/3 along <111>; it goes
+        smoothly to zero when the atoms overlap.
+
+        Args:
+            radial: distance squared between nodes i and j. size: number of edges, 1
+            coord_diff: difference between coordinates, x_i - x_j, before any normalization.
+                size: number of edges, spatial dimension
+
+        Returns:
+            edge_features: the distance squared and the bond direction of every edge. size: number of edges, 2
+        """
+        bond_direction = (coord_diff**4).sum(dim=1, keepdim=True) / (radial + self.bond_direction_length**2) ** 2
+        return torch.cat([radial, bond_direction], dim=1)
 
 
 class CartesianEGNN(EGNN):
     """EGNN on cartesian positions, with periodic edges built from the positions."""
 
-    def __init__(self, rebuild_edges_every_layer: bool = True, **egnn_arguments):
+    def __init__(self, rebuild_edges_every_layer: bool = True, bond_direction_feature: bool = True, **egnn_arguments):
         """Init method.
 
         Args:
             rebuild_edges_every_layer: if True, rebuild the periodic edges from the layer-updated positions before
                 every layer. If False, build them once from the input positions. Defaults to True.
+            bond_direction_feature: if True, the messages also see the bond direction (see CartesianE_GCL).
+                Defaults to True.
             egnn_arguments: the arguments of EGNN.
         """
-        super().__init__(**egnn_arguments)
+        super().__init__(graph_layer_class=CartesianE_GCL if bond_direction_feature else E_GCL, **egnn_arguments)
         self.rebuild_edges_every_layer = rebuild_edges_every_layer
+        self.bond_direction_feature = bond_direction_feature
 
     def _build_edges(
         self,
